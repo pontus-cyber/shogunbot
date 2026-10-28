@@ -1,0 +1,329 @@
+"""Live decision viewer: a local page that follows the bot turn by turn. Zero tokens.
+
+    python -m shogunbot watch                 # follows the newest run (a series too)
+    python -m shogunbot watch --run 20261028-130456
+    python -m shogunbot watch --port 8766 --no-browser
+
+Serves http://127.0.0.1:8765 with the standard library only. The page polls
+/live.json twice a second; the bot writes runs/<id>/live.json (shogunbot/live.py).
+"""
+
+from __future__ import annotations
+
+import json
+import time
+import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+from .live import LIVE_FILE
+
+WAITING = {"status": "waiting", "seq": 0, "note": "no live.json yet: start the bot (play.bat)"}
+
+
+def find_live(root: Path, run: str | None = None) -> Path | None:
+    """runs/<run>/live.json, or the most recently written live.json under root."""
+    if run:
+        p = root / run / LIVE_FILE
+        return p if p.exists() else None
+    best, best_t = None, -1.0
+    for p in root.glob(f"*/{LIVE_FILE}"):
+        try:
+            t = p.stat().st_mtime
+        except OSError:
+            continue
+        if t > best_t:
+            best, best_t = p, t
+    return best
+
+
+class _Reader:
+    """Reads live.json, keeping the last good copy (the bot may be replacing it)."""
+
+    def __init__(self, root: Path, run: str | None):
+        self.root, self.run, self.last = root, run, json.dumps(WAITING).encode()
+
+    def read(self) -> bytes:
+        p = find_live(self.root, self.run)
+        if p is None:
+            return json.dumps(WAITING).encode()
+        for _ in range(3):
+            try:
+                data = p.read_bytes()
+                json.loads(data)               # only hand out complete documents
+                self.last = data
+                return data
+            except (OSError, ValueError):
+                time.sleep(0.02)
+        return self.last
+
+
+def make_server(root: str | Path = "runs", run: str | None = None, port: int = 8765,
+                host: str = "127.0.0.1") -> ThreadingHTTPServer:
+    reader = _Reader(Path(root), run)
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            path = self.path.split("?", 1)[0]
+            if path in ("/", "/index.html"):
+                body, ctype = PAGE.encode("utf-8"), "text/html; charset=utf-8"
+            elif path == "/live.json":
+                body, ctype = reader.read(), "application/json"
+            else:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):   # quiet: the page polls twice a second
+            pass
+
+    return ThreadingHTTPServer((host, port), Handler)
+
+
+def serve(root: str | Path = "runs", run: str | None = None, port: int = 8765, open_browser: bool = True) -> None:
+    srv = make_server(root, run, port)
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    print(f"live viewer on {url} (following {'run ' + run if run else 'the newest run'}); Ctrl+C to stop", flush=True)
+    if open_browser:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.server_close()
+
+
+PAGE = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shogunbot live</title>
+<style>
+  :root {
+    --bg: #121317; --panel: #1b1d23; --line: #2b2e37; --text: #e7e7ea; --dim: #9a9ca6;
+    --red: #ef5a5f; --green: #4fb873; --amber: #f2a93b; --blue: #5aa2e8; --violet: #a98bf0;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline;
+           padding: 12px 18px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  .chip { padding: 2px 8px; border-radius: 10px; background: var(--line); font-size: 12px; }
+  .chip.playing { background: #23402e; color: #a7e3bb; }
+  .chip.ended { background: #3a2a2a; color: #f0b3b3; }
+  .chip.reward, .chip.give_up { background: #3d3220; color: #f4d39a; }
+  .stat { color: var(--dim); } .stat b { color: var(--text); font-weight: 600; }
+  main { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; padding: 14px 18px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+  section h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin: 0 0 10px; }
+  .board { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+  .cell { min-width: 92px; flex: 1; border: 1px solid var(--line); border-radius: 6px; padding: 8px 6px;
+          text-align: center; background: #16181d; }
+  .cell .x { color: var(--dim); font-size: 11px; }
+  .cell .who { font-weight: 600; margin: 2px 0; }
+  .cell.hero { border-color: var(--blue); background: #172231; }
+  .cell.enemy { border-color: #4a3434; }
+  .facing { font-size: 18px; line-height: 1; }
+  .hp { font-family: var(--mono); font-size: 12px; }
+  .intent { display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 8px; font-size: 11px; background: var(--line); }
+  .intent.fire { background: var(--red); color: #fff; } .intent.queue { background: var(--amber); color: #201400; }
+  .intent.move { background: var(--blue); color: #08131f; } .intent.turn { background: var(--violet); color: #12082a; }
+  .q { font-family: var(--mono); font-size: 11px; color: var(--amber); margin-top: 3px; }
+  .tiles { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .tile { font-family: var(--mono); font-size: 12px; padding: 3px 7px; border-radius: 5px; border: 1px solid var(--line); }
+  .tile.ready { border-color: var(--green); color: #b9ecc9; } .tile.queued { border-color: var(--amber); color: var(--amber); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--dim); font-weight: 500; font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  td { padding: 4px 6px; border-bottom: 1px solid #23262e; vertical-align: top; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+  tr.chosen td { background: #1d2a3a; }
+  .bar { height: 6px; background: var(--blue); border-radius: 3px; min-width: 2px; }
+  .dmg { color: var(--red); } .ok { color: var(--green); } .bad { color: var(--red); } .dim { color: var(--dim); }
+  .mono { font-family: var(--mono); font-size: 12px; white-space: pre; }
+  ol.plan { margin: 0; padding-left: 20px; } ol.plan li { margin-bottom: 8px; }
+  ul.reason { margin: 0; padding-left: 18px; } ul.reason li { margin-bottom: 4px; }
+  .muted { color: var(--dim); font-size: 12px; }
+  .stale { color: var(--amber); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Shogunbot live</h1>
+  <span id="status" class="chip">connecting</span>
+  <span class="stat">run <b id="run">–</b></span>
+  <span class="stat">bot <b id="ver">–</b></span>
+  <span class="stat">level <b id="level">–</b></span>
+  <span class="stat">wave <b id="wave">–</b></span>
+  <span class="stat">turn <b id="turn">–</b></span>
+  <span class="stat">HP <b id="hp">–</b></span>
+  <span class="stat" id="age"></span>
+</header>
+<main>
+  <div>
+    <section><h2>Board</h2><div id="board" class="board"></div><div id="tiles" class="tiles"></div>
+      <div id="boardnote" class="muted"></div></section>
+    <section><h2>Options, best first</h2><div id="options"></div></section>
+    <section><h2>Why this move</h2><ul id="reason" class="reason"></ul></section>
+  </div>
+  <div>
+    <section><h2>Plan: the likely line</h2><ol id="plan" class="plan"></ol></section>
+    <section><h2>Last 10 turns: predicted vs actual</h2><div id="history"></div></section>
+    <section id="rewardbox" hidden><h2>Reward decision</h2><div id="reward"></div></section>
+    <section><h2>Events</h2><div id="events" class="muted"></div></section>
+  </div>
+</main>
+<script>
+const NAMES = {ashigaru: "Ashigaru", tachi: "Twin Tachi", charger: "Spike Charger", daisuke: "Daisuke"};
+const INTENT = {fire: ["FIRE", "fire"], queue: ["LOAD", "queue"], "move-left": ["← STEP", "move"],
+                "move-right": ["STEP →", "move"], turn: ["TURN", "turn"], hold: ["hold", ""]};
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const arrow = f => f > 0 ? "→" : "←";
+let lastSeq = -1, lastUpdated = 0;
+
+function board(b) {
+  const el = document.getElementById("board"), tiles = document.getElementById("tiles");
+  if (!b) { el.innerHTML = '<span class="muted">no board yet</span>'; tiles.innerHTML = ""; return; }
+  const byX = {}; b.enemies.forEach(e => byX[e.x] = e);
+  let html = "";
+  for (let x = 0; x < b.cells; x++) {
+    if (b.hero.x === x) {
+      html += `<div class="cell hero"><div class="x">${x}</div><div class="who">YOU</div>
+        <div class="facing">${arrow(b.hero.facing)}</div><div class="hp">${b.hero.hp} HP${b.hero.shield ? " · shield" : ""}</div>
+        ${b.hero.queue.length ? `<div class="q">${esc(b.hero.queue.join(" › "))}</div>` : ""}
+        <div class="muted">${b.hero.swap_ready ? "swap ready" : "swap recharging"}</div></div>`;
+    } else if (byX[x]) {
+      const e = byX[x], it = INTENT[e.intent] || ["?", ""];
+      const pips = "●".repeat(Math.max(e.hp, 0)) + "○".repeat(Math.max((e.max_hp || e.hp) - e.hp, 0));
+      const flags = [e.frozen ? "frozen " + e.frozen : "", e.cursed ? "cursed" : "", e.poison ? "poison " + e.poison : ""].filter(Boolean).join(" · ");
+      html += `<div class="cell enemy"><div class="x">${x}</div><div class="who">${esc(NAMES[e.kind] || e.kind)}</div>
+        <div class="facing">${arrow(e.facing)}</div><div class="hp">${pips}</div>
+        <div><span class="intent ${it[1]}">${it[0]}</span></div>
+        ${e.queue.length ? `<div class="q">loaded: ${esc(e.queue.join(", "))}</div>` : ""}
+        ${flags ? `<div class="muted">${esc(flags)}</div>` : ""}</div>`;
+    } else {
+      html += `<div class="cell"><div class="x">${x}</div><div class="who dim">·</div></div>`;
+    }
+  }
+  el.innerHTML = html;
+  tiles.innerHTML = b.hero.tiles.map(t =>
+    `<span class="tile ${t.queued ? "queued" : t.ready ? "ready" : ""}">${esc(t.label)} ${t.damage}/${t.cooldown}` +
+    ` · ${t.queued ? "loaded" : t.ready ? "ready" : "charge " + t.charge + "/" + t.cooldown}</span>`).join("");
+  document.getElementById("boardnote").textContent = "Telegraphs are what each enemy does after your next move.";
+}
+
+function options(d) {
+  const el = document.getElementById("options");
+  if (!d) { el.innerHTML = '<span class="muted">waiting for the first decision</span>'; return; }
+  const vals = d.candidates.map(c => c.value), lo = Math.min(...vals), hi = Math.max(...vals);
+  el.innerHTML = `<table><tr><th>#</th><th>Move</th><th class="num">Value</th><th class="num">vs best</th>
+    <th class="num">Dmg now</th><th class="num">P(hit)</th><th style="width:22%"></th></tr>` +
+    d.candidates.map((c, i) => `<tr class="${c.action === d.action ? "chosen" : ""}"><td>${i + 1}</td>
+      <td>${esc(c.action)}${c.action === d.action ? " ✓" : ""}</td><td class="num">${c.value.toFixed(0)}</td>
+      <td class="num">${c.delta ? c.delta.toFixed(0) : "–"}</td>
+      <td class="num ${c.exp_damage > 0 ? "dmg" : ""}">${c.exp_damage.toFixed(1)}</td>
+      <td class="num">${Math.round(c.p_damage * 100)}%</td>
+      <td><div class="bar" style="width:${hi > lo ? Math.max(2, 100 * (c.value - lo) / (hi - lo)) : 100}%"></div></td></tr>`).join("") +
+    `</table><div class="muted" style="margin-top:6px">search depth ${d.depth} · ${d.nodes} nodes · ${d.plan_ms} ms` +
+    `${d.stalled ? ' · <span class="stale">stall rule on</span>' : ""}</div>`;
+}
+
+function plan(d) {
+  const el = document.getElementById("plan");
+  if (!d || !d.pv || !d.pv.length) { el.innerHTML = '<li class="muted">no line yet</li>'; return; }
+  el.innerHTML = d.pv.map((p, i) => {
+    const does = p.enemies.map(e => `${NAMES[e.kind] || e.kind}@${e.x} ${e.does}`).join(", ") || "none left";
+    const extra = (p.kills.length ? ` · <span class="ok">kills ${esc(p.kills.join(", "))}</span>` : "") +
+                  (p.hero_damage ? ` · <span class="dmg">you lose ${p.hero_damage} HP</span>` : "");
+    return `<li><b>${i === 0 ? "now" : "turn +" + i}:</b> you <b>${esc(p.action)}</b>
+      <div class="muted">enemies ${i === 0 ? "(their telegraphs)" : "(predicted)"}: ${esc(does)}${extra} · line p ${(p.p * 100).toFixed(0)}%</div>
+      <div class="mono">${esc(p.board)}   HP ${p.hero_hp}</div></li>`;
+  }).join("");
+}
+
+function reason(d) {
+  const el = document.getElementById("reason");
+  el.innerHTML = (d && d.reason && d.reason.length ? d.reason : ["no decision yet"]).map((r, i) =>
+    `<li${i === 0 ? ' style="list-style:none;margin-left:-18px"' : ""}>${esc(r)}</li>`).join("");
+}
+
+function history(h) {
+  const el = document.getElementById("history");
+  if (!h || !h.length) { el.innerHTML = '<span class="muted">no finished turns yet</span>'; return; }
+  el.innerHTML = `<table><tr><th>Turn</th><th>Move</th><th></th><th>Predicted</th><th>Actual</th></tr>` +
+    h.slice().reverse().map(r => {
+      const mark = r.match === null ? '<span class="dim">–</span>' : r.match
+        ? '<span class="ok">✓</span>' + (r.matched_rank > 1 ? ` <span class="muted">#${r.matched_rank}</span>` : "")
+        : '<span class="bad">✗</span>';
+      const lost = r.hp_lost ? ` · <span class="dmg">lost ${r.hp_lost}${r.hp_lost > r.hp_lost_predicted ? " (unpredicted " + (r.hp_lost - r.hp_lost_predicted) + ")" : ""}</span>` : "";
+      const diff = r.match === false && r.diff && r.diff.length
+        ? `<div class="muted" style="white-space:normal">${esc(r.diff.slice(0, 3).join("; "))}</div>` : "";
+      return `<tr><td>${r.turn}</td><td>${esc(r.action)}</td><td>${mark}</td>
+        <td class="mono">${esc(r.predicted ?? "–")}<div class="muted">HP ${r.predicted_hp ?? "–"} · p ${r.predicted_p != null ? Math.round(r.predicted_p * 100) + "%" : "–"}</div></td>
+        <td class="mono">${esc(r.observed ?? "not compared")}<div class="muted">HP ${r.observed_hp ?? "–"}${lost}</div>${diff}</td></tr>`;
+    }).join("") +
+    `</table><div class="muted" style="margin-top:6px">✓ one of the predicted outcomes happened (#n: not the likeliest) · ✗ none did, the differences are listed · – not compared (level or wave changed)</div>`;
+}
+
+function reward(r) {
+  const box = document.getElementById("rewardbox"), el = document.getElementById("reward");
+  if (!r) { box.hidden = true; return; }
+  box.hidden = false;
+  const opts = (r.options || []).slice().sort((a, b) => (b.value ?? -1e9) - (a.value ?? -1e9));
+  el.innerHTML = `<div>after <b>${esc(r.level)}</b> · ${esc(r.layout)}${r.upgrade ? " · " + esc(r.upgrade) : ""} · HP ${r.hp ?? "–"}${r.seconds ? " · " + r.seconds + " s" : ""}</div>` +
+    (opts.length ? `<table style="margin-top:6px"><tr><th>Option</th><th class="num">Score</th><th class="num">vs skip</th><th class="num">Wins</th><th></th></tr>` +
+      opts.map(o => `<tr class="${o.name === r.choice ? "chosen" : ""}"><td>${esc(o.name)}${o.name === r.choice ? " ✓" : ""}</td>
+        <td class="num">${o.scored ? o.value.toFixed(2) : "–"}</td>
+        <td class="num">${o.diff != null ? (o.diff >= 0 ? "+" : "") + o.diff.toFixed(2) + " ± " + (o.se ?? 0).toFixed(2) : "–"}</td>
+        <td class="num">${o.scored ? o.wins : "–"}</td><td>${o.net_loss ? '<span class="bad">net loss</span>' : ""}</td></tr>`).join("") + `</table>` : "") +
+    `<div style="margin-top:6px">choice <b>${esc(r.choice)}</b> · rule: ${esc(r.rule)}</div>`;
+}
+
+function render(doc) {
+  const st = document.getElementById("status");
+  st.textContent = doc.status + (doc.status_info && Object.keys(doc.status_info).length ? " · " + Object.values(doc.status_info).join(" ") : "") + (doc.result ? " · " + doc.result : "");
+  st.className = "chip " + (doc.status || "");
+  document.getElementById("run").textContent = doc.run_id || "–";
+  document.getElementById("ver").textContent = doc.bot_version || "–";
+  document.getElementById("level").textContent = doc.level || "–";
+  const wt = doc.board ? doc.board.waves_total : 0;
+  document.getElementById("wave").textContent = doc.board ? (wt && wt < 20 ? `${doc.board.wave}/${wt}` : (doc.board.wave || "\u2013")) : "\u2013";
+  document.getElementById("turn").textContent = doc.turn ?? "–";
+  document.getElementById("hp").textContent = doc.board ? doc.board.hero.hp : "–";
+  board(doc.board); options(doc.decision); plan(doc.decision); reason(doc.decision);
+  history(doc.history); reward(doc.reward);
+  document.getElementById("events").innerHTML = (doc.events || []).slice().reverse()
+    .map(e => `<div>${e.t.toFixed(0)} s · ${esc(e.text)}</div>`).join("") || "none yet";
+}
+
+async function poll() {
+  try {
+    const r = await fetch("/live.json", {cache: "no-store"});
+    const doc = await r.json();
+    lastUpdated = doc.updated || 0;
+    if (doc.seq !== lastSeq || doc.status === "waiting") { lastSeq = doc.seq; render(doc); }
+  } catch (e) {
+    document.getElementById("status").textContent = "viewer offline";
+  }
+  const age = lastUpdated ? Date.now() / 1000 - lastUpdated : null;
+  const el = document.getElementById("age");
+  el.textContent = age == null ? "" : `updated ${age < 60 ? age.toFixed(0) + " s" : (age / 60).toFixed(0) + " min"} ago`;
+  el.className = "stat" + (age != null && age > 15 ? " stale" : "");
+}
+poll(); setInterval(poll, 500);
+</script>
+</body>
+</html>
+"""

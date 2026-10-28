@@ -5,6 +5,7 @@
     python -m shogunbot report                cross-run report -> runs/report.html
     python -m shogunbot review RUN_ID [--last N]
     python -m shogunbot play [--no-autostart] play Stage 1 (hold F8 to stop)
+    python -m shogunbot watch [--run ID]      live decision viewer on http://127.0.0.1:8765
     python -m shogunbot replay collect/<ts>   score perception + rules on a recorded run
 """
 
@@ -31,6 +32,10 @@ def main(argv: list[str] | None = None) -> int:
     pl.add_argument("--frames", choices=["events", "all", "none"], default="events")
     pl.add_argument("--no-autostart", action="store_true",
                     help="do not click through title/camp/map; start the run yourself")
+    wt = sub.add_parser("watch", help="live decision viewer in the browser (local, zero tokens)")
+    wt.add_argument("--run", default=None, help="a run id; default: follow the newest run")
+    wt.add_argument("--port", type=int, default=8765)
+    wt.add_argument("--no-browser", action="store_true")
     an = sub.add_parser("analyze")
     an.add_argument("run_id", nargs="?")
     rp = sub.add_parser("replay")
@@ -52,6 +57,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "play":
         from .bot import play
         play(runs=args.runs, frame_policy=args.frames, autostart=not args.no_autostart)
+    elif args.cmd == "watch":
+        from .watch import serve
+        serve("runs", args.run, args.port, open_browser=not args.no_browser)
     elif args.cmd == "analyze":
         from .analyze import main as amain
         amain([args.run_id] if args.run_id else [])

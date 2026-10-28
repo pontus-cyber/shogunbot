@@ -105,6 +105,8 @@ class RunLogger:
         self._pending: dict | None = None
         self._t0 = time.time()
         self._level: dict | None = None
+        self.last_turn: dict | None = None   # the last finished turn record (prediction and outcome)
+        self.on_event = None                 # callback(kind, data), e.g. the live viewer
 
     # ---- lifecycle ------------------------------------------------------
     def start_run(self, meta: dict) -> str:
@@ -113,6 +115,7 @@ class RunLogger:
         self._pending = None
         self._t0 = time.time()
         self._level = None
+        self.last_turn = None
         run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
         n = 2
         while (self.root / run_id).exists():      # two runs started in the same second
@@ -277,11 +280,17 @@ class RunLogger:
         else:
             rec["observed"] = None
             rec["sim_diff"] = ["level or wave changed; not compared"]
+        self.last_turn = rec
         self._append_jsonl("turns.jsonl", rec)
 
     # ---- misc -----------------------------------------------------------
     def event(self, kind: str, **data) -> None:
         self._append_jsonl("events.jsonl", {"ts": round(time.time() - self._t0, 2), "event": kind, **data})
+        if self.on_event is not None:
+            try:
+                self.on_event(kind, data)
+            except Exception:
+                pass
 
     def exception(self, where: str, exc: BaseException, frame=None) -> None:
         self.stats.exceptions += 1

@@ -43,10 +43,11 @@ from .perception import reward_screen, screens
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
 from .planner import STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_weights
 from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS
+from .live import LiveView
 from .runlog import RunLogger
 from .winio import GameWindow
 
-VERSION = "0.18.3"
+VERSION = "0.19"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -118,9 +119,13 @@ class Recorder:
 
 
 class Bot:
+    live = LiveView()   # never started unless __init__ runs: a no-op for tests that build a bare Bot
+
     def __init__(self, frame_policy: str = "events", autostart: bool = True, verbose: bool = True):
         self.gw = GameWindow()
         self.log = RunLogger("runs", frame_policy)
+        self.live = LiveView()            # runs/<id>/live.json for `python -m shogunbot watch`
+        self.log.on_event = self.live.event
         self.rec = Recorder()
         self.autostart = autostart
         self.verbose = verbose
@@ -201,6 +206,8 @@ class Bot:
         if rs.kind not in ("tile_choice", "shrine") or (rs.kind == "shrine" and not rs.upgrade):
             why = "upgrade text not read" if rs.kind == "shrine" else f"layout {rs.kind}"
             self.say(f"reward ({rs.kind}): {why}; SKIP")
+            self.live.reward({"layout": rs.kind, "upgrade": None, "level": level, "hp": hp, "choice": "skip",
+                              "rule": why, "options": []})
             return self._skip(frame, rs, why)
         self.say(f"reward ({rs.kind}{': ' + rs.upgrade if rs.upgrade else ''}): valuing the options "
                  f"on {len(rewards.SEEDS)} simulated fights if needed ...")
@@ -211,6 +218,8 @@ class Bot:
         best, opts, secs = dec.best, dec.options, dec.seconds
         self.log.event("reward_decision", layout=rs.kind, upgrade=rs.upgrade, level=level, hp=hp, seconds=secs,
                        workers=rewards.WORKERS, choice=best.name, rule=dec.rule, options=[o.summary() for o in opts])
+        self.live.reward({"layout": rs.kind, "upgrade": rs.upgrade, "level": level, "hp": hp, "seconds": round(secs, 1),
+                          "choice": best.name, "rule": dec.rule, "options": [o.summary() for o in opts]})
         scored = [o for o in opts if o.scores]
         self.say("   " + (", ".join(f"{o.name} {o.value:+.2f}" for o in sorted(scored, key=lambda o: -o.value))
                           or "no simulation needed")
@@ -381,6 +390,7 @@ class Bot:
         gw, log = self.gw, self.log
         t0 = time.time()
         log.event("give_up", step="start")
+        self.live.status("give_up", step="start")
         self.say("series: giving this run up from the pause menu")
         # 1. a settled screen with the pause button: the map, or any after half the wait
         while True:
@@ -451,6 +461,9 @@ class Bot:
         run_id = log.start_run({"bot_version": VERSION, "weights": WEIGHTS,
                                 "autostart": self.autostart, "kit": DEFAULT_KIT.to_list()})
         self.rec.start(log.run_dir / "frames")
+        if "live" not in self.__dict__:      # a Bot built without __init__ (tests): its own viewer feed
+            self.live = LiveView()
+        self.live.start(log.run_dir, run_id, VERSION)
         self.say(f"run {run_id} started; recording to runs/{run_id}/frames; hold F8 to stop")
         tr = Tracker()
         self.reward_n = 0
@@ -489,6 +502,8 @@ class Bot:
 
                 if scr != "unknown":
                     unknown_since, unknown_saved = None, False
+                if scr not in ("combat", "boss"):
+                    self.live.status({"unknown": "waiting"}.get(scr, scr))
 
                 # ---------------- rewards (M2: taken when the planner values them above skipping)
                 if scr == "reward":
@@ -680,7 +695,7 @@ class Bot:
 
                 t1 = time.time()
                 try:
-                    d = plan_live(s, stall_weights(WEIGHTS, s.hero.hp) if stalled else WEIGHTS)
+                    d = plan_live(s, stall_weights(WEIGHTS, s.hero.hp) if stalled else WEIGHTS, explain=True)
                 except Exception as e:  # a bad read must not end the run
                     log.exception("plan", e, frame=frame)
                     self.say(f"   planner error ({e!r}); re-reading the screen")
@@ -728,6 +743,7 @@ class Bot:
                 conf = dict(p.confidence)
                 log.turn(state=s, confidence=conf, perceive_ms=perceive_ms, decision=d,
                          plan_ms=plan_ms, frame=frame)
+                self.live.turn(s=s, d=d, turn=turn, plan_ms=plan_ms, stalled=stalled, last_record=log.last_turn)
                 if tr.notes:
                     log.event("tracker_notes", turn=turn, notes=tr.notes)
                 self.say(f"t{turn:03d} {level} HP{s.hero.hp} {s.render():<28} -> {d.action:<12} "
@@ -765,6 +781,7 @@ class Bot:
                     self.gave_up = False
             self.rec.flush()
             summary = log.end_run(result)
+            self.live.end(result, summary)
             self.say(f"run {run_id} ended: {result}; turns {summary['turns']}, "
                      f"HP lost {summary['hp_lost']} (unpredicted {summary['hp_lost_unpredicted']}); "
                      f"logs in runs/{run_id}")

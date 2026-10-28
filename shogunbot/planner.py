@@ -181,6 +181,8 @@ class Decision:
     predicted: list[dict] = field(default_factory=list)   # top outcomes of the chosen action
     depth: int = 2
     nodes: int = 0
+    pv: list[dict] = field(default_factory=list)          # principal variation (explain_decision)
+    reason: list[str] = field(default_factory=list)       # best vs second best, in plain words
 
 
 GAMMA = 0.97  # future damage counts almost as much as damage now [user: HP is the run's most valuable resource]
@@ -270,7 +272,9 @@ def plan(s: State, depth: int = 3, w: dict[str, float] = WEIGHTS) -> Decision:
     ]
     for c in cands:
         c.pop("_outs")
-    return Decision(best["action"], best["value"], cands, predicted, depth, stats["nodes"])
+    d = Decision(best["action"], best["value"], cands, predicted, depth, stats["nodes"])
+    d._stats, d._weights = stats, w      # the search's memo, for explain_decision
+    return d
 
 
 def auto_depth(s: State) -> int:
@@ -282,7 +286,7 @@ def auto_depth(s: State) -> int:
 LIVE_BUDGET_S = 3.0   # a third tile triples planning time (346 -> 827-1000 ms on logged boss states)
 
 
-def plan_live(s: State, w: dict[str, float] = WEIGHTS) -> Decision:
+def plan_live(s: State, w: dict[str, float] = WEIGHTS, explain: bool = False) -> Decision:
     """Live planning: the search deepens one ply at a time up to auto_depth and
     stops before a ply that would overrun LIVE_BUDGET_S (estimated from how
     much the last ply grew). Since 0.17 for every kit: the learned behaviour
@@ -301,4 +305,186 @@ def plan_live(s: State, w: dict[str, float] = WEIGHTS) -> Decision:
         cur = time.time() - t1
         growth = max(2.0, cur / max(prev, 1e-3))
         prev, depth, d = cur, depth + 1, d2
+    if explain:
+        # after the move is chosen, so planning time and decisions are unchanged
+        explain_decision(s, d)
+    return d
+
+
+# ------------------------------------------------------------------ explanation (live viewer)
+def _best_here(s: State, depth: int, w: dict, stats: dict) -> str | None:
+    """The action the search rated best at this node. Child values come from the
+    search's memo, so this costs a few rule steps, not a new search."""
+    best, best_key = None, None
+    for a in legal_hero_actions(s):
+        v = _action_value(s, a, depth, w, stats)[0]
+        k = (v, -_priority(s, a))
+        if best_key is None or k > best_key:
+            best, best_key = a, k
+    return best
+
+
+def _verb(action: str) -> str:
+    k, _, arg = action.partition(" ")
+    if k == "move":
+        return "steps left" if arg.startswith("-") else "steps right"
+    return {"fire": "fires", "turn": "turns", "queue": f"loads {arg}", "wait": "holds", "hold": "holds",
+            "frozen": "is frozen"}.get(k, action)
+
+
+def principal_variation(s: State, d: Decision, action: str | None = None, max_plies: int = 5):
+    """The likely line after `action` (default: the chosen move): at each turn the
+    likeliest telegraphs, the move the search rated best there, and the likeliest
+    outcome. Returns (plies, final state)."""
+    stats, w = getattr(d, "_stats", None), getattr(d, "_weights", WEIGHTS)
+    if stats is None:
+        return [], s
+    pb, cur = max(draw_intents(s) or [(1.0, s)], key=lambda b: b[0])
+    a, depth, prob, line = action or d.action, d.depth, pb, []
+    while a is not None and len(line) < max_plies:
+        p, s2, ev = max(step(cur, a, validate=False), key=lambda o: o[0])
+        prob *= p
+        by_uid = {e.uid: e for e in cur.enemies}
+        line.append({
+            "action": a,
+            "telegraphs": [{"x": e.x, "kind": e.kind, "intent": e.intent} for e in cur.alive()],
+            "enemies": [{"x": by_uid[u].x, "kind": by_uid[u].kind, "does": _verb(act)}
+                        for u, act in ev.enemy_actions if u in by_uid],
+            "hero_damage": sum(dmg for _, _, dmg in ev.hero_damage),
+            "kills": [k for k, _, _ in ev.kills],
+            "board": s2.render(), "hero_hp": s2.hero.hp, "p": round(prob, 3)})
+        depth -= 1
+        cur = s2
+        if depth <= 0 or s2.hero.hp <= 0 or not s2.alive():
+            break
+        ply = stats["root_depth"] - depth
+        pb, cur = max(draw_intents(s2, MAX_BRANCHES if ply <= 1 else DEEP_BRANCHES) or [(1.0, s2)],
+                      key=lambda b: b[0])
+        prob *= pb
+        a = _best_here(cur, depth, w, stats)
+    return line, cur
+
+
+# plain words for the score terms: (weight key for counting, words when better, words when worse)
+def _pl(n, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+_WORDS = {
+    "hp": ("hero_hp", lambda n: f"keeps {_pl(n, 'more HP', 'more HP')}", lambda n: f"keeps {_pl(n, 'less HP', 'less HP')}"),
+    "kills": ("enemy_alive", lambda n: f"{_pl(n, 'fewer enemy', 'fewer enemies')} left",
+              lambda n: f"{_pl(n, 'more enemy', 'more enemies')} left"),
+    "damage": ("enemy_hp", lambda n: f"{n} less enemy HP left", lambda n: f"{n} more enemy HP left"),
+    "wave_clear": (None, lambda n: "clears the level", lambda n: "does not clear the level"),
+    "threat_dmg": ("threat_dmg", lambda n: f"{n} less damage aimed at you at the end of the line",
+                   lambda n: f"{n} more damage aimed at you at the end of the line"),
+    "open_charge_lane": ("open_charge_lane", lambda n: "no Charger lane open to you",
+                         lambda n: "a Charger lane open to you"),
+    "tiles_ready": (None, lambda n: "more tiles ready", lambda n: "fewer tiles ready"),
+    "swap_ready": (None, lambda n: "swap still ready", lambda n: "swap used up"),
+    "queued_tile": ("queued_tile", lambda n: f"{_pl(n, 'more tile', 'more tiles')} loaded",
+                    lambda n: f"{_pl(n, 'fewer tile', 'fewer tiles')} loaded"),
+    "enemy_facing_away": ("enemy_facing_away", lambda n: f"{_pl(n, 'more enemy', 'more enemies')} facing away",
+                          lambda n: f"{_pl(n, 'fewer enemy', 'fewer enemies')} facing away"),
+    "lethal_loaded": ("lethal_loaded", lambda n: f"the loaded tiles would kill {n} more",
+                      lambda n: f"the loaded tiles would kill {n} fewer"),
+    "lethal_ready": ("lethal_ready", lambda n: f"loaded plus ready tiles could kill {n} more",
+                     lambda n: f"loaded plus ready tiles could kill {n} fewer"),
+    "at_edge": (None, lambda n: "not on an edge cell", lambda n: "on an edge cell"),
+    "cornered_no_swap": (None, lambda n: "not cornered", lambda n: "cornered without a swap"),
+    "spawn_unready": ("spawn_unready", lambda n: f"{_pl(n, 'more tile', 'more tiles')} recharged for the next wave",
+                      lambda n: f"{_pl(n, 'fewer tile', 'fewer tiles')} recharged for the next wave"),
+    "below_floor": (None, lambda n: "stays within the 1-HP stall budget", lambda n: "goes past the 1-HP stall budget"),
+    "death": (None, lambda n: "survives", lambda n: "dies"),
+}
+
+
+def _line_terms(line: list, leaf: State, cand: dict, w: dict) -> dict:
+    t = dict(evaluate(leaf, w)[1])
+    hp_points = t.pop("hero_hp", 0.0) + w["hp_lost_path"] * sum(p["hero_damage"] for p in line) \
+        + w.get("hp_lost_now", 0.0) * cand["exp_damage"]
+    out = {"hp": hp_points,
+           "kills": t.pop("enemy_alive", 0.0) + w["kill"] * sum(len(p["kills"]) for p in line),
+           "damage": t.pop("enemy_hp", 0.0)}
+    out.update(t)
+    out["_hp"] = max(leaf.hero.hp, 0)
+    out["_alive"] = len(leaf.alive())
+    out["_enemy_hp"] = sum(e.hp for e in leaf.alive())
+    return out
+
+
+def _words(k: str, points: float, tb: dict, ts: dict, w: dict) -> str | None:
+    if k not in _WORDS:
+        return None
+    unit, better, worse = _WORDS[k]
+    if k == "hp":
+        n = tb["_hp"] - ts["_hp"]
+        if n == 0:
+            return "takes less damage this turn" if points > 0 else "takes more damage this turn"
+        return (better if n > 0 else worse)(abs(n))
+    if k in ("kills", "damage"):
+        n = ts["_alive"] - tb["_alive"] if k == "kills" else ts["_enemy_hp"] - tb["_enemy_hp"]
+        if n == 0:
+            return None
+        return (better if n > 0 else worse)(abs(n))
+    if unit is None:
+        return (better if points > 0 else worse)(0)
+    wt = w.get(unit, 0.0)
+    n = abs(round(points / wt, 1)) if wt else 0
+    n = int(n) if n == int(n) else n
+    return (better if points > 0 else worse)(n)
+
+
+def explain_decision(s: State, d: Decision, max_plies: int = 5) -> Decision:
+    """Fill d.pv (the likely line of the chosen move) and d.reason (why it beat the
+    second best: the biggest score-term differences between their likely lines)."""
+    w = getattr(d, "_weights", WEIGHTS)
+    ranked = sorted(d.candidates, key=lambda c: (-c["value"], _priority(s, c["action"])))
+    if not ranked:
+        return d
+    best = ranked[0]
+    line_b, leaf_b = principal_variation(s, d, best["action"], max_plies)
+    d.pv = line_b
+    if len(ranked) < 2:
+        d.reason = [f"{best['action']} is the only possible move"]
+        return d
+    second = ranked[1]
+    line_s, leaf_s = principal_variation(s, d, second["action"], max_plies)
+    tb, ts = _line_terms(line_b, leaf_b, best, w), _line_terms(line_s, leaf_s, second, w)
+    diffs = sorted(((k, tb.get(k, 0.0) - ts.get(k, 0.0)) for k in set(tb) | set(ts) if not k.startswith("_")),
+                   key=lambda kv: -abs(kv[1]))
+    if best["value"] == second["value"]:
+        reason = [f"{best['action']} and {second['action']} score the same ({best['value']:.0f}); "
+                  f"the tie-break order picks {best['action']} (attack, load, wait, move, turn)."]
+    else:
+        reason = [f"{best['action']} scores {best['value']:.0f}, {best['value'] - second['value']:.0f} more than "
+                  f"{second['action']} ({second['value']:.0f}). On the likely lines:"]
+    for k, pts in diffs:
+        if abs(pts) < 1 or len(reason) > 4:
+            break
+        txt = _words(k, pts, tb, ts, w)
+        if txt:
+            reason.append(f"{'+' if pts > 0 else '-'} {txt} ({pts:+.0f})")
+    # timing: later turns count GAMMA (0.97) less each, so the same result sooner scores higher
+    kb = {}
+    for i, ply in enumerate(line_b, 1):
+        for k in ply["kills"]:
+            kb.setdefault(k, i)
+    ks = {}
+    for i, ply in enumerate(line_s, 1):
+        for k in ply["kills"]:
+            ks.setdefault(k, i)
+    for kind in sorted(set(kb) & set(ks), key=lambda k: kb[k]):
+        if kb[kind] != ks[kind] and len(reason) <= 5:
+            n = abs(ks[kind] - kb[kind])
+            reason.append(f"{'+' if kb[kind] < ks[kind] else '-'} kills the {kind} {n} turn{'s' if n > 1 else ''} "
+                          f"{'sooner' if kb[kind] < ks[kind] else 'later'}")
+    hit_b = next((i for i, ply in enumerate(line_b, 1) if ply["hero_damage"]), None)
+    hit_s = next((i for i, ply in enumerate(line_s, 1) if ply["hero_damage"]), None)
+    if hit_b and hit_s and hit_b != hit_s and len(reason) <= 5:
+        reason.append(f"{'+' if hit_b > hit_s else '-'} the first hit on you comes {abs(hit_b - hit_s)} turn(s) "
+                      f"{'later' if hit_b > hit_s else 'sooner'}")
+    if len(reason) == 1 and best["value"] != second["value"]:
+        reason.append("the likely lines end the same; the difference is in the less likely outcomes")
+    d.reason = reason
     return d
