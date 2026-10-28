@@ -123,7 +123,7 @@ class Decision:
     nodes: int = 0
 
 
-GAMMA = 0.85  # discount per turn: damage now is worse than the same damage later
+GAMMA = 0.97  # future damage counts almost as much as damage now [user: HP is the run's most valuable resource]
 # tie-break order when values are equal: commit, then hold, then reposition, turn last
 PRIORITY = {"attack": 0, "queue:swirl": 1, "queue:arrow": 2, "wait": 3, "left": 4, "right": 4, "turn": 5}
 

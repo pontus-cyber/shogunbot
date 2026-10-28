@@ -71,12 +71,22 @@ def classify_sprite(crop: np.ndarray) -> tuple[str, int, float]:
     return str(kind), facing, min(conf_kind, conf_face * 4)
 
 
-def classify_icon(interior: np.ndarray) -> tuple[str, float]:
+HERO_KIT = ("swirl", "arrow")  # tiles the hero owns (default kit); M1/M2 will make this dynamic
+
+
+def classify_icon(interior: np.ndarray, allowed: tuple | None = None) -> tuple[str, float]:
     v = cv2.resize(interior, (25, 24), interpolation=cv2.INTER_AREA).astype(np.float32).ravel() / 255
     d = ((ICO_X - v) ** 2).sum(1)
+    if allowed:
+        # restrict to the tiles that can be there [run 20261028-061420: an Arrow in the
+        # hand was read as Spear (conf 0.01) and the bot could not find its Arrow]
+        d = np.where(np.isin(ICO_K, allowed), d, np.inf)
     i = int(d.argmin())
     k = ICO_K[i]
-    other = d[ICO_K != k].min()
+    rest = d[(ICO_K != k) & np.isfinite(d)]
+    other = rest.min() if len(rest) else d[i] * 2
+    if allowed:
+        return str(k), float(np.clip((other - d[i]) / max(d[i], 1e-3), 0, 1))
     # orange bell = summon (only one template, so add a colour rule)
     hsv = cv2.cvtColor(interior, cv2.COLOR_RGB2HSV)
     orange = ((hsv[..., 0] > 8) & (hsv[..., 0] < 25) & (hsv[..., 1] > 150) & (hsv[..., 2] > 180)).mean()
@@ -302,7 +312,7 @@ def read_hand(rgb: np.ndarray) -> list[dict]:
         if out and cx - out[-1]["cx"] < 100:
             continue
         interior = rgb[HAND_Y0 + 2:HAND_Y1 - 2, cx - 48:cx + 48]
-        tile, conf = classify_icon(interior)
+        tile, conf = classify_icon(interior, HERO_KIT)
         # ready tiles draw the damage digit in bright white; recharging tiles are dimmed
         digit = rgb[915:975, cx - 45:cx]
         white = int((digit.min(axis=2) > 170).sum())
