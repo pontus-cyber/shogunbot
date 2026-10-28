@@ -47,6 +47,13 @@ SHRINES = {
     "collect/20261027-164727/f0109_idle.png": "cooldown_minus_2",
     "runs/20261028-082756/frames/reward_2_shrine.png": "damage_1",                 # first "+1 DAMAGE" seen
     "runs/20261028-082756/frames/reward_3_shrine.png": "slot_1_cooldown_minus_1",
+    # 0.20: the bubble grows upward with its text; 0.19 searched from y 150 and missed these
+    "runs/20261028-130456/frames/reward_2_shrine.png": "cooldown_minus_4_damage_minus_1",  # '-4' unread in 0.19
+    "runs/20261028-132238/frames/reward_3_shrine.png": "freeplay",          # FREE-PLAY / +3 COOLDOWN
+    "runs/20261028-132952/frames/reward_3_shrine.png": "perfect_strike",    # PERFECT STRIKE / +1 COOLDOWN
+    "collect/20261027-164727/f0154_idle.png": "freeplay",
+    "runs/20261028-133837/frames/reward_3_shrine.png": "cooldown_minus_1",
+    "runs/20261028-134818/frames/reward_3_shrine.png": "damage_1_cooldown_1",
 }
 
 
@@ -309,3 +316,19 @@ def test_queued_katana_is_not_queued_again():
     s = tr.state(perceive(frame("runs/20261028-092419/frames/t0118_before.png"), ["swirl", "arrow", "katana"]))
     assert s.hero.queue == ["arrow", "swirl", "katana"]
     assert not [a for a in legal_hero_actions(s) if a.startswith("queue:")]
+
+
+def test_glyph_samples_read_back_exactly():
+    # every frame the shrine font is learned from reads back as its labelled lines
+    from shogunbot.perception import text
+    for rel, known in text.GLYPH_SAMPLES.items():
+        rgb = frame(rel)
+        assert [s for s, _ in text.read_text(rgb)] == known, rel
+
+
+def test_enchantment_shrines_are_trade_offs_the_simulator_scores():
+    from shogunbot.catalogue import CAT
+    for uid in ("freeplay", "perfect_strike"):
+        up = CAT.upgrade(uid)
+        assert up.kind == "enchant" and not rewards.pure_gain(up) and rewards.offerable(up)
+        assert len(rewards.upgrade_options(Kit.of("swirl", "arrow"), uid)) == 3   # skip + two tiles

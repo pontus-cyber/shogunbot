@@ -13,7 +13,8 @@
     "use_costs_turn": false,
     "use_costs_turn_source": "[wiki] [obs]",
     "full_inventory": "a collected consumable turns into 1 coin [wiki]",
-    "obtained": "dropped by slain enemies, sold in shops; left-over drops are collected at the end of combat [wiki]"
+    "obtained": "dropped by slain enemies, sold in shops; left-over drops are collected at the end of combat [wiki]",
+    "dimmed": "an item the game will not let you use right now is drawn at about 47.5 % brightness: every item while a level ends, the combat cards but not Edamame Brew on a reward screen; empty slots never dim [bot: runs 20261027-182237 f0026, 20261028-132238, -133837, -135635 item_unknown.png]"
   },
   "consumables": [
     {"id": "edamame_brew", "name": "Edamame Brew", "kind": "brew", "sell": 5,

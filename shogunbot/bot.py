@@ -47,19 +47,26 @@ from .live import LiveView
 from .runlog import RunLogger
 from .winio import GameWindow
 
-VERSION = "0.19"
+VERSION = "0.20"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
 # Edamame Brew restores up to 3 HP [catalogue]: drink at 7 or lower, so no healing is wasted
 HEAL_AT = HERO_MAX_HP - CAT.consumable_by_screen("green_potion").effect["amount"]
 POISON_MIN_VALUE = 4      # use Mass Poison when it deals at least this much in total
+# The run's last level: items still held there are lost, so each is spent at its first
+# useful moment [user 2026-10-28: "use every consumable"; series 20261028-132238..135635
+# ended five runs holding Mass Ice, Edamame, Cool Up and Kami Brew]. A series gives the run
+# up after the Stage 1 boss; when runs go past Stage 1, keep items and name the run's
+# final level here.
+SPEND_ITEMS_LEVELS = {"boss"}
 BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink
 BLINK_GAP_S = 0.15
 UNKNOWN_FRAME_S = 6.0     # save a frame when a screen stays unknown this long
 UNKNOWN_GIVE_UP_S = 90.0  # end the run as 'stuck'
 GIVE_UP_WAIT_S = 20.0     # after a win: wait up to this long for the map before pausing
 DEATH_SCREEN_MAX_S = 30.0 # a death screen without a readable RESTART ends the new run as 'stuck'
+HP_CONFIRM_S = 0.35       # a second look before an HP drop counts [run 20261028-132952 t77, t82]
 
 
 def _stop_requested() -> bool:
@@ -142,6 +149,18 @@ class Bot:
         self.gw.click(fx, fy)
         if away:
             self.gw.move_mouse_away()
+
+    def _park_mouse(self) -> None:
+        """Focus the game and park the cursor again. A window that takes the focus (a
+        TeamViewer time-out dialog in run 20261028-133837) leaves the game showing the
+        hover tooltip of whatever tile last sat under the cursor."""
+        try:
+            if hasattr(self.gw, "focus") and hasattr(self.gw, "is_foreground") and not self.gw.is_foreground():
+                self.gw.focus()
+                time.sleep(0.1)
+            self.gw.move_mouse_away()
+        except Exception as e:                    # never stop a reward over the cursor
+            self.log.event("park_mouse_failed", error=repr(e))
 
     def say(self, msg: str) -> None:
         if self.verbose:
@@ -272,12 +291,21 @@ class Bot:
 
     @staticmethod
     def _in_statue(rs, tr, label: str) -> bool:
-        """The chosen tile sits in the statue and UPGRADE is lit."""
-        if not rs.upgrade_lit:
-            return False
-        if rs.statue is not None:
-            return rs.statue.get("tile") == tr.kit[label].tile
-        return label not in match_faces(tr.kit, rs.hand)   # statue unread: the hand says it left
+        """The chosen copy sits in the statue's mouth. The statue face decides: the tile,
+        and with two copies of it in the kit also the cooldown marks, which tell the copies
+        apart. UPGRADE need not read as lit: the hover tooltip of the hand tile that slid
+        under the cursor can cover it. In run 20261028-133837 (boss shrine, f0123) the
+        chosen Swirl sat in the statue with UPGRADE hidden, the bot looked for that Swirl
+        in the hand again, found only the other copy and skipped the upgrade. With the
+        statue unread, a lit UPGRADE and the tile gone from the hand count."""
+        kt = tr.kit[label]
+        st = rs.statue
+        if st is not None:
+            if st.get("tile") != kt.tile:
+                return False
+            copies = [t for t in tr.kit if t.tile == kt.tile]
+            return len(copies) == 1 or st.get("cooldown") == kt.cooldown
+        return rs.upgrade_lit and label not in match_faces(tr.kit, rs.hand)
 
     def _take_upgrade(self, frame, rs, best, tr) -> bool:
         """Click the chosen tile into the statue, check that it is the one in the
@@ -290,6 +318,8 @@ class Bot:
         label = best.detail["label"]
         cur = rs
         for attempt in (1, 2, 3):
+            if self._in_statue(cur, tr, label):
+                break                              # already there: a click landed but the check missed it
             face = match_faces(tr.kit, cur.hand).get(label)
             if face is None:
                 self.log.event("reward_failed", choice=best.name, reason="tile not found in hand",
@@ -297,6 +327,7 @@ class Bot:
                 return False
             self.click(face["fx"], face["fy"], frame, screen="reward", reward=best.name, attempt=attempt)
             time.sleep(0.8)
+            self._park_mouse()
             frame, cur = self._read_reward(tr)
             if self._in_statue(cur, tr, label):
                 break
@@ -314,17 +345,69 @@ class Bot:
         return False
 
     # ------------------------------------------------------------------ items
-    def _pre_plan_item(self, p, s, tries: dict):
-        """Items whose value does not depend on this turn's plan."""
-        have = {it["item"] for it in p.items}
-        if "green_potion" in have and tries.get("green_potion", 0) < 2 and 0 < s.hero.hp <= HEAL_AT:
-            return "green_potion", f"HP {s.hero.hp}"
+    def _pre_plan_item(self, p, s, tries: dict, spend: bool = False):
+        """Items whose value does not depend on this turn's plan. spend: the run's last
+        level, where a potion heals as soon as any HP is missing."""
+        have = {it["item"] for it in p.items if not it.get("dim")}     # a dimmed item cannot be used
+        heal_at = HERO_MAX_HP - 1 if spend else HEAL_AT
+        if "green_potion" in have and tries.get("green_potion", 0) < 2 and 0 < s.hero.hp <= heal_at:
+            return "green_potion", f"HP {s.hero.hp}" + (" (last level: use it or lose it)" if spend else "")
         if "skull_card" in have and tries.get("skull_card", 0) < 2:
             # Mass Poison: every enemy, 1 damage per turn for 3 turns [catalogue]
             value = sum(min(e.hp, POISON_TICK * POISON_TURNS) for e in s.alive())
             if value >= POISON_MIN_VALUE or any(e.kind == "daisuke" for e in s.alive()):
                 return "skull_card", f"poison worth {value} damage"
         return None
+
+    def _confirm_hp_drop(self, read: int, last_hp: int, hp_cap: int, tr, turn: int) -> int:
+        """An HP drop counts only when a second frame shows it too, with the whole pip row
+        visible [user 2026-10-28]. In run 20261028-132952 (turns 77 and 82) a sword animation
+        over the hero hid two pips for one frame: read 8 of 8 pips, then 10 of 10. A false
+        drop could trigger the heal, the stall rule or a wrong plan."""
+        time.sleep(HP_CONFIRM_S)
+        p2 = perceive(self.gw.grab(), [t.tile for t in tr.kit])
+        h2 = p2.hero or {}
+        second = h2.get("hp") if h2.get("hp_max") else None
+        if second is not None and second < last_hp and h2.get("hp_max") >= hp_cap:
+            return second
+        self.log.event("hp_flicker", turn=turn, read=read, second_read=second,
+                       second_pips=h2.get("hp_max"), kept=last_hp)
+        return last_hp
+
+    def _spend_item(self, s, d, tr, have: set) -> tuple[str, str] | None:
+        """The run's last level: spend each held item at its first useful moment
+        [user 2026-10-28]. One item per pass; the board is read again after each."""
+        hx = s.hero.x
+        active = [e for e in s.alive() if e.frozen <= 0]
+        armed = [e for e in active if e.armed]
+        if "ice_card" in have and any(e.armed or abs(e.x - hx) == 1 for e in active):
+            return "ice_card", "last level: an enemy is armed or adjacent"
+        if "dice_card" in have and any(e.intent == "fire" for e in active):
+            return "dice_card", "last level: an enemy telegraphs fire"
+        if "mirror_card" in have and any(e.facing == (1 if hx > e.x else -1) for e in armed):
+            return "mirror_card", "last level: an armed enemy faces you"
+        if "blue_potion" in have and armed and not tr.shield:
+            return "blue_potion", "last level: an enemy is armed"
+        if "white_potion" in have and self._best_tile_recharging(s):
+            return "white_potion", "last level: the best tile is recharging"
+        if "curse_card" in have and d.action == "attack" and self._attack_hits_boss(s):
+            return "curse_card", "last level: the attack hits the boss"
+        return None
+
+    @staticmethod
+    def _best_tile_recharging(s) -> bool:
+        """Cool Up is worth most when the strongest tile (catalogue ready value) is empty."""
+        h = s.hero
+        if not h.kit.ready_values:
+            return False
+        label, cd, _ = max(h.kit.ready_values, key=lambda t: t[2])
+        return label not in h.queue and h.charge.get(label, 0) < cd
+
+    @staticmethod
+    def _attack_hits_boss(s) -> bool:
+        from .rules import step
+        out = max(step(s, "attack"), key=lambda t: t[0])[2]
+        return any(k == "daisuke" and dmg > 0 for k, _, dmg, _ in out.enemy_damage)
 
     @staticmethod
     def _mirror_saves(s) -> bool:
@@ -350,7 +433,7 @@ class Bot:
         return k1 > k0 or b1 >= b0 + 2
 
     def _use_item(self, item: str, p, s, frame, turn: int, reason: str, tr, tries: dict) -> None:
-        slot = next(it for it in p.items if it["item"] == item)
+        slot = next(it for it in p.items if it["item"] == item and not it.get("dim"))
         tries[item] = tries.get(item, 0) + 1
         cons = CAT.consumable_by_screen(item)
         name = cons.name if cons else item
@@ -470,6 +553,7 @@ class Bot:
         self.gave_up = None
         death_since = None
         progress, last_progress = None, 0     # stall rule: see planner.stall_weights
+        hp_cap = HERO_MAX_HP                  # most HP pips seen in one read this run
         turn = 0
         level = None
         seen_boss = False
@@ -629,6 +713,10 @@ class Bot:
                 if s is None:
                     time.sleep(0.3)
                     continue
+                if p.hero["hp_max"]:
+                    hp_cap = max(hp_cap, p.hero["hp_max"])
+                    if s.hero.hp < last_hp:
+                        s.hero.hp = self._confirm_hp_drop(s.hero.hp, last_hp, hp_cap, tr, turn)
                 if turn == 0 and p.hero["hp_max"] and s.hero.hp <= 0:
                     # the last run's hero dying before its death screen shows: not this run
                     time.sleep(0.5)
@@ -664,9 +752,10 @@ class Bot:
                         # first sighting of each item type: keep a frame to verify the read
                         seen_items.add(it["item"])
                         log.save_frame(frame, f"item_{it['item']}")
-                        log.event("item_seen", item=it["item"], fy=round(float(it["fy"]), 3))
+                        log.event("item_seen", item=it["item"], fy=round(float(it["fy"]), 3), dim=bool(it.get("dim")))
                 # ---- items before planning (all cost no turn [obs]; effects from the wiki)
-                use = self._pre_plan_item(p, s, item_tries)
+                spend = level in SPEND_ITEMS_LEVELS
+                use = self._pre_plan_item(p, s, item_tries, spend)
                 if use:
                     item, reason = use
                     self._use_item(item, p, s, frame, turn, reason, tr, item_tries)
@@ -714,7 +803,7 @@ class Bot:
                     d.action = alt
                 last_key, last_action = key, d.action
                 best = next((c for c in d.candidates if c["action"] == d.action), {})
-                have = {it["item"] for it in p.items if item_tries.get(it["item"], 0) < 2}
+                have = {it["item"] for it in p.items if item_tries.get(it["item"], 0) < 2 and not it.get("dim")}
                 if best.get("exp_damage", 0) >= 1.0:
                     # every move takes damage: freeze everyone (Mass Ice), turn everyone
                     # around (Rain of Mirrors) if that removes the damage, reroll every
@@ -732,6 +821,11 @@ class Bot:
                     if item:
                         self._use_item(item, p, s, frame, turn,
                                        f"expected {best['exp_damage']:.1f} damage on every move", tr, item_tries)
+                        continue
+                if spend:
+                    use = self._spend_item(s, d, tr, have)
+                    if use:
+                        self._use_item(use[0], p, s, frame, turn, use[1], tr, item_tries)
                         continue
                 if d.action == "attack" and "curse_card" in have and self._curse_gain(s):
                     self._use_item("curse_card", p, s, frame, turn, "doubles the hit about to land", tr, item_tries)

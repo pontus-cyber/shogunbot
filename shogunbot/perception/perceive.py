@@ -213,6 +213,9 @@ def hero_patch_facing(rgb: np.ndarray, cx: int) -> tuple[int, float]:
     return (-1 if dx > 0 else 1), (1.0 if len(xs) >= 30 else 0.7)
 
 
+DIM_FACTOR = 0.475          # items' brightness while dimmed [runs 20261028-132238, -133837, -135635: 0.469-0.489]
+DIM_P99 = (70, 115)         # 99th-percentile brightness of a dimmed item's window
+DIM_FILLED = 0.28           # share of the window above 28 on a dimmed item (0.29-0.78); empty slots 0.13-0.27
 ITEM_SLOTS_Y = (758, 857, 952)   # consumable column, measured on runs 20261027-182237 / 20261028-053637
 
 
@@ -244,49 +247,72 @@ def read_consumables(rgb: np.ndarray) -> list[dict]:
       mirror_card   Rain of Mirrors (grey card) [user, look unverified; the grey card first
                     logged under this name was the Lucky Die]
     Anything else in a filled slot is returned as 'unknown' so the bot can log it.
+
+    The game dims an item it will not let you use now to 47.5 % brightness: every
+    item while a level ends, the combat cards but not Edamame Brew on a reward screen
+    [run 20261027-182237 f0026]; empty slots never dim. 0.19 read dimmed items as
+    'unknown' (Mass Ice, Cool Up) or as an empty slot (Edamame Brew) [runs
+    20261028-132238, -133837, -135635 item_unknown.png]. A dimmed slot is brightened
+    back before the rules run, and its read carries dim=True: the bot never uses it.
     """
     out = []
     for cy in ITEM_SLOTS_Y:
         a = rgb[cy - 45:cy + 45, 85:155].astype(int)
-        if (a.max(axis=2) > 60).mean() < 0.2:
+        mx = a.max(axis=2)
+        p99 = float(np.percentile(mx, 99))
+        if DIM_P99[0] <= p99 <= DIM_P99[1] and (mx > 28).mean() >= DIM_FILLED:
+            # dimmed item: lit items peak at 150-255, dimmed ones at 72-107; an empty slot's
+            # ring peaks at 64, a brown-tinted one at 73 with 23 % of the window lit
+            # [items_old scan of all recorded frames, 0.20]
+            bright = np.minimum(255, np.round(a / DIM_FACTOR)).astype(int)
+            item = _classify_item(bright)
+            if item not in ("unknown", "mirror_card"):
+                out.append({"item": item, "fx": 120 / 1920, "fy": cy / 1080, "dim": True})
+                continue
+        if (mx > 60).mean() < 0.2:
             continue  # empty slot (dark ring)
-        # hue rules, so items dimmed during animations still read [run 20261027-164727]
-        r_, g_, b_ = a[..., 0], a[..., 1], a[..., 2]
-        lit = a.max(axis=2) > 25
-        cork = int(((r_ > g_ + 25) & (g_ > b_ + 10) & (r_ > 60) & (r_ < 175) & lit)[:30].sum())
-        green_px = int(((g_ > r_ + 25) & (g_ > b_ + 30) & lit).sum())
-        blue_px = int(((b_ > r_ + 40) & (b_ >= g_ - 5) & lit).sum())
-        red_px = int(((r_ > g_ + 40) & (r_ > b_ + 40) & lit).sum())
-        skull = int(_near(a, (144, 170, 56), 30).sum())
-        navy = float(((b_ > r_ + 25) & (b_ > g_ + 15) & (b_ < 120) & lit).mean())
-        pips = _red_pips(a, lit)
-        grey_px = int((((a.max(axis=2) - a.min(axis=2)) < 22) & lit).sum())
-        if cork >= 6 and green_px >= 150:
-            item = "green_potion"
-        elif cork >= 6 and blue_px >= 150:
-            item = "blue_potion"
-        elif skull >= 40:
-            item = "skull_card"
-        elif navy >= 0.15:
-            item = "ice_card"
-        elif 5 <= pips <= 8 and grey_px >= 1500:
-            # Lucky Die: 6 pips and 2,560-2,645 grey px [run 20261028-122652]; Mass Curse has
-            # 14 red blobs on a dark red card [collect 20261027-164727 f0083]. Before 0.18.2 the
-            # die read as curse_card in combat and as mirror_card under banners
-            item = "dice_card"
-        elif red_px >= 300:
-            item = "curse_card"   # Mass Curse: red card with a mask [user]
-        elif cork >= 6 and int(((a.min(axis=2) > 150) & (a.max(axis=2) - a.min(axis=2) < 30)).sum()) >= 300:
-            # pale liquid: 848 px on run 20261028-061420 item_unknown.png; 0 on the other bottles.
-            # Dimmed outside combat (reward screens), where it stays 'unknown'.
-            item = "white_potion"
-        elif (lit.mean() > 0.35 and a.mean() < 150 and float(((a.max(axis=2) - a.min(axis=2)) < 22)[lit].mean()) > 0.7
-              and cork < 6):
-            item = "mirror_card"  # Rain of Mirrors: grey card [user, unverified: first sighting saves a frame]
-        else:
-            item = "unknown"
-        out.append({"item": item, "fx": 120 / 1920, "fy": cy / 1080})
+        out.append({"item": _classify_item(a), "fx": 120 / 1920, "fy": cy / 1080})
     return out
+
+
+def _classify_item(a: np.ndarray) -> str:
+    """The item in one slot window (90 x 70 RGB, int) by the hue rules below."""
+    # hue rules, so items dimmed during animations still read [run 20261027-164727]
+    r_, g_, b_ = a[..., 0], a[..., 1], a[..., 2]
+    lit = a.max(axis=2) > 25
+    cork = int(((r_ > g_ + 25) & (g_ > b_ + 10) & (r_ > 60) & (r_ < 175) & lit)[:30].sum())
+    green_px = int(((g_ > r_ + 25) & (g_ > b_ + 30) & lit).sum())
+    blue_px = int(((b_ > r_ + 40) & (b_ >= g_ - 5) & lit).sum())
+    red_px = int(((r_ > g_ + 40) & (r_ > b_ + 40) & lit).sum())
+    skull = int(_near(a, (144, 170, 56), 30).sum())
+    navy = float(((b_ > r_ + 25) & (b_ > g_ + 15) & (b_ < 120) & lit).mean())
+    pips = _red_pips(a, lit)
+    grey_px = int((((a.max(axis=2) - a.min(axis=2)) < 22) & lit).sum())
+    if cork >= 6 and green_px >= 150:
+        item = "green_potion"
+    elif cork >= 6 and blue_px >= 150:
+        item = "blue_potion"
+    elif skull >= 40:
+        item = "skull_card"
+    elif navy >= 0.15:
+        item = "ice_card"
+    elif 5 <= pips <= 8 and grey_px >= 1500:
+        # Lucky Die: 6 pips and 2,560-2,645 grey px [run 20261028-122652]; Mass Curse has
+        # 14 red blobs on a dark red card [collect 20261027-164727 f0083]. Before 0.18.2 the
+        # die read as curse_card in combat and as mirror_card under banners
+        item = "dice_card"
+    elif red_px >= 300:
+        item = "curse_card"   # Mass Curse: red card with a mask [user]
+    elif cork >= 6 and int(((a.min(axis=2) > 150) & (a.max(axis=2) - a.min(axis=2) < 30)).sum()) >= 300:
+        # pale liquid: 848 px on run 20261028-061420 item_unknown.png; 0 on the other bottles.
+        # Dimmed (reward screens) it reads after read_consumables brightens the slot.
+        item = "white_potion"
+    elif (lit.mean() > 0.35 and a.mean() < 150 and float(((a.max(axis=2) - a.min(axis=2)) < 22)[lit].mean()) > 0.7
+          and cork < 6):
+        item = "mirror_card"  # Rain of Mirrors: grey card [user, unverified: first sighting saves a frame]
+    else:
+        item = "unknown"
+    return item
 
 
 def windup_pixels(rgb: np.ndarray, cx: int) -> int:

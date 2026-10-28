@@ -9,7 +9,9 @@ Game catalogue: `shogunbot/data/*.json` holds every tile, enemy, trait, consumab
 
 Enemy behaviour (0.17, M3): learned from the bot's own run logs. `python -m shogunbot.mine build <folder with runs/>` rebuilds `shogunbot/data/behaviour.json`; `python -m shogunbot.mine report <folder>` scores it against the logs.
 
-Rewards (0.16, `rewards.py`): pure-gain upgrades (+damage, −cooldown, +slot) are always taken and simulation picks the tile; trade-offs and tile choices are simulated against skipping on the same seeded fights in a harder-than-Stage-1 scenario, and skipped only when every option is a net loss. It never rerolls.
+Rewards (0.16, `rewards.py`): pure-gain upgrades (+damage, −cooldown, +slot) are always taken and simulation picks the tile; trade-offs and tile choices are simulated against skipping on the same seeded fights in a harder-than-Stage-1 scenario, and skipped only when every option is a net loss. It never rerolls. Enchantment shrines (Free-Play, Perfect Strike) are read since 0.20.
+
+Items (0.20): on the run's last level (`bot.SPEND_ITEMS_LEVELS`, the boss while a series stops after Stage 1) every item still held is spent at its first useful moment: Mass Ice when an enemy is armed or adjacent, Kami Brew when one is armed, Lucky Die on a fire telegraph, Cool Up when the best tile is recharging, Mass Curse on the first attack that hits the boss, Edamame Brew below full HP. Earlier levels keep the older rules (heal at 7 HP, cards when every move takes damage).
 
 ## Run (Windows, from this folder)
 

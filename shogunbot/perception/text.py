@@ -7,6 +7,13 @@ learned from frames with known text (build_glyphs). An unknown glyph reads
 '?', and the line set is then matched to the catalogue's upgrade texts by
 edit distance, so an unseen letter still lands on the right upgrade.
 [measured on runs 20261027-182237 .. 20261028-061420, collect 20261027-164727]
+
+The bubble's bottom sits on the statue (y 344) and it grows upward with its
+text: top y 244 for one line, 186 for two, and 111 or 51 for an enchantment
+shrine, which prints the name, the red cooldown cost and a description in a
+smaller font (20 px rows, not read). 0.19 searched from y 150 only and read
+nothing, or only the cost, on both enchantment shrines it met [runs
+20261028-132238 and -132952 reward_3_shrine].
 """
 
 from __future__ import annotations
@@ -19,7 +26,19 @@ import numpy as np
 from ..catalogue import CAT
 
 ASSETS = Path(__file__).parent / "assets"
-BUBBLE_REGION = (700, 1250, 150, 380)   # x0, x1, y0, y1 searched for the white bubble
+BUBBLE_REGION = (640, 1290, 20, 380)    # x0, x1, y0, y1 searched for the white bubble; widest seen
+                                        # 708-1220, tallest 51-344 [run 20261028-132952 reward_3_shrine]
+GLYPH_SAMPLES = {
+    # frame: the lines its bubble shows (the shrine font's glyphs are learned from these)
+    "runs/20261027-182237/frames/f0135_CLICK.png": ["+1 UPGRADE SLOT", "-1 COOLDOWN"],
+    "runs/20261028-044407/frames/f0097_CLICK.png": ["-1 COOLDOWN"],
+    "runs/20261028-053637/frames/f0103_CLICK.png": ["+1 DAMAGE", "+1 COOLDOWN"],
+    "runs/20261028-061420/frames/f0089_CLICK.png": ["+2 DAMAGE", "+3 COOLDOWN"],
+    "collect/20261027-164727/f0109_idle.png": ["-2 COOLDOWN"],
+    "runs/20261028-130456/frames/reward_2_shrine.png": ["-1 DAMAGE", "-4 COOLDOWN"],
+    "runs/20261028-132238/frames/reward_3_shrine.png": ["FREE-PLAY", "+3 COOLDOWN"],
+    "runs/20261028-132952/frames/reward_3_shrine.png": ["PERFECT STRIKE", "+1 COOLDOWN"],
+}
 
 
 def find_bubble(rgb: np.ndarray):
@@ -27,17 +46,19 @@ def find_bubble(rgb: np.ndarray):
     x0, x1, y0, y1 = BUBBLE_REGION
     reg = rgb[y0:y1, x0:x1].astype(np.int16)
     white = (reg.min(axis=2) > 210) & (reg.max(axis=2) - reg.min(axis=2) < 20)
-    if white.sum() < 25000:          # the bubble is a solid block (~50 000 px); tooltips are dark
+    if white.sum() < 25000:          # the bubble is a solid block (~32 000 px or more); tooltips are dark
         return None
-    rows = np.nonzero(white.mean(axis=1) > 0.25)[0]
-    cols = np.nonzero(white.mean(axis=0) > 0.25)[0]
-    if not len(rows) or not len(cols):
+    band = _runs(white.mean(axis=1) > 0.25, gap=6)
+    if not band:
         return None
-    box = (x0 + int(cols.min()), y0 + int(rows.min()), x0 + int(cols.max()) + 1, y0 + int(rows.max()) + 1)
-    area = (box[2] - box[0]) * (box[3] - box[1])
-    if white[box[1] - y0:box[3] - y0, box[0] - x0:box[2] - x0].sum() < 0.5 * area:
+    r0, r1 = max(band, key=lambda r: r[1] - r[0])        # the tallest block of white rows
+    cols = np.nonzero(white[r0:r1].mean(axis=0) > 0.25)[0]   # columns measured on those rows only
+    if not len(cols):
         return None
-    return box
+    c0, c1 = int(cols.min()), int(cols.max()) + 1
+    if white[r0:r1, c0:c1].sum() < 0.5 * (r1 - r0) * (c1 - c0):
+        return None
+    return (x0 + c0, y0 + r0, x0 + c1, y0 + r1)
 
 
 def _ink(t: np.ndarray):
@@ -46,7 +67,8 @@ def _ink(t: np.ndarray):
     return dark | red, red
 
 
-def _runs(mask):
+def _runs(mask, gap: int = 0):
+    """(start, end) of the True runs; runs closer than `gap` are merged."""
     out, s = [], None
     for i, v in enumerate(mask):
         if v and s is None:
@@ -56,6 +78,14 @@ def _runs(mask):
             s = None
     if s is not None:
         out.append((s, len(mask)))
+    if gap:
+        merged = []
+        for r in out:
+            if merged and r[0] - merged[-1][1] < gap:
+                merged[-1] = (merged[-1][0], r[1])
+            else:
+                merged.append(r)
+        out = merged
     return out
 
 
@@ -159,7 +189,8 @@ def match_upgrade(text_lines: list[str]) -> tuple[str | None, int, int]:
 
 
 def build_glyphs(samples: list[tuple[np.ndarray, list[str]]]) -> dict:
-    """Learn glyphs from (frame, known lines) pairs; writes assets/glyphs.json."""
+    """Learn glyphs from (frame, known lines) pairs; writes assets/glyphs.json.
+    Glyphs learned before are kept; a sample that would relabel one is an error."""
     table: dict[str, str] = dict(glyph_table())
     for rgb, known in samples:
         box = find_bubble(rgb)
@@ -176,8 +207,31 @@ def build_glyphs(samples: list[tuple[np.ndarray, list[str]]]) -> dict:
                     if ch != " ":
                         raise ValueError(f"{text!r}: space where {ch!r} was expected")
                     continue
-                table[_key(g)] = ch
+                k = _key(g)
+                if table.get(k, ch) != ch:
+                    raise ValueError(f"{text!r}: glyph already learned as {table[k]!r}, labelled {ch!r} here")
+                table[k] = ch
     (ASSETS / "glyphs.json").write_text(json.dumps(table, indent=0, sort_keys=True), encoding="utf-8")
     global _GLYPHS
     _GLYPHS = table
     return table
+
+
+def build(root: Path) -> dict:
+    """Rebuild glyphs.json from GLYPH_SAMPLES, frames under `root` (holds runs/ and collect/)."""
+    from PIL import Image
+    samples = []
+    for rel, known in GLYPH_SAMPLES.items():
+        p = Path(root) / rel
+        if not p.exists():
+            print(f"missing {rel}: the glyphs learned from it before are kept")
+            continue
+        samples.append((np.array(Image.open(p).convert("RGB")), known))
+    return build_glyphs(samples)
+
+
+if __name__ == "__main__":
+    # python -m shogunbot.perception.text ROOT     (ROOT holds runs/ and collect/)
+    import sys
+    t = build(Path(sys.argv[1] if len(sys.argv) > 1 else "."))
+    print(len(t), "glyphs:", "".join(sorted(set(t.values()))))

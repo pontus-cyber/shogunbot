@@ -1,8 +1,8 @@
 {
   "_meta": {
-    "source": "Shogun Showdown wiki, Tiles page sections on upgrades and tile choices (shogunshowdown.wiki.gg), fetched 2026-10-28, CC BY-SA 4.0; shrine texts as the game prints them [bot: runs 20261027-182237 to 20261028-061420, collect 20261027-164727].",
+    "source": "Shogun Showdown wiki, Tiles page sections on upgrades and tile choices (shogunshowdown.wiki.gg), fetched 2026-10-28, CC BY-SA 4.0; shrine texts as the game prints them [bot: runs 20261027-182237 to 20261028-061420, collect 20261027-164727]; -1 DAMAGE / -4 COOLDOWN [bot: run 20261028-130456 reward_2_shrine]; enchantment shrines show the name, the red cooldown cost and a smaller description (not read) [bot: runs 20261028-132238 and -132952 reward_3_shrine].",
     "fields": {
-      "lines": "text lines the shrine bubble shows, upper case. seen=true: read on a recorded frame; seen=false: expected wording [hyp]",
+      "lines": "text lines the shrine bubble shows, upper case. seen=true: read on a recorded frame; seen=false: expected wording [hyp]. An enchantment's second line is its cooldown cost from the wiki, printed red under the name",
       "damage, cooldown, slots": "changes applied to the chosen tile",
       "uses_level": "false for slot upgrades, which never consume a level [wiki]"
     }
@@ -20,20 +20,20 @@
     {"id": "damage_2_cooldown_3", "name": "+2 Damage, +3 Cooldown", "lines": ["+2 DAMAGE", "+3 COOLDOWN"], "seen": true, "damage": 2, "cooldown": 3, "slots": 0, "uses_level": true},
     {"id": "cooldown_minus_1", "name": "-1 Cooldown", "lines": ["-1 COOLDOWN"], "seen": true, "damage": 0, "cooldown": -1, "slots": 0, "uses_level": true},
     {"id": "cooldown_minus_2", "name": "-2 Cooldown", "lines": ["-2 COOLDOWN"], "seen": true, "damage": 0, "cooldown": -2, "slots": 0, "uses_level": true},
-    {"id": "cooldown_minus_4_damage_minus_1", "name": "-4 Cooldown, -1 Damage", "lines": ["-4 COOLDOWN", "-1 DAMAGE"], "seen": false, "damage": -1, "cooldown": -4, "slots": 0, "uses_level": true},
+    {"id": "cooldown_minus_4_damage_minus_1", "name": "-4 Cooldown, -1 Damage", "lines": ["-1 DAMAGE", "-4 COOLDOWN"], "seen": true, "damage": -1, "cooldown": -4, "slots": 0, "uses_level": true},
     {"id": "slot_1", "name": "+1 Upgrade Slot", "lines": ["+1 UPGRADE SLOT"], "seen": false, "damage": 0, "cooldown": 0, "slots": 1, "uses_level": false},
     {"id": "slot_1_cooldown_minus_1", "name": "+1 Upgrade Slot, -1 Cooldown", "lines": ["+1 UPGRADE SLOT", "-1 COOLDOWN"], "seen": true, "damage": 0, "cooldown": -1, "slots": 1, "uses_level": false},
     {"id": "sacrifice", "name": "Sacrifice a Tile", "lines": ["SACRIFICE A TILE"], "seen": false, "damage": 0, "cooldown": 0, "slots": 0, "uses_level": false, "removes_tile": true, "coins": 40},
     {"id": "warriors_gamble", "name": "Warrior's Gamble", "lines": ["WARRIOR'S GAMBLE"], "seen": false, "damage": 0, "cooldown": 0, "slots": 0, "uses_level": true, "unknown_effect": true}
   ],
   "enchantments": [
-    {"id": "shockwave", "name": "Shockwave", "lines": ["SHOCKWAVE"], "seen": false, "cooldown": 1, "text": "On hit, enemies adjacent to the target take 1 damage each."},
-    {"id": "perfect_strike", "name": "Perfect Strike", "lines": ["PERFECT STRIKE"], "seen": false, "cooldown": 1, "text": "Recharges the tile if the attack leaves the target at exactly 0 HP."},
-    {"id": "poison", "name": "Poison", "lines": ["POISON"], "seen": false, "cooldown": 2, "text": "Poisoned enemies take 1 damage at the end of the turn for 3 turns."},
-    {"id": "ice", "name": "Ice", "lines": ["ICE"], "seen": false, "cooldown": 2, "text": "Freezes the target for 3 turns."},
-    {"id": "double_strike", "name": "Double-Strike", "lines": ["DOUBLE-STRIKE"], "seen": false, "cooldown": 4, "text": "Performs the attack twice."},
-    {"id": "curse", "name": "Curse", "lines": ["CURSE"], "seen": false, "cooldown": 2, "text": "Curses the enemy on hit; it takes double damage from the next hit."},
-    {"id": "freeplay", "name": "Freeplay", "lines": ["FREEPLAY"], "seen": false, "cooldown": 3, "text": "Adding the tile to the queue does not pass the turn."}
+    {"id": "shockwave", "name": "Shockwave", "lines": ["SHOCKWAVE", "+1 COOLDOWN"], "seen": false, "cooldown": 1, "text": "On hit, enemies adjacent to the target take 1 damage each."},
+    {"id": "perfect_strike", "name": "Perfect Strike", "lines": ["PERFECT STRIKE", "+1 COOLDOWN"], "seen": true, "cooldown": 1, "text": "Recharges the tile cooldown if the attack exactly depletes the target's remaining HP."},
+    {"id": "poison", "name": "Poison", "lines": ["POISON", "+2 COOLDOWN"], "seen": false, "cooldown": 2, "text": "Poisoned enemies take 1 damage at the end of the turn for 3 turns."},
+    {"id": "ice", "name": "Ice", "lines": ["ICE", "+2 COOLDOWN"], "seen": false, "cooldown": 2, "text": "Freezes the target for 3 turns."},
+    {"id": "double_strike", "name": "Double-Strike", "lines": ["DOUBLE-STRIKE", "+4 COOLDOWN"], "seen": false, "cooldown": 4, "text": "Performs the attack twice."},
+    {"id": "curse", "name": "Curse", "lines": ["CURSE", "+2 COOLDOWN"], "seen": false, "cooldown": 2, "text": "Curses the enemy on hit; it takes double damage from the next hit."},
+    {"id": "freeplay", "name": "Free-Play", "lines": ["FREE-PLAY", "+3 COOLDOWN"], "seen": true, "cooldown": 3, "text": "Adding the tile to the attack queue does not advance the turn."}
   ],
   "shop_upgrades": [
     {"id": "damage_1", "name": "+1 Damage", "coins": 20},

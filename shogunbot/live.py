@@ -27,6 +27,8 @@ _EVENT_TEXT = {
     "item_use": lambda d: f"used {d.get('name')}: {d.get('reason')}",
     "item_result": lambda d: f"{d.get('item')} {'consumed' if d.get('consumed') else 'still in its slot'}",
     "potion_result": lambda d: f"{d.get('item')}: HP {d.get('hp_before')} -> {d.get('hp_after')}",
+    "hp_flicker": lambda d: f"HP read {d.get('read')}, second look {d.get('second_read')} "
+                            f"({d.get('second_pips')} pips): kept {d.get('kept')}",
     "stall_mode": lambda d: f"stall: {d.get('quiet_turns')} turns without progress, a 1-HP trade allowed",
     "loop_break": lambda d: f"loop breaker: not repeating {', '.join(d.get('banned', []))}",
     "reward_taken": lambda d: f"took {d.get('choice')}",

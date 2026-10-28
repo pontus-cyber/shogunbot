@@ -211,3 +211,39 @@ def test_wrong_tile_in_the_statue_is_swapped_for_the_chosen_one(tmp_path, monkey
     assert b._reward(shrine, tr, "boss", 9) == "taken"
     assert gw.clicks == [(960, 954), (1020, 954), (962, 752)]
     assert tr.kit["katana"].damage == 3
+
+
+def test_chosen_copy_in_the_statue_is_upgraded_when_a_tooltip_hides_upgrade(tmp_path, monkeypatch):
+    # [run 20261028-133837, boss shrine '-1 COOLDOWN'] kit swirl (cooldown 2), arrow, swirl#2
+    # (cooldown 3). The chosen Swirl went into the statue, but Arrow slid under the cursor and its
+    # tooltip covered UPGRADE (f0123). 0.19 read UPGRADE as unlit, looked for that Swirl in the hand,
+    # found only the other copy ('tile not found in hand') and skipped the upgrade.
+    from shogunbot import rewards
+    from shogunbot.bridge import Tracker
+    from shogunbot.model import Kit, KitTile
+    shrine = frame("runs/20261028-133837/frames/f0122_CLICK.png")   # hand swirl 2/2, arrow, swirl 2/3
+    hidden = frame("runs/20261028-133837/frames/f0123_CLICK.png")   # swirl in the statue, tooltip over UPGRADE
+    done = frame("collect/20261027-164727/f0112_idle.png")
+    monkeypatch.setattr(rewards, "evaluate", prefer("upgrade:swirl"))
+    gw = FakeGW([(shrine, [(788, 900, 892, 1008)]), (hidden, [(800, 718, 1130, 786)]), (done, [])])
+    b = make_bot(tmp_path, gw)
+    kit = Kit.of("swirl", "arrow", "swirl")
+    kit = kit.replace("swirl", KitTile("swirl", "swirl", 2, 2, None, 3, 1))
+    tr = Tracker(kit)
+    assert b._reward(shrine, tr, "boss", 10) == "taken"
+    assert gw.clicks == [(840, 954), (962, 752)]              # the cooldown-2 Swirl, then UPGRADE
+    assert (tr.kit["swirl"].cooldown, tr.kit["swirl"].used) == (1, 2)
+    assert (tr.kit["swirl#2"].cooldown, tr.kit["swirl#2"].used) == (3, 0)
+
+
+def test_statue_check_tells_two_copies_apart():
+    from types import SimpleNamespace
+    from shogunbot import bot as B
+    from shogunbot.bridge import Tracker
+    from shogunbot.model import Kit
+    tr = Tracker(Kit.of("swirl", "arrow").add("swirl", cooldown=2))
+    rs = lambda statue, lit=False: SimpleNamespace(statue=statue, upgrade_lit=lit, hand=[])
+    assert B.Bot._in_statue(rs({"tile": "swirl", "cooldown": 2}), tr, "swirl#2")
+    assert not B.Bot._in_statue(rs({"tile": "swirl", "cooldown": 2}), tr, "swirl")     # the other copy
+    assert B.Bot._in_statue(rs({"tile": "arrow", "cooldown": 5}), tr, "arrow")         # one copy: tile is enough
+    assert not B.Bot._in_statue(rs(None), tr, "arrow")                                 # nothing read, not lit
