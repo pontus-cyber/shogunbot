@@ -37,10 +37,10 @@
      "look": "navy card with a cyan crystal [bot]", "text": "Freezes every enemy for 3 turns."},
     {"id": "rain_of_mirrors", "name": "Rain of Mirrors", "kind": "potion", "sell": 2,
      "effect": {"type": "turn_all"}, "screen_id": "mirror_card",
-     "look": "grey card [user]; not yet seen by the bot", "text": "Turns every enemy and boss around."},
+     "look": "grey card [user]; not yet seen by the bot (the grey card logged as mirror_card in run 20261028-122652 was the Lucky Die [user 2026-10-28])", "text": "Turns every enemy and boss around."},
     {"id": "lucky_die", "name": "Lucky Die", "kind": "card", "sell": 2,
-     "effect": {"type": "reroll"}, "screen_id": null,
-     "look": "die [wiki]; not yet seen by the bot", "text": "In combat: rerolls enemy intentions. Out of combat: rerolls a reward or a shop."}
+     "effect": {"type": "reroll"}, "screen_id": "dice_card",
+     "look": "grey-white card with six red pips, a die face [user 2026-10-28] [bot: run 20261028-122652 f0026_CLICK.png, item_mirror_card.png]", "text": "In combat: rerolls enemy intentions. Out of combat: rerolls a reward or a shop."}
   ],
   "currencies": [
     {"id": "coin", "name": "Coin", "text": "Run currency; dropped in combat and collected automatically."},

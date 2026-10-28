@@ -45,7 +45,7 @@ from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS
 from .runlog import RunLogger
 from .winio import GameWindow
 
-VERSION = "0.18.1"
+VERSION = "0.18.2"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -362,6 +362,8 @@ class Bot:
                 tr.cursed = True  # Mass Curse: next hit on each enemy is doubled [wiki]
             elif item == "mirror_card":
                 tr.mirror()       # Rain of Mirrors: every enemy turned around [wiki]
+            # Lucky Die (dice_card) rerolls every enemy's intent [wiki] [user 2026-10-28]: nothing
+            # to model, the next frame shows the new telegraphs
         else:
             self.say(f"   {item} still in its slot; the click may not have registered")
 
@@ -695,13 +697,16 @@ class Bot:
                 have = {it["item"] for it in p.items if item_tries.get(it["item"], 0) < 2}
                 if best.get("exp_damage", 0) >= 1.0:
                     # every move takes damage: freeze everyone (Mass Ice), turn everyone
-                    # around (Rain of Mirrors) if that removes the damage, or shield
-                    # (Kami Brew); then re-read and re-plan with the effect in the model
+                    # around (Rain of Mirrors) if that removes the damage, reroll every
+                    # enemy's intent (Lucky Die; the new telegraphs are read off the screen),
+                    # or shield (Kami Brew); then re-read and re-plan with the effect in the model
                     item = None
                     if "ice_card" in have:
                         item = "ice_card"
                     elif "mirror_card" in have and self._mirror_saves(s):
                         item = "mirror_card"
+                    elif "dice_card" in have:
+                        item = "dice_card"
                     elif "blue_potion" in have:
                         item = "blue_potion"
                     if item:

@@ -220,6 +220,14 @@ def _near(a: np.ndarray, rgb: tuple, tol: int = 14) -> np.ndarray:
     return (np.abs(a[..., 0] - rgb[0]) < tol) & (np.abs(a[..., 1] - rgb[1]) < tol) & (np.abs(a[..., 2] - rgb[2]) < tol)
 
 
+def _red_pips(a: np.ndarray, lit: np.ndarray) -> int:
+    """Compact red blobs (9-120 px): the pips of the Lucky Die."""
+    r_, g_, b_ = a[..., 0], a[..., 1], a[..., 2]
+    red = ((r_ > g_ + 40) & (r_ > b_ + 40) & lit).astype(np.uint8)
+    n, _, st, _ = cv2.connectedComponentsWithStats(red, connectivity=4)
+    return int(sum(1 for i in range(1, n) if 9 <= st[i, cv2.CC_STAT_AREA] <= 120))
+
+
 def read_consumables(rgb: np.ndarray) -> list[dict]:
     """Items in the consumable column (left edge), one per slot.
 
@@ -230,8 +238,11 @@ def read_consumables(rgb: np.ndarray) -> list[dict]:
       white_potion  Cool Up        (cork + pale liquid) [run 20261028-061420 item_unknown.png]
       skull_card    Mass Poison    (green card, pale skull)
       ice_card      Mass Ice       (navy card, cyan crystal)
-      curse_card    Mass Curse     (red card, mask) [user]
-      mirror_card   Rain of Mirrors (grey card) [user, look unverified]
+      curse_card    Mass Curse     (red card, mask) [user] [collect 20261027-164727 f0083]
+      dice_card     Lucky Die      (grey-white card, six red pips in 2 x 3) [user 2026-10-28]
+                    [run 20261028-122652: 64-px pips in combat, 16-px pips under banners]
+      mirror_card   Rain of Mirrors (grey card) [user, look unverified; the grey card first
+                    logged under this name was the Lucky Die]
     Anything else in a filled slot is returned as 'unknown' so the bot can log it.
     """
     out = []
@@ -248,6 +259,8 @@ def read_consumables(rgb: np.ndarray) -> list[dict]:
         red_px = int(((r_ > g_ + 40) & (r_ > b_ + 40) & lit).sum())
         skull = int(_near(a, (144, 170, 56), 30).sum())
         navy = float(((b_ > r_ + 25) & (b_ > g_ + 15) & (b_ < 120) & lit).mean())
+        pips = _red_pips(a, lit)
+        grey_px = int((((a.max(axis=2) - a.min(axis=2)) < 22) & lit).sum())
         if cork >= 6 and green_px >= 150:
             item = "green_potion"
         elif cork >= 6 and blue_px >= 150:
@@ -256,6 +269,11 @@ def read_consumables(rgb: np.ndarray) -> list[dict]:
             item = "skull_card"
         elif navy >= 0.15:
             item = "ice_card"
+        elif 5 <= pips <= 8 and grey_px >= 1500:
+            # Lucky Die: 6 pips and 2,560-2,645 grey px [run 20261028-122652]; Mass Curse has
+            # 14 red blobs on a dark red card [collect 20261027-164727 f0083]. Before 0.18.2 the
+            # die read as curse_card in combat and as mirror_card under banners
+            item = "dice_card"
         elif red_px >= 300:
             item = "curse_card"   # Mass Curse: red card with a mask [user]
         elif cork >= 6 and int(((a.min(axis=2) > 150) & (a.max(axis=2) - a.min(axis=2) < 30)).sum()) >= 300:
