@@ -7,6 +7,8 @@ Project docs (claude.ai project "autogame"): `claude/00-start-here.md`, `claude/
 
 Game catalogue: `shogunbot/data/*.json` holds every tile, enemy, trait, consumable, upgrade, region and hero (from the wiki, with source tags); `shogunbot/catalogue.py` loads it.
 
+Enemy behaviour (0.17, M3): learned from the bot's own run logs. `python -m shogunbot.mine build <folder with runs/>` rebuilds `shogunbot/data/behaviour.json`; `python -m shogunbot.mine report <folder>` scores it against the logs.
+
 Rewards (0.16, `rewards.py`): pure-gain upgrades (+damage, −cooldown, +slot) are always taken and simulation picks the tile; trade-offs and tile choices are simulated against skipping on the same seeded fights in a harder-than-Stage-1 scenario, and skipped only when every option is a net loss. It never rerolls.
 
 ## Run (Windows, from this folder)

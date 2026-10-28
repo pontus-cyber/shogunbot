@@ -156,6 +156,11 @@ class Enemy:
     wind: int = 1
     cursed: bool = False  # Mass Curse / Curse enchantment: next hit deals double damage
     poison: int = 0       # turns of poison left: 1 damage at the end of each turn [wiki]
+    # history for the learned behaviour model (behaviour.py): the class of the
+    # last action it telegraphed (fire, queue, turn, move, hold; None = unknown,
+    # e.g. just spawned) and phases since it last fired (None = not seen firing)
+    last: str | None = None
+    fage: int | None = None
 
     @property
     def armed(self) -> bool:
@@ -167,11 +172,12 @@ class Enemy:
 
     def clone(self) -> "Enemy":
         return Enemy(self.kind, self.x, self.facing, self.hp, list(self.queue), self.uid, self.frozen, self.cd,
-                     self.intent, self.primed, self.wind, self.cursed, self.poison)
+                     self.intent, self.primed, self.wind, self.cursed, self.poison, self.last, self.fage)
 
     def key(self) -> tuple:
         return (self.kind, self.x, self.facing, self.hp, tuple(self.queue), self.frozen, self.cd, self.intent,
-                self.primed, min(self.wind, 1), self.cursed, self.poison)
+                self.primed, min(self.wind, 1), self.cursed, self.poison, self.last,
+                None if self.fage is None else min(self.fage, 2))
 
 
 @dataclass

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from itertools import permutations
 
+from . import behaviour
 from .catalogue import CAT
 from .model import DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, Enemy, Hero, Kit, KitTile, State
 from .rules import apply_hero, Events
@@ -137,6 +138,8 @@ class Tracker:
         self.level = ""
         self.notes: list[str] = []
         self.prev: list = []          # enemies of the last state (for facing persistence)
+        self.hist: list = []          # enemies when the bot last acted: (kind, x, telegraph, fage), for the
+                                      # behaviour model's history features (behaviour.carry)
         self.freeze_left = 0          # turns of Mass Ice left
         self.shield = False           # Kami Brew active
         self.cursed = False           # Mass Curse on every enemy until our next attack
@@ -168,6 +171,7 @@ class Tracker:
             self.level = level
             self.facing_known = False
             self.prev = []
+            self.hist = []
 
         h = p.hero
         facing = self._hero_facing(h, p.confidence.get("hero_facing", 0.0))
@@ -257,6 +261,11 @@ class Tracker:
             self.notes.append(f"{len(bosses)} Daisuke reads; kept cell {keep.x}")
         self.prev = [(en.kind, en.x, en.facing, en.intent) for en in enemies]
         self.swapped_uid_x = None
+        # what each enemy did last turn and how long since it fired: the learned model's
+        # history features, matched the way shogunbot.mine matches logged turns
+        for j, i in behaviour.match(self.hist, [(en.kind, en.x) for en in enemies]).items():
+            _, _, it, fage = self.hist[i]
+            enemies[j].last, enemies[j].fage = behaviour.carry(it, fage)
 
         s = State(cells, hero, enemies, level=level,
                   wave=1, waves_total=0 if level == "boss" else 99)
@@ -378,6 +387,9 @@ class Tracker:
         s2 = apply_hero(s, action, Events())
         self.charge = dict(s2.hero.charge)
         self.queue_track = list(s2.hero.queue)
+        # where each enemy stands once the hero has acted (a swap moves one), and its telegraph
+        self.hist = [(e.kind, s.hero.x if (e.x == s2.hero.x and s2.hero.x != s.hero.x) else e.x, e.intent, e.fage)
+                     for e in s.alive()]
         if action == "turn":
             self.facing = -s.hero.facing
         if s2.hero.x != s.hero.x and s.enemy_at(s2.hero.x) is not None:

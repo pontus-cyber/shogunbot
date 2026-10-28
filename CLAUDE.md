@@ -23,6 +23,7 @@ Game rules with sources are in `claude/stage1-domain-model.md`.
 ## Code rules
 - Game facts live in `shogunbot/data/*.json` (tiles, enemies, traits, consumables, upgrades, regions, heroes), read through `catalogue.py`. Never hard-code a tile's damage or footprint, an enemy's HP or tiles, or an item's effect in code; add or fix it in the data with its source tag.
 - `rules.py` and `model.py` are the simulator. A rule change needs a regression test that cites the run and turn that showed it.
+- Enemy behaviour is learned from the run logs (`behaviour.py`, `data/behaviour.json`). After new runs, rebuild it with `python -m shogunbot.mine build <folder with runs/>` and check `python -m shogunbot.mine report` (leave-one-run-out accuracy must not drop). Rules confirmed in play (R1, R2, the Charger lane, Daisuke's combo) stay hard rules in `behaviour.intents`.
 - Damage-first scoring: never trade HP for kills while a zero-damage move exists (`planner.WEIGHTS`).
 - Perception thresholds are measured on recorded frames. Note the frame or run in a comment when you change one.
 - Perception templates are built from recorded frames: `perception/assets/faces.npz` (tile icons) by `python -m shogunbot.perception.build_faces <folder with runs/ and collect/>`, `perception/assets/glyphs.json` (shrine font) by `perception.text.build_glyphs`. When a new tile or shrine text shows up, add its frame and labels to the builder and rebuild.

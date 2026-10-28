@@ -2,15 +2,20 @@
 
 Tile footprints come from the catalogue (data/tiles.json, field 'attack'),
 so hero and enemy attacks share one resolver and a new tile is a data
-change. Behaviour presets per enemy kind stay in code until M3 learns them
-from logs. Hypotheses from the domain model (tagged [hyp] there) are marked
-HYP here, so a simulator mismatch in the logs points straight at the rule.
+change. What an enemy does next is its telegraph: read from the screen for
+the coming phase, and for later simulated turns drawn from the behaviour
+model learned from the run logs (behaviour.py, data/behaviour.json) on the
+board at the start of the turn, as the game decides it. The 0.16 hand-set
+presets remain behind BEHAVIOUR = "presets" for comparison. Hypotheses from
+the domain model (tagged [hyp] there) are marked HYP here, so a simulator
+mismatch in the logs points straight at the rule.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from . import behaviour
 from .catalogue import CAT
 from .model import (
     DEFAULT_KIT, ENEMY_KINDS, ENEMY_TILE_COOLDOWN, ENEMY_TILE_DAMAGE, QUEUE_MAX, SWAP_COOLDOWN,
@@ -308,8 +313,16 @@ def _hits_hero(s: State, e: Enemy, tile: str) -> bool:
     return False
 
 
-def enemy_options(s: State, e: Enemy) -> list[tuple[float, tuple]]:
-    """Preset table (domain model section 6). Returns [(prob, action)].
+BEHAVIOUR = "learned"   # "presets": the hand-set tables of 0.16 instead of the learned model (M3)
+
+
+def enemy_options(s: State, e: Enemy, presets: bool = False) -> list[tuple[float, tuple]]:
+    """What an enemy does in this enemy phase. Returns [(prob, action)].
+
+    With a telegraph (read from the screen, or drawn at the start of the
+    turn by the planner and self-play) the action is that telegraph. Without
+    one: the learned behaviour model (behaviour.py, from the run logs), or
+    with presets=True the 0.16 hand-set tables (domain model section 7).
 
     action tuples: ("turn",) ("queue", tile) ("fire",) ("move", d) ("wait",)
     """
@@ -330,6 +343,19 @@ def enemy_options(s: State, e: Enemy) -> list[tuple[float, tuple]]:
         opts = _intent_options(s, e, move_or_wait)
         if opts is not None:
             return opts
+
+    if not presets and BEHAVIOUR == "learned":
+        drawn = behaviour.intents(s, e)
+        if drawn:
+            out, saved = [], e.intent
+            try:
+                for p, it in drawn:
+                    e.intent = it
+                    for q, a in _intent_options(s, e, move_or_wait) or [(1.0, ("wait",))]:
+                        out.append((p * q, a))
+            finally:
+                e.intent = saved
+            return out
 
     if e.kind == "daisuke":
         return _daisuke_options(s, e, d, dist, facing_hero, move_or_wait)
@@ -383,7 +409,12 @@ def _intent_options(s: State, e: Enemy, move_or_wait):
         return [(1.0, move_or_wait(-1 if it == "move-left" else 1))]
     if it == "queue":
         if e.kind == "daisuke":
-            # the new tile's type is not telegraphed: his queue options, no fire
+            # the new tile's type is not telegraphed: what he loaded in the logs at this
+            # distance with this queue (behaviour.json), else his preset queue options
+            m = behaviour.model() if BEHAVIOUR == "learned" else None
+            learned = m.boss_tile(abs(e.x - s.hero.x), e.queue) if m else None
+            if learned:
+                return [(p, ("queue", t)) for p, t in learned]
             dopts = [(p, a) for p, a in _daisuke_options(s, e, _toward(e, s.hero.x), abs(e.x - s.hero.x),
                                                           e.facing == _toward(e, s.hero.x), move_or_wait)
                      if a[0] == "queue"]
@@ -478,6 +509,10 @@ def _apply_enemy_action(s: State, uid: int, action: tuple, ev: Events) -> None:
         return
     ev.enemy_actions.append((uid, " ".join(map(str, action))))
     kind = action[0]
+    # history for the behaviour model: the telegraph's class (a blocked move still counts as a move)
+    e.last = behaviour.history_class(e.intent) or {"fire": "fire", "queue": "queue", "turn": "turn",
+                                                     "move": "move"}.get(kind, "hold")
+    e.fage = 0 if e.last == "fire" else (e.fage + 1 if e.fage is not None else None)
     if kind != "fire" and e.cd > 0:
         e.cd -= 1
     if kind not in ("queue", "fire"):
@@ -543,9 +578,41 @@ def enemy_phase(s: State, max_outcomes: int = 12) -> list[tuple[float, State, Ev
     return [(p / total, st, ev) for p, st, ev in frontier]
 
 
+MAX_BRANCHES = 8   # joint telegraphs kept per chance node (most likely first)
+
+
+def draw_intents(s: State, max_branches: int = MAX_BRANCHES) -> list[tuple[float, State]] | None:
+    """The game decides every enemy's action at the start of the hero's turn
+    and shows it as a telegraph (domain model section 6). For enemies whose
+    telegraph is not known (simulated turns after the first), draw it from the
+    learned behaviour model on the board as it is now, BEFORE the hero acts:
+    [(probability, state with telegraphs)], or None when nothing is missing."""
+    if BEHAVIOUR != "learned" or behaviour.model() is None:
+        return None
+    todo = [e for e in s.alive() if e.intent is None and e.frozen <= 0]
+    if not todo:
+        return None
+    combos = [(1.0, {})]
+    for e in todo:
+        opts = behaviour.intents(s, e) or [(1.0, "hold")]
+        combos = [(p * q, {**c, e.uid: it}) for p, c in combos for q, it in opts]
+        combos.sort(key=lambda t: -t[0])
+        combos = combos[:max_branches]
+    tot = sum(p for p, _ in combos) or 1.0
+    out = []
+    for p, c in combos:
+        sc = s.clone()
+        for e in sc.enemies:
+            if e.uid in c:
+                e.intent = c[e.uid]
+        out.append((p / tot, sc))
+    return out
+
+
 def step(s: State, action: str, validate: bool = True) -> list[tuple[float, State, Events]]:
     """Full turn: hero action then enemy phase. The planner passes
-    validate=False for actions it took from legal_hero_actions itself."""
+    validate=False for actions it took from legal_hero_actions itself.
+    Missing telegraphs are drawn first, on the board before the hero acts."""
     ev0 = Events()
     if validate and action not in legal_hero_actions(s):
         ev0.invalid = action
@@ -553,6 +620,12 @@ def step(s: State, action: str, validate: bool = True) -> list[tuple[float, Stat
     if free_action(s, action):
         s1 = apply_hero(s, action, ev0)
         return [(1.0, s1, ev0)]
+    branches = draw_intents(s)
+    if branches:
+        out = []
+        for pb, sb in branches:
+            out += [(pb * p, s2, ev) for p, s2, ev in step(sb, action, validate=False)]
+        return out
     # Yellow is decided BEFORE the hero acts: a loaded enemy (past its one-phase
     # wind-up, R1) with the hero in its footprint at the start of the turn fires
     # this phase whatever the hero does (R2). That is what makes the swap trick

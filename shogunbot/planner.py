@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .model import QUEUE_MAX, State
-from .rules import SPEC, _first_unit_ahead, _furthest_unit_ahead, legal_hero_actions, step, threats
+from .rules import SPEC, _first_unit_ahead, _furthest_unit_ahead, draw_intents, legal_hero_actions, step, threats
 
 WEIGHTS: dict[str, float] = {
     "hero_hp": 1000.0,           # damage-first [user]: one HP outweighs any kill combo
@@ -189,6 +189,10 @@ def _action_value(s: State, a: str, depth: int, w: dict, stats: dict):
     return v, p_dmg, exp_dmg, outs
 
 
+MAX_BRANCHES = 8    # telegraph combinations at the first simulated turn
+DEEP_BRANCHES = 3   # ... and at later turns
+
+
 def _search(s: State, depth: int, w: dict, stats: dict) -> float:
     stats["nodes"] += 1
     if depth == 0 or s.hero.hp <= 0 or not s.alive():
@@ -197,16 +201,36 @@ def _search(s: State, depth: int, w: dict, stats: dict) -> float:
     k = (depth, s.key())
     if k in memo:
         return memo[k]
-    v = max(_action_value(s, a, depth, w, stats)[0] for a in legal_hero_actions(s))
+    # the next turn's telegraphs in full; turns after that only their likeliest few
+    # (the boss fight reached 12 s per move with 8 everywhere) [replanning 759 logged turns]
+    ply = stats.get("root_depth", depth) - depth
+    branches = draw_intents(s, MAX_BRANCHES if ply <= 1 else DEEP_BRANCHES)
+    if branches:
+        v = sum(p * max(_action_value(sc, a, depth, w, stats)[0] for a in legal_hero_actions(sc))
+                for p, sc in branches)
+    else:
+        v = max(_action_value(s, a, depth, w, stats)[0] for a in legal_hero_actions(s))
     memo[k] = v
     return v
 
 
 def plan(s: State, depth: int = 3, w: dict[str, float] = WEIGHTS) -> Decision:
-    stats = {"nodes": 0}
+    """Best hero action. Live, the screen shows every telegraph; an enemy
+    whose telegraph is unknown is averaged over the behaviour model (the
+    hero has to commit without seeing it)."""
+    stats = {"nodes": 0, "root_depth": depth}
+    branches = draw_intents(s) or [(1.0, s)]
     cands = []
     for a in legal_hero_actions(s):
-        v, p_dmg, exp_dmg, outs = _action_value(s, a, depth, w, stats)
+        v = p_dmg = exp_dmg = 0.0
+        outs = []
+        for pb, sb in branches:
+            vb, pd, ed, ob = _action_value(sb, a, depth, w, stats)
+            v += pb * vb
+            p_dmg += pb * pd
+            exp_dmg += pb * ed
+            outs += [(pb * p, s2, ev) for p, s2, ev in ob]
+        outs.sort(key=lambda t: -t[0])
         v += w.get("hp_lost_now", 0.0) * exp_dmg
         cands.append({"action": a, "value": round(v, 2), "p_damage": round(p_dmg, 3),
                       "exp_damage": round(exp_dmg, 3), "_outs": outs})
@@ -232,14 +256,12 @@ LIVE_BUDGET_S = 3.0   # a third tile triples planning time (346 -> 827-1000 ms o
 
 
 def plan_live(s: State, w: dict[str, float] = WEIGHTS) -> Decision:
-    """Live planning. With the starting two tiles: plan(s, auto_depth(s)), as
-    before. With more tiles the tree grows, so the search deepens one ply at a
-    time and stops before a ply that would overrun LIVE_BUDGET_S (estimated
-    from how much the last ply grew)."""
+    """Live planning: the search deepens one ply at a time up to auto_depth and
+    stops before a ply that would overrun LIVE_BUDGET_S (estimated from how
+    much the last ply grew). Since 0.17 for every kit: the learned behaviour
+    branches more than the old presets [replanning 759 logged turns]."""
     import time
     target = auto_depth(s)
-    if len(s.hero.kit) <= 2:
-        return plan(s, target, w)
     t0 = time.time()
     depth = min(3, target)
     d = plan(s, depth, w)

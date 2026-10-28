@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from .catalogue import CAT
 from .model import DEFAULT_KIT, ENEMY_KINDS, HERO_MAX_HP, Enemy, Hero, Kit, State
 from .planner import WEIGHTS, auto_depth, plan
+from . import behaviour, rules
 from .rules import ENEMY_TILE_DAMAGE, _hits_hero, enemy_options, step
 
 _INTENT = {"turn": "turn", "queue": "queue", "fire": "fire", "wait": "hold"}
@@ -45,9 +46,10 @@ def telegraph(s: State, rng: random.Random) -> None:
     """Show the planner what the game shows: every enemy's next action.
 
     The game draws each enemy's coming action before the hero moves, so live
-    the first enemy phase is known. Here each enemy's action is drawn from its
-    preset table on the board as it stands (the same 'yellow before the hero
-    acts' rule as step) and written as its intent; step then plays it."""
+    the first enemy phase is known. Here each enemy's action is drawn from the
+    learned behaviour model (behaviour.py; the 0.16 preset table when
+    GAME_BEHAVIOUR is "presets") on the board as it stands, and written as
+    its intent; step then plays it."""
     for e in s.alive():
         e.intent = None
         e.primed = (e.armed and e.wind >= 1 and ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0
@@ -55,7 +57,17 @@ def telegraph(s: State, rng: random.Random) -> None:
     for e in sorted(s.alive(), key=lambda e: e.x):
         if e.frozen > 0:
             continue
-        opts = enemy_options(s, e)
+        drawn = behaviour.intents(s, e) if GAME_BEHAVIOUR == "learned" else None
+        if drawn:
+            r, acc, it = rng.random(), 0.0, drawn[-1][1]
+            for p, i in drawn:
+                acc += p
+                if r <= acc:
+                    it = i
+                    break
+            e.intent = it
+            continue
+        opts = enemy_options(s, e, presets=True)
         r, acc, act = rng.random(), 0.0, opts[-1][1]
         for p, a in opts:
             acc += p
@@ -87,6 +99,8 @@ _BOSS_LV = CAT.levels["boss"]
 _BOSS = CAT.enemy(_BOSS_LV["boss"])
 SPAWN_WHEN_ALIVE_AT_MOST = 1  # Normal room: next wave when <= this many remain ([web] 1-2)
 SCENARIOS = ("stage1", "stress")
+GAME_BEHAVIOUR = "learned"   # how simulated enemies choose; "presets" = the 0.16 tables. The planner's
+                             # own model of them is rules.BEHAVIOUR, so the two can be compared
 STRESS_WAVES = 7
 
 

@@ -45,9 +45,12 @@ def test_t1_moving_out_of_footprint_avoids_hit():
 
 
 def test_t2_enemy_that_steps_in_does_not_fire_same_phase():
+    # T2: the phase an enemy steps adjacent it does not fire. Whether it steps in or
+    # waits now comes from the learned behaviour model (M3); no outcome hits the hero
     s = mk(5, 1, 1, [("ashigaru", 3, -1, 3, ["sword"])])
-    s2, ev = only(step(s, "wait"))
-    assert s2.enemies[0].x == 2 and s2.hero.hp == 10
+    outs = step(s, "wait")
+    assert all(s2.hero.hp == 10 for _, s2, _ in outs)
+    assert any(s2.enemies[0].x == 2 for _, s2, _ in outs)
 
 
 def test_charger_blocked_by_ally_holds():
