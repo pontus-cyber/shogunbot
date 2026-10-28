@@ -47,7 +47,7 @@ from .live import LiveView
 from .runlog import RunLogger
 from .winio import GameWindow
 
-VERSION = "0.20"
+VERSION = "0.20.1"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -67,6 +67,8 @@ UNKNOWN_GIVE_UP_S = 90.0  # end the run as 'stuck'
 GIVE_UP_WAIT_S = 20.0     # after a win: wait up to this long for the map before pausing
 DEATH_SCREEN_MAX_S = 30.0 # a death screen without a readable RESTART ends the new run as 'stuck'
 HP_CONFIRM_S = 0.35       # a second look before an HP drop counts [run 20261028-132952 t77, t82]
+SPAWN_WAIT_S = 2.5        # wait at most this long for spawn flames to clear before reading facing
+SPAWN_POLL_S = 0.25
 
 
 def _stop_requested() -> bool:
@@ -373,6 +375,26 @@ class Bot:
         self.log.event("hp_flicker", turn=turn, read=read, second_read=second,
                        second_pips=h2.get("hp_max"), kept=last_hp)
         return last_hp
+
+    def _wait_spawns(self, frame, p, tr, turn: int):
+        """A unit in its spawn flames hides its sprite, so its facing reads as unknown
+        (52 of the 86 wrong facings of new units in 21 runs) [user review of the 0.20
+        series]. Read again every SPAWN_POLL_S until the flames clear, at most
+        SPAWN_WAIT_S; the game waits for the hero's move meanwhile."""
+        t0 = time.time()
+        kit = [t.tile for t in tr.kit]
+        while time.time() - t0 < SPAWN_WAIT_S:
+            time.sleep(SPAWN_POLL_S)
+            f2 = self.gw.grab()
+            p2 = perceive(f2, kit)
+            if p2.screen not in ("combat", "boss"):
+                break
+            frame, p = f2, p2
+            if not any(e.get("spawning") for e in p.enemies):
+                break
+        self.log.event("spawn_wait", turn=turn, seconds=round(time.time() - t0, 2),
+                       cleared=not any(e.get("spawning") for e in p.enemies))
+        return frame, p
 
     def _spend_item(self, s, d, tr, have: set) -> tuple[str, str] | None:
         """The run's last level: spend each held item at its first useful moment
@@ -700,6 +722,8 @@ class Bot:
 
                 # ---------------- combat / boss
                 map_tries = 0
+                if p.screen in ("combat", "boss") and any(e.get("spawning") for e in p.enemies):
+                    frame, p = self._wait_spawns(frame, p, tr, turn)
                 if p.screen in ("combat", "boss") and any(e["queue"] or e["intent"] is None for e in p.enemies):
                     # catch the yellow phase of blinking bubbles: ~1 s of extra frames
                     extra = []

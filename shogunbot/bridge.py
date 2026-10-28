@@ -347,8 +347,17 @@ class Tracker:
            never turns away [user].
         2. An enemy telegraphing 'turn' is facing away from the hero now.
         3. Otherwise facing persists from the last frame (enemies change facing
-           only by a telegraphed turn), matched by kind within one cell.
-        4. New units: the sprite classifier.
+           only by a telegraphed turn), from the unit of that kind that could
+           have become this one (_could_be).
+        4. New units: the sprite classifier; a Spike Charger faces the hero.
+
+        Rules 3 and 4 were checked on the 345 new units of 21 runs (true facing
+        from the next turn's telegraph). Rule 3 used to match any unit of the
+        kind within one cell and handed 9 new units the facing of the unit they
+        replaced. The Charger's sprite is symmetric: its read was right on 20 of
+        42 new Chargers, and new Chargers face away 34 times in 65, so no read
+        helps; facing the hero is the cautious guess, and the next turn's
+        telegraph shows it [0.20.1, user review of the 0.20 series].
         """
         toward = 1 if hero_x > e["x"] else -1
         directional = kind in ("ashigaru", "charger") or (kind == "daisuke" and queue and queue[0] in ("sword", "charge"))
@@ -356,14 +365,30 @@ class Tracker:
             return toward
         if intent == "turn":
             return -toward
-        prev = [q for q in self.prev if q[0] == kind and abs(q[1] - e["x"]) <= 1]
+        prev = [q for q in self.prev if q[0] == kind and self._could_be(q, e["x"])]
         if prev:
             pk = min(prev, key=lambda q: abs(q[1] - e["x"]))
             f = -pk[2] if pk[3] == "turn" else pk[2]
             if e["facing"] and e["facing"] != f and conf >= 0.95:
                 self.notes.append(f"enemy at {e['x']}: sprite says {e['facing']} with high confidence, kept {f}")
             return f
+        if kind == "charger":
+            return toward
         return e["facing"] or toward
+
+    @staticmethod
+    def _could_be(q: tuple, x: int) -> bool:
+        """Could last turn's unit q = (kind, x, facing, intent) be the one now at x?
+        A unit changes cell only by a telegraphed one-cell move, a Charger's charge
+        along its facing, or Daisuke's dash; the hero's swap is applied to self.prev
+        in advance()."""
+        kind, px, f, intent = q
+        if px == x or kind == "daisuke":
+            return True
+        step = x - px
+        if abs(step) == 1 and intent == ("move-right" if step > 0 else "move-left"):
+            return True
+        return kind == "charger" and intent == "fire" and (step > 0) == (f > 0)
 
     def freeze(self, turns: int) -> None:
         self.freeze_left = turns

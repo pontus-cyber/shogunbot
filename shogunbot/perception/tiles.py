@@ -52,9 +52,18 @@ def find_faces(rgb: np.ndarray, x0: int, x1: int, y0: int, y1: int) -> list[tupl
     separate the faces. Each run is then cut to the face height by rows."""
     a = rgb[y0:y1, x0:x1].astype(np.int16)
     d = _fill(a)
+    m = d.mean(axis=0)
     out = []
-    for c0, c1 in _runs(d.mean(axis=0) > 0.03):
+    for c0, c1 in _runs(m > 0.03):
         k = max(1, round((c1 - c0 + 16) / 120))   # faces touching: 120 px pitch
+        if k == 1 and c1 - c0 > FACE_W:
+            # a few stray fill columns next to a face: keep the face-wide window with the most
+            # fill. A bird flying past the right pedestal added 12 such columns and shifted the
+            # box 12 px left, so Shadow Dash read as an unknown tile with no damage digit
+            # [run 20261028-153448 reward_1_tile_choice: columns 1068-1079 at 0.04-0.06 fill,
+            # the face from 1080 at 0.47+]
+            c0 = max(range(c0, c1 - FACE_W + 1), key=lambda s: (float(m[s:s + FACE_W].sum()), -s))
+            c1 = c0 + FACE_W
         for j in range(k):
             cc0 = c0 + j * 120
             cc1 = min(c1, cc0 + FACE_W)

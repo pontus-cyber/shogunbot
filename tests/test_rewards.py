@@ -36,6 +36,8 @@ TILE_CHOICES = {
     "runs/20261028-061420/frames/f0034_CLICK.png": [("back_charge", 1, 3, 3), ("swirl", 2, 3, 3)],
     "collect/20261027-164727/f0042_CLICK.png": [("shadow_dash", 1, 5, 4), ("spear", 2, 5, 2)],
     "runs/20261028-082756/frames/reward_1_tile_choice.png": [("spear", 2, 5, 3), ("katana", 2, 0, 4)],
+    # a bird flying past the right pedestal shifted its box 12 px; 0.20 read 'None None/5 L2'
+    "runs/20261028-153448/frames/reward_1_tile_choice.png": [("back_charge", 1, 3, 4), ("shadow_dash", 1, 5, 2)],
 }
 SHRINES = {
     "runs/20261027-182237/frames/f0135_CLICK.png": "slot_1_cooldown_minus_1",
@@ -186,6 +188,21 @@ def test_tradeoff_skips_only_when_every_option_is_a_net_loss():
     noisy = {"skip": [10, 9, 10, 8], "upgrade:swirl": [8, 7, 8, 6], "upgrade:arrow": [10, 10, 7, 8]}
     d = rewards.decide_upgrade(kit, "damage_2_cooldown_3", 10, evaluator=fake_eval(noisy))
     assert d.best.name == "upgrade:arrow"     # -0.5 +- 0.87: not a net loss, so taken
+
+
+def test_rule_text_says_when_the_option_taken_scored_below_skipping():
+    # [run 20261028-154317, Bamboo Grove II '-1 DAMAGE / -4 COOLDOWN'] every option scored below
+    # skipping, Arrow -0.20 +- 0.29; it was taken as intended (no option a net loss), but the
+    # log said 'best option that is not a net loss' [user review of the 0.20 series]
+    kit = Kit.of("swirl", "arrow")
+    below = {"skip": [10, 9, 10, 8], "upgrade:swirl": [9, 9, 9, 7], "upgrade:arrow": [10, 9, 9, 8]}
+    d = rewards.decide_upgrade(kit, "cooldown_minus_4_damage_minus_1", 10, evaluator=fake_eval(below))
+    assert d.best.name == "upgrade:arrow"
+    assert d.rule.startswith("trade-off: every option scored below skipping; upgrade:arrow scores -0.25")
+    assert "a loss within the noise, so it is taken" in d.rule
+    above = {"skip": [9, 9, 9, 8], "upgrade:swirl": [10, 9, 10, 9], "upgrade:arrow": [9, 9, 9, 8]}
+    d = rewards.decide_upgrade(kit, "damage_2_cooldown_3", 10, evaluator=fake_eval(above))
+    assert d.best.name == "upgrade:swirl" and d.rule == "trade-off: upgrade:swirl scores +0.75 +- 0.25 HP against skipping, the best option"
 
 
 def test_tile_choice_takes_an_offer_unless_all_are_net_losses():

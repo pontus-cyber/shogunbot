@@ -5,7 +5,7 @@ perceive(rgb) returns a Perception with:
                'title' | 'death' | 'unknown'
   cells        left-to-right list of {kind, cx, unit}
   hero         {x, facing, hp, queue[...], hand[{tile, ready, cx}]}
-  enemies      [{x, kind, facing, hp, queue[...], fire_now, intent}]
+  enemies      [{x, kind, facing, hp, queue[...], fire_now, intent, spawning}]
   boss_frac    boss HP bar fill 0..1 (boss screen only)
   wave_alert   True when the WAVE text is red (next wave spawns soon)
   confidence   per-field 0..1, so the logger can flag weak reads
@@ -37,6 +37,13 @@ ICO_X = _ico["X"].reshape(len(_ico["X"]), -1).astype(np.float32) / 255
 ICO_K = _ico["K"]
 
 SPRITE_Y0, SPRITE_Y1 = 610, 765
+# A unit appears in a red spawn beam, then flames, then its sprite. Red pixels (R >= 150, G <= 100,
+# B <= 70, R - G >= 90) in the sprite box: flames 6,000-15,000, the beam 1,000-6,000, settled units
+# 0-1,240. Under flames the sprite gives no facing (78 of 78 new Ashigaru/Tachi at 6,000+), so the
+# bridge assumed the unit faced the hero, and about half face away. Below 2,000 the facing still
+# reads (28 of 28) [scan of 3,804 units on every recorded frame, 0.20.1; user review of the 0.20
+# series: enemy facing was the largest mismatch].
+SPAWN_RED_PX = 2000
 SLOT_Y0, SLOT_Y1, SLOT_PITCH = 458, 576, 120
 HP_ROWS = (799, 819)
 HAND_Y0, HAND_Y1 = 905, 1000
@@ -244,8 +251,9 @@ def read_consumables(rgb: np.ndarray) -> list[dict]:
       curse_card    Mass Curse     (red card, mask) [user] [collect 20261027-164727 f0083]
       dice_card     Lucky Die      (grey-white card, six red pips in 2 x 3) [user 2026-10-28]
                     [run 20261028-122652: 64-px pips in combat, 16-px pips under banners]
-      mirror_card   Rain of Mirrors (grey card) [user, look unverified; the grey card first
-                    logged under this name was the Lucky Die]
+      mirror_card   Rain of Mirrors (grey card with diagonal light streaks) [user] [runs
+                    20261028-155154, -155955, -160740: read, used and consumed; the grey card
+                    first logged under this name was the Lucky Die]
     Anything else in a filled slot is returned as 'unknown' so the bot can log it.
 
     The game dims an item it will not let you use now to 47.5 % brightness: every
@@ -309,10 +317,17 @@ def _classify_item(a: np.ndarray) -> str:
         item = "white_potion"
     elif (lit.mean() > 0.35 and a.mean() < 150 and float(((a.max(axis=2) - a.min(axis=2)) < 22)[lit].mean()) > 0.7
           and cork < 6):
-        item = "mirror_card"  # Rain of Mirrors: grey card [user, unverified: first sighting saves a frame]
+        item = "mirror_card"  # Rain of Mirrors: grey card [user] [runs 20261028-155154 .. -160740]
     else:
         item = "unknown"
     return item
+
+
+def spawn_pixels(rgb: np.ndarray, cx: int) -> int:
+    """Red spawn-effect pixels in a unit's sprite box (see SPAWN_RED_PX)."""
+    a = rgb[SPRITE_Y0:SPRITE_Y1, max(0, cx - 64):cx + 64].astype(np.int16)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    return int(((r >= 150) & (g <= 100) & (b <= 70) & (r - g >= 90)).sum())
 
 
 def windup_pixels(rgb: np.ndarray, cx: int) -> int:
@@ -477,10 +492,11 @@ def perceive(rgb: np.ndarray, kit_tiles=None) -> Perception:
                 if kind == "ashigaru" and tiles and intent != "fire" and windup_pixels(rgb, cx) >= WINDUP_MIN:
                     intent = "fire"
                     tiles[0] = dict(tiles[0], colour="yellow")
-                en = {"x": i, "cx": cx, "kind": kind, "facing": facing, "hp": g, "hp_max": g + r,
-                      "queue": [t["tile"] for t in tiles],
+                spawning = spawn_pixels(rgb, cx) >= SPAWN_RED_PX
+                en = {"x": i, "cx": cx, "kind": kind, "facing": 0 if spawning else facing, "hp": g,
+                      "hp_max": g + r, "queue": [t["tile"] for t in tiles],
                       "fire_now": bool(tiles and tiles[0]["colour"] == "yellow"),
-                      "intent": intent}
+                      "intent": intent, "spawning": spawning}
                 p.enemies.append(en)
                 conf[f"enemy{i}"] = round(kc, 2)
             entry["unit"] = kind

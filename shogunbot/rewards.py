@@ -227,8 +227,23 @@ def decide_tile(kit: Kit, offers: list[dict], hp: int, *, seeds=SEEDS, depth: in
 
 
 def _tradeoff(opts: list[Option], what: str, t0: float) -> Decision:
+    """Skip only when every option is a net loss; otherwise take the best option that is
+    not one, also when it scored below skipping but within the noise [user, after run
+    20261028-082756]. The rule text says which case decided: run 20261028-154317 took
+    -1 damage -4 cooldown on Arrow at -0.20 +- 0.29 below skipping under the line 'best
+    option that is not a net loss', which read as if it had beaten skipping [user review
+    of the 0.20 series]."""
     skip, cands = opts[0], opts[1:]
+    secs = round(time.time() - t0, 1)
     keep = [o for o in cands if not o.net_loss]
     if not keep:
-        return Decision(skip, opts, f"{what}: every option a net loss, skipped", round(time.time() - t0, 1))
-    return Decision(_best(keep), opts, f"{what}: best option that is not a net loss", round(time.time() - t0, 1))
+        return Decision(skip, opts, f"{what}: every option a net loss, skipped", secs)
+    best = _best(keep)
+    if best.diff is None:
+        return Decision(best, opts, f"{what}: best option that is not a net loss", secs)
+    margin = f"{best.diff:+.2f} +- {best.se or 0.0:.2f} HP against skipping"
+    if best.diff >= 0:
+        return Decision(best, opts, f"{what}: {best.name} scores {margin}, the best option", secs)
+    below = "every option scored below skipping; " if all(o.diff is not None and o.diff < 0 for o in cands) else ""
+    return Decision(best, opts, f"{what}: {below}{best.name} scores {margin}, a loss within the noise, "
+                                f"so it is taken (skip only when every option is a net loss)", secs)
