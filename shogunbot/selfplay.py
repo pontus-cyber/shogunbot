@@ -35,7 +35,7 @@ from dataclasses import dataclass
 
 from .catalogue import CAT
 from .model import DEFAULT_KIT, ENEMY_KINDS, HERO_MAX_HP, Enemy, Hero, Kit, State
-from .planner import WEIGHTS, auto_depth, plan
+from .planner import STALL_TURNS, WEIGHTS, auto_depth, plan, progress_key, stall_weights
 from . import behaviour, rules
 from .rules import ENEMY_TILE_DAMAGE, _hits_hero, enemy_options, step
 
@@ -174,9 +174,29 @@ def _turn_rng(seed: int, level_i: int, t: int) -> random.Random:
     return random.Random((seed * 1_000_003 + level_i * 10_007 + t) & 0xFFFFFFFF)
 
 
-def _play_turn(s: State, rng: random.Random, depth: int, w: dict, telegraphs: bool) -> State:
+class _Stall:
+    """Turns since an enemy last lost HP, died or appeared. From STALL_TURNS on, the
+    planner uses stall weights (planner.stall_weights), as the bot does live
+    [user 2026-10-28], and searches one ply deeper than the fixed self-play depth
+    (live already searches 4-6 plies)."""
+    def __init__(self):
+        self.key, self.quiet = None, 0
+
+    def settings(self, s: State, depth: int, w: dict) -> tuple[int, dict]:
+        k = progress_key(s)
+        self.quiet = 0 if k != self.key else self.quiet + 1
+        self.key = k
+        if self.quiet < STALL_TURNS:
+            return depth, w
+        return (depth or auto_depth(s)) + 1, stall_weights(w, s.hero.hp)
+
+
+def _play_turn(s: State, rng: random.Random, depth: int, w: dict, telegraphs: bool,
+               stall: _Stall | None = None) -> State:
     if telegraphs:
         telegraph(s, rng)
+    if stall is not None:
+        depth, w = stall.settings(s, depth, w)
     d = plan(s, depth or auto_depth(s), w)
     outs = step(s, d.action, validate=False)
     r, acc = rng.random(), 0.0
@@ -196,6 +216,7 @@ def play_level(seed: int, level_i: int, lp: LevelPlan, s: State, depth: int, w: 
     uid += 10
     s.wave = 1
     s.waves_total = len(lp.waves)
+    stall = _Stall()
     for t in range(max_turns):
         if s.hero.hp <= 0:
             return s, False
@@ -207,7 +228,7 @@ def play_level(seed: int, level_i: int, lp: LevelPlan, s: State, depth: int, w: 
             s.wave += 1
         if not s.alive() and not pending:
             return s, True
-        s = _play_turn(s, _turn_rng(seed, level_i, t), depth, w, telegraphs)
+        s = _play_turn(s, _turn_rng(seed, level_i, t), depth, w, telegraphs, stall)
     return s, False
 
 
@@ -215,12 +236,13 @@ def boss(seed: int, level_i: int, lp: LevelPlan, hp: int, depth: int, w: dict, k
          telegraphs: bool = True, max_turns: int = 300) -> tuple[State, bool]:
     s = State(lp.cells, Hero(lp.hero_x, 1, hp=hp, kit=kit),
               [Enemy(_BOSS.id, 3, -1, enemy_hp(_BOSS.id, lp.day5), [], uid=99)], level="boss")
+    stall = _Stall()
     for t in range(max_turns):
         if s.hero.hp <= 0:
             return s, False
         if not any(e.kind == _BOSS.id for e in s.alive()):
             return s, True
-        s = _play_turn(s, _turn_rng(seed, level_i, t), depth, w, telegraphs)
+        s = _play_turn(s, _turn_rng(seed, level_i, t), depth, w, telegraphs, stall)
     return s, False
 
 

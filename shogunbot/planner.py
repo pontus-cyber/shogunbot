@@ -39,6 +39,30 @@ WEIGHTS: dict[str, float] = {
 
 SPAWN_THRESHOLD = 1  # [web] Normal rooms spawn the next wave at 1-2 alive; HYP: 1
 
+STALL_TURNS = 15     # [user 2026-10-28] turns in which no enemy lost HP, died or appeared
+
+
+def stall_weights(w: dict[str, float], hp: int) -> dict[str, float]:
+    """Weights for a stalled fight: after STALL_TURNS quiet turns a 1-HP trade that
+    makes progress is allowed [user 2026-10-28]. Seen in self-play (seeds 9008 and
+    9023, Bamboo Grove II at depth 3): a loaded Charger waits behind the last other
+    enemy, killing that enemy lets the Charger hit for 1, and damage-first scoring
+    dodged forever. Here 2 damage dealt (one tile hit) outweighs 1 HP lost, immediate
+    or later, and any line that drops the hero more than 1 HP below its current HP
+    is heavily penalised. A zero-damage kill still scores higher than any trade.
+    A hit still waiting at the end of the search (an armed enemy with the hero in
+    its footprint, a loaded Charger with a clear lane) counts about as much as a hit
+    taken: otherwise every line kills on the last ply, the Charger's answer falls
+    past the horizon, and the kill is put off again on every turn [self-play seed
+    9008 turn 40, depth 3]."""
+    return {**w, "enemy_hp": -1000.0, "hp_lost_now": 0.0, "threat_dmg": -1000.0, "open_charge_lane": -600.0,
+            "hp_floor": hp - 1, "below_floor": -5000.0}
+
+
+def progress_key(s: State) -> tuple:
+    """Changes whenever an enemy loses HP, dies or appears: the stall counter's reset."""
+    return tuple(sorted((e.kind, e.hp) for e in s.alive()))
+
 
 def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
     h = s.hero
@@ -85,6 +109,9 @@ def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
         terms["at_edge"] = w["at_edge"]
     if at_edge and adjacent and not h.swap_ready:
         terms["cornered_no_swap"] = w["cornered_no_swap"]
+    floor = w.get("hp_floor")
+    if floor is not None and h.hp < floor:          # stall weights only
+        terms["below_floor"] = w["below_floor"] * (floor - h.hp)
     return sum(terms.values()), terms
 
 

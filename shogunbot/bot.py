@@ -1,6 +1,7 @@
 """Live bot: capture -> perceive -> plan -> act -> log, for Stage 1.
 
     python -m shogunbot play                 # one run, frames saved on events
+    python -m shogunbot play --runs 10       # ten runs in a row, unattended
     python -m shogunbot play --frames all    # save every turn's frames
     python -m shogunbot play --no-autostart  # start the run yourself; bot takes over in combat
 
@@ -10,6 +11,7 @@ Screens:
   title   -> click NEW RUN                    (autostart)
   camp    -> walk right, click GO             (autostart)
   map     -> click the first node             (autostart)
+  death   -> before the run's first turn: click RESTART, which starts a new run (autostart)
   combat  -> plan one action and send it
   reward  -> shrine: read the upgrade; a pure gain is always taken (simulation picks the tile),
              a trade-off is taken unless every tile option is a net loss against skipping;
@@ -18,6 +20,8 @@ Screens:
   unknown -> wait (banners, transitions); a frame is logged if it lasts
 The run ends on: boss beaten (the reward after the boss fight is taken first),
 hero HP 0 or a death screen, or a screen that stays unknown too long.
+In a series, a won run is given up from the pause menu (the game would go on to
+Stage 2), which leads to the death screen; the next run clicks RESTART there.
 """
 
 from __future__ import annotations
@@ -36,12 +40,12 @@ from .catalogue import CAT
 from .model import DEFAULT_KIT, HERO_MAX_HP
 from .perception import reward_screen, screens
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
-from .planner import WEIGHTS, plan, plan_live
+from .planner import STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_weights
 from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS
 from .runlog import RunLogger
 from .winio import GameWindow
 
-VERSION = "0.17"
+VERSION = "0.18"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -52,6 +56,8 @@ BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink
 BLINK_GAP_S = 0.15
 UNKNOWN_FRAME_S = 6.0     # save a frame when a screen stays unknown this long
 UNKNOWN_GIVE_UP_S = 90.0  # end the run as 'stuck'
+GIVE_UP_WAIT_S = 20.0     # after a win: wait up to this long for the map before pausing
+DEATH_SCREEN_MAX_S = 30.0 # a death screen without a readable RESTART ends the new run as 'stuck'
 
 
 def _stop_requested() -> bool:
@@ -117,6 +123,8 @@ class Bot:
         self.rec = Recorder()
         self.autostart = autostart
         self.verbose = verbose
+        self.restart_after = False   # play() sets it when another run follows this one
+        self.gave_up = None          # after a won run: whether the pause-menu give-up worked
 
     # every input goes through these two, so every input is recorded
     def key(self, name: str, frame, **extra) -> None:
@@ -357,6 +365,78 @@ class Bot:
         else:
             self.say(f"   {item} still in its slot; the click may not have registered")
 
+    # ------------------------------------------------------------------ series
+    def _give_up(self) -> bool:
+        """End a won run so the next one can start [user 2026-10-28]: after the boss the
+        game goes on to Stage 2, so the bot opens PAUSE MENU (the bottom of the three
+        round buttons, bottom right), picks GIVE UP, then YES: GIVE UP. That leads to the
+        death screen, where the next run clicks RESTART. Each click waits until its screen
+        is recognised; on any doubt the bot stops and leaves the game as it is.
+        True when the death screen with RESTART shows."""
+        gw, log = self.gw, self.log
+        t0 = time.time()
+        log.event("give_up", step="start")
+        self.say("series: giving this run up from the pause menu")
+        # 1. a settled screen with the pause button: the map, or any after half the wait
+        while True:
+            if _stop_requested():
+                return self._give_up_failed("stopped (F8)", None)
+            frame = gw.grab_stable(settle_s=0.3, timeout_s=3.0)
+            f = normalize(frame)
+            if screens.pause_button(f) and (screens.classify(f) == "map"
+                                            or time.time() - t0 > GIVE_UP_WAIT_S / 2):
+                break
+            if time.time() - t0 > GIVE_UP_WAIT_S:
+                return self._give_up_failed("pause button not found", frame)
+            time.sleep(0.5)
+        # 2. open the pause menu (the click is repeated if the menu does not show)
+        m = None
+        for attempt in range(3):
+            self.click(*screens.PAUSE_BUTTON, frame, away=False, screen="give_up", step="pause")
+            time.sleep(1.0)
+            frame = gw.grab_stable(settle_s=0.3, timeout_s=3.0)
+            m = screens.menu(normalize(frame))
+            if m is not None:
+                break
+        if m is None or m[0] != "pause":
+            return self._give_up_failed(f"pause menu not recognised ({m[0] if m else 'nothing'})", frame)
+        # 3. GIVE UP, the third of five rows
+        c = None
+        for attempt in range(2):
+            self.click(*m[1][2], frame, away=False, screen="give_up", step="give_up")
+            time.sleep(1.0)
+            frame = gw.grab_stable(settle_s=0.3, timeout_s=3.0)
+            c = screens.menu(normalize(frame))
+            if c is None or c[0] != "pause":
+                break
+            m = c
+        if c is None or c[0] != "confirm":
+            return self._give_up_failed(f"confirmation not recognised ({c[0] if c else 'nothing'})", frame)
+        # 4. YES: GIVE UP, the second of two rows; then wait for the death screen
+        self.click(*c[1][1], frame, away=True, screen="give_up", step="yes")
+        clicked_again = False
+        while time.time() - t0 < GIVE_UP_WAIT_S + 30:
+            time.sleep(0.5)
+            frame = gw.grab()
+            f = normalize(frame)
+            if screens.find_restart(f) is not None:
+                log.event("give_up", step="done", seconds=round(time.time() - t0, 1))
+                log.save_frame(frame, "gave_up")
+                return True
+            c = screens.menu(f)
+            if c is not None and c[0] == "confirm" and not clicked_again:
+                time.sleep(1.0)
+                self.click(*c[1][1], frame, away=True, screen="give_up", step="yes_again")
+                clicked_again = True
+        return self._give_up_failed("no death screen after YES: GIVE UP", frame)
+
+    def _give_up_failed(self, reason: str, frame) -> bool:
+        self.log.event("give_up_failed", reason=reason)
+        if frame is not None:
+            self.log.save_frame(frame, "give_up_failed")
+        self.say(f"   could not give the run up: {reason}; stopping the series here")
+        return False
+
     # ------------------------------------------------------------------ run
     def run(self) -> str:
         gw, log = self.gw, self.log
@@ -367,6 +447,9 @@ class Bot:
         self.say(f"run {run_id} started; recording to runs/{run_id}/frames; hold F8 to stop")
         tr = Tracker()
         self.reward_n = 0
+        self.gave_up = None
+        death_since = None
+        progress, last_progress = None, 0     # stall rule: see planner.stall_weights
         turn = 0
         level = None
         seen_boss = False
@@ -423,6 +506,27 @@ class Bot:
                     result = "win"
                     log.save_frame(frame, "win")
                     break
+                if scr == "death" and turn == 0:
+                    # the last run's death screen (a death, or a won run given up): RESTART
+                    # starts this one [run 20261027-182223 ended after 1 s on that screen]
+                    if not self.autostart:           # the player restarts
+                        time.sleep(0.5)
+                        continue
+                    death_since = death_since or time.time()
+                    if time.time() - death_since > DEATH_SCREEN_MAX_S:
+                        # still here after this long: RESTART unreadable or not reacting
+                        result = "stuck"
+                        log.save_frame(frame, "stuck_death_screen")
+                        break
+                    pos = screens.find_restart(normalize(frame))
+                    if pos is not None:
+                        self.say("death screen: RESTART")
+                        log.event("menu", screen="death", restart=[round(v, 4) for v in pos])
+                        self.click(*pos, frame, screen="death")
+                        time.sleep(3.0)
+                    else:
+                        time.sleep(0.5)          # the buttons fade in after the kanji
+                    continue
                 if scr == "death":
                     result = "death"
                     log.save_frame(frame, "death")
@@ -503,6 +607,10 @@ class Bot:
                 if s is None:
                     time.sleep(0.3)
                     continue
+                if turn == 0 and p.hero["hp_max"] and s.hero.hp <= 0:
+                    # the last run's hero dying before its death screen shows: not this run
+                    time.sleep(0.5)
+                    continue
                 if s.level != level:
                     level = s.level
                     wave = 0
@@ -556,10 +664,16 @@ class Bot:
                 prev_alive = len(alive)
                 s.wave = wave if level != "boss" else 0
                 s.turn = turn
+                # stall rule [user 2026-10-28]: after STALL_TURNS turns in which no enemy lost
+                # HP, died or appeared, a 1-HP trade that makes progress is allowed
+                pk = progress_key(s)
+                if pk != progress:
+                    progress, last_progress = pk, turn
+                stalled = turn - last_progress >= STALL_TURNS
 
                 t1 = time.time()
                 try:
-                    d = plan_live(s)
+                    d = plan_live(s, stall_weights(WEIGHTS, s.hero.hp) if stalled else WEIGHTS)
                 except Exception as e:  # a bad read must not end the run
                     log.exception("plan", e, frame=frame)
                     self.say(f"   planner error ({e!r}); re-reading the screen")
@@ -597,6 +711,10 @@ class Bot:
                 if d.action == "attack" and "curse_card" in have and self._curse_gain(s):
                     self._use_item("curse_card", p, s, frame, turn, "doubles the hit about to land", tr, item_tries)
                     continue
+                if stalled:
+                    log.event("stall_mode", turn=turn, quiet_turns=turn - last_progress, action=d.action,
+                              value=round(d.value, 1), board=s.render())
+                    self.say(f"   stall: {turn - last_progress} turns without progress; a 1-HP trade is allowed")
                 conf = dict(p.confidence)
                 log.turn(state=s, confidence=conf, perceive_ms=perceive_ms, decision=d,
                          plan_ms=plan_ms, frame=frame)
@@ -629,6 +747,12 @@ class Bot:
             result = "error"
             raise
         finally:
+            if result == "win" and self.restart_after:
+                try:
+                    self.gave_up = self._give_up()
+                except BaseException as e:   # the give-up must never turn a win into an error
+                    log.exception("give_up", e)
+                    self.gave_up = False
             self.rec.flush()
             summary = log.end_run(result)
             self.say(f"run {run_id} ended: {result}; turns {summary['turns']}, "
@@ -639,9 +763,20 @@ class Bot:
 
 def play(runs: int = 1, frame_policy: str = "events", autostart: bool = True) -> None:
     bot = Bot(frame_policy, autostart)
+    results = []
     for i in range(runs):
+        # each run starts where the last one ended: a won run is given up from the pause
+        # menu, and the next run clicks RESTART on the death screen [user 2026-10-28]
+        bot.restart_after = autostart and i < runs - 1
         res = bot.run()
-        if res in ("stopped", "error", "stuck", "win") and i < runs - 1:
-            # a win leaves the game in Stage 2; restarting needs a manual abandon for now
-            print("stopping the series: restart from the title screen is not automated yet")
+        results.append(res)
+        if i == runs - 1:
             break
+        if res == "win" and not bot.gave_up:
+            print("stopping the series: the won run could not be given up from the pause menu")
+            break
+        if res not in ("win", "death"):
+            print(f"stopping the series: the run ended '{res}'")
+            break
+    if runs > 1:
+        print(f"series: {len(results)} runs, {results.count('win')} won, {results.count('death')} lost")
