@@ -86,11 +86,19 @@ def analyze(run_dir: Path) -> str:
             L.append(f"  REWARD {e.get('level')} {e.get('layout')}: {what}  (frame {e.get('frame')})"
                      + (f"  notes {e['notes']}" if e.get("notes") else ""))
         elif e["event"] == "reward_decision":
-            opts = ", ".join(f"{o['name']} {o['value']:+.2f}" for o in sorted(e.get("options", []), key=lambda o: -o["value"]))
-            L.append(f"    values ({e.get('seconds')}s, HP {e.get('hp')}): {opts} -> {e.get('choice')}")
+            scored = [o for o in e.get("options", []) if o.get("scored", True)]
+            opts = ", ".join(f"{o['name']} {o['value']:+.2f}"
+                             + (f" ({o['diff']:+.2f}±{o['se']:.2f} vs skip{', net loss' if o.get('net_loss') else ''})"
+                                if o.get("diff") is not None else "")
+                             for o in sorted(scored, key=lambda o: -o["value"]))
+            L.append(f"    values ({e.get('seconds')}s, HP {e.get('hp')}): {opts or 'not simulated'} -> {e.get('choice')}"
+                     + (f"  [{e['rule']}]" if e.get("rule") else ""))
         elif e["event"] in ("reward_taken", "reward_failed"):
             L.append(f"    {e['event']}: {e.get('choice')} {e.get('reason', '')}"
                      + (" (unverified)" if e.get("unverified") else ""))
+        elif e["event"] == "reward_retry":
+            L.append(f"    reward_retry {e.get('attempt')}: {e.get('choice')} not in the statue "
+                     f"(statue {(e.get('statue') or {}).get('tile')}, UPGRADE lit {e.get('lit')})")
         elif e["event"] == "skip":
             L.append(f"    SKIP: {e.get('reason', '')}")
         elif e["event"] == "kit":

@@ -85,7 +85,20 @@ def read_marks(g: np.ndarray) -> tuple[int, int]:
     runs = _runs(lit)
     if len(runs) == 1 and runs[0][1] - runs[0][0] >= 6:
         return 0, 0                               # flat line: no cooldown
-    marks = [r for r in runs if r[1] - r[0] <= 3]
+    # a mark is exactly 2 art px wide, one blank px apart; the sparkle of a tile that has
+    # just recharged adds a 1- or 3-px blob that read Swirl as 4 marks on 15 frames
+    # [review of 0.15; runs 20261028-061420 f0023/f0029/f0071, 20261027-180145 f0083,
+    # 20261028-044407 f0042, 20261028-082756 f0032]. Keep the longest evenly spaced chain.
+    marks, chain = [], []
+    for r in runs:
+        if r[1] - r[0] != 2:
+            chain = []
+            continue
+        if chain and r[0] - chain[-1][1] != 1:
+            chain = []
+        chain.append(r)
+        if len(chain) > len(marks):
+            marks = list(chain)
     charged = 0
     for c0, c1 in marks:
         px = band[:, c0:c1].reshape(-1, 3)

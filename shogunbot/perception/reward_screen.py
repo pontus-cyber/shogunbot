@@ -21,6 +21,8 @@ from . import screens, text, tiles as T
 
 UPGRADE_BUTTON = (0.5010, 0.6963)        # centre of the UPGRADE pill (962, 752)
 _UPGRADE_BOX = (800, 1130, 718, 786)     # x0, x1, y0, y1 of the pill
+STATUE_FACE = (912, 504)                 # top-left of a tile face in the statue's mouth
+                                         # [run 20261028-092419 f0090, f0091, f0125, f0126; collect f0111]
 UNKNOWN_DIST = 0.07                      # icon distance above which a tile is unknown (classes are >= 0.073 apart)
 
 
@@ -33,20 +35,39 @@ class RewardScreen:
     upgrade_lines: list = field(default_factory=list)
     upgrade_match: tuple = ()
     upgrade_lit: bool = False
+    statue: dict | None = None                        # shrine: the tile in the statue's mouth
     skip: tuple | None = None
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in ("kind", "offers", "hand", "upgrade", "upgrade_lines",
-                                              "upgrade_match", "upgrade_lit", "skip")}
+                                              "upgrade_match", "upgrade_lit", "statue", "skip")}
 
 
 def upgrade_lit(rgb: np.ndarray) -> bool:
-    """UPGRADE is maroon (74,36,41) until a tile sits in the statue, then peach
-    (~175,116,82) [collect 20261027-164727 f0109 vs f0111]."""
+    """UPGRADE is dark maroon (72,32,40) with dark text until a tile sits in the
+    statue. Then its text turns cream (232,224,208) on a brown pill (~114,66,56),
+    or a peach pill (~175,116,82) while the cursor is on it. 0.15 looked for peach
+    only, so the bot (cursor moved away) never saw it lit and skipped both shrines
+    [run 20261028-092419 f0089 vs f0090, f0124 vs f0125; collect 20261027-164727 f0111]."""
     x0, x1, y0, y1 = _UPGRADE_BOX
     a = rgb[y0:y1, x0:x1].astype(np.int16)
-    peach = (np.abs(a[..., 0] - 175) < 18) & (np.abs(a[..., 1] - 116) < 18) & (np.abs(a[..., 2] - 81) < 18)
-    return int(peach.sum()) > 3000
+    text = int((a.min(axis=2) > 180).sum())                              # 3568 lit, 0 unlit
+    pill = int(((a[..., 0] > 95) & (a[..., 0] - a[..., 2] > 35)).sum())  # brown or peach, not maroon or grey
+    return text > 2000 and pill > 5000
+
+
+def read_statue(rgb: np.ndarray, kit_tiles=None) -> dict | None:
+    """The tile in the shrine statue's mouth (tile, damage, cooldown), or None
+    when the mouth is empty. The face sits at a fixed spot on the dark statue,
+    where find_faces cannot separate it from the stone."""
+    g = T.grid(rgb, STATUE_FACE)
+    tid, dist, conf = T.classify(g, kit_tiles)
+    if tid is None or dist > UNKNOWN_DIST:
+        return None                                  # empty mouth: best distance 0.073
+    dmg, dconf = T.read_digit(g)
+    cd, _ = T.read_marks(g)
+    return {"tile": tid, "dist": round(dist, 4), "conf": round(conf, 2), "damage": dmg,
+            "damage_conf": round(dconf, 2), "cooldown": cd}
 
 
 def identify(g: np.ndarray, damage: int | None, cooldown: int, candidates=None) -> tuple[str | None, float, float]:
@@ -93,7 +114,8 @@ def read(rgb: np.ndarray, kit_tiles=None) -> RewardScreen:
         ok = uid is not None and ((d == 0 and unknown == 0) or
                                   (d <= 1 and second - d >= 2 and unknown / total <= 0.35))
         return RewardScreen("shrine", hand=hand, upgrade=uid if ok else None, upgrade_lines=lines,
-                            upgrade_match=(uid, d, second, unknown), upgrade_lit=upgrade_lit(rgb), skip=skip)
+                            upgrade_match=(uid, d, second, unknown), upgrade_lit=upgrade_lit(rgb),
+                            statue=read_statue(rgb, kit_tiles), skip=skip)
     boxes = T.find_faces(rgb, 600, 1320, *T.PEDESTAL_ROW)
     if len(boxes) == 2:
         offers = []

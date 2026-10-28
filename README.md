@@ -7,7 +7,7 @@ Project docs (claude.ai project "autogame"): `claude/00-start-here.md`, `claude/
 
 Game catalogue: `shogunbot/data/*.json` holds every tile, enemy, trait, consumable, upgrade, region and hero (from the wiki, with source tags); `shogunbot/catalogue.py` loads it.
 
-Rewards (0.15): on a tile choice or shrine the bot simulates the rest of the stage with each option (`rewards.py`) and takes the best; it never rerolls.
+Rewards (0.16, `rewards.py`): pure-gain upgrades (+damage, −cooldown, +slot) are always taken and simulation picks the tile; trade-offs and tile choices are simulated against skipping on the same seeded fights in a harder-than-Stage-1 scenario, and skipped only when every option is a net loss. It never rerolls.
 
 ## Run (Windows, from this folder)
 

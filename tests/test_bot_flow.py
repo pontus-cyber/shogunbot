@@ -85,13 +85,20 @@ def make_bot(tmp_path, gw):
     return b
 
 
+def prefer(name):
+    """Evaluator that scores `name` above every other option on every seed."""
+    from shogunbot import rewards
+
+    def ev(opts, hp, seeds, depth, workers, scenario):
+        for o in opts:
+            o.scores = [10.0 if o.name == name else 9.0] * 4
+            o.value, o.wins = sum(o.scores) / 4, 4
+        rewards.paired(opts)
+    return ev
+
+
 @pytest.fixture(autouse=True)
 def fast_valuation(monkeypatch):
-    from shogunbot import rewards
-    monkeypatch.setattr(rewards, "SEEDS", (1, 2))
-    orig = rewards.decide
-    monkeypatch.setattr(rewards, "decide", lambda opts, level, hp, **kw: orig(opts, level, hp, seeds=(1, 2),
-                                                                             depth=1, workers=1))
     monkeypatch.setattr("time.sleep", lambda s: None)
 
 
@@ -101,12 +108,7 @@ def test_tile_choice_takes_the_chosen_tile(tmp_path, monkeypatch):
     reward = frame("runs/20261028-061420/frames/f0034_CLICK.png")   # Back Charge | Swirl
     after = frame("collect/20261027-164727/f0043_idle.png")          # transition
     # force the choice so the test does not depend on simulated values
-    orig = rewards.decide
-
-    def pick_swirl(opts, level, hp, **kw):
-        best, opts, secs = orig(opts, level, hp, seeds=(1,), depth=1, workers=1)
-        return next(o for o in opts if o.name == "take:swirl"), opts, secs
-    monkeypatch.setattr(rewards, "decide", pick_swirl)
+    monkeypatch.setattr(rewards, "evaluate", prefer("take:swirl"))
     gw = FakeGW([(reward, [(1080, 408, 1184, 516)]), (after, [])])
     b = make_bot(tmp_path, gw)
     tr = Tracker()
@@ -122,12 +124,7 @@ def test_shrine_puts_the_tile_in_the_statue_then_upgrades(tmp_path, monkeypatch)
     shrine = frame("collect/20261027-164727/f0109_idle.png")       # -2 COOLDOWN; hand spear, swirl, arrow
     lit = frame("collect/20261027-164727/f0111_CLICK.png")         # swirl in the statue, UPGRADE lit
     done = frame("collect/20261027-164727/f0112_idle.png")         # tile pops out
-    orig = rewards.decide
-
-    def pick_swirl(opts, level, hp, **kw):
-        best, opts, secs = orig(opts, level, hp, seeds=(1,), depth=1, workers=1)
-        return next(o for o in opts if o.name == "upgrade:swirl"), opts, secs
-    monkeypatch.setattr(rewards, "decide", pick_swirl)
+    monkeypatch.setattr(rewards, "evaluate", prefer("upgrade:swirl"))
     gw = FakeGW([(shrine, [(908, 900, 1012, 1008)]), (lit, [(800, 718, 1130, 786)]), (done, [])])
     b = make_bot(tmp_path, gw)
     tr = Tracker(Kit.of("swirl", "arrow", "spear"))
@@ -147,3 +144,70 @@ def test_unreadable_screen_skips(tmp_path):
     b._read_reward = lambda tr: (shrine, rs)
     assert b._reward(shrine, Tracker(), "bamboo-2", 10) == "skipped"
     assert gw.clicks == [(1444, 749)]                         # SKIP
+
+
+def test_pure_gain_shrine_is_taken_even_when_skip_scores_higher(tmp_path, monkeypatch):
+    # [run 20261028-082756] '+1 DAMAGE' after Bamboo Grove II was skipped on noise in 0.15
+    from shogunbot import rewards
+    from shogunbot.bridge import Tracker
+    from shogunbot.model import Kit
+    shrine = frame("runs/20261028-082756/frames/reward_2_shrine.png")   # hand spear, arrow, swirl
+    lit = frame("collect/20261027-164727/f0111_CLICK.png")
+    done = frame("collect/20261027-164727/f0112_idle.png")
+    monkeypatch.setattr(rewards, "evaluate", prefer("skip"))
+    gw = FakeGW([(shrine, [(788, 900, 1132, 1008)]), (lit, [(800, 718, 1130, 786)]), (done, [])])
+    b = make_bot(tmp_path, gw)
+    tr = Tracker(Kit.of("swirl", "arrow", "spear"))
+    assert b._reward(shrine, tr, "bamboo-2", 10) == "taken"
+    assert tr.kit != Kit.of("swirl", "arrow", "spear") and gw.clicks[-1] == (962, 752)
+
+
+def test_queueing_a_tile_that_is_not_in_the_hand_sends_nothing(tmp_path):
+    # 0.15 waited for a face it could not click; do() now reports it and the loop plans again
+    # [review of 0.15]
+    from types import SimpleNamespace
+    from shogunbot.model import Kit
+    blank = np.zeros((1080, 1920, 3), np.uint8)
+    gw = FakeGW([(blank, [])])
+    b = make_bot(tmp_path, gw)
+    p = SimpleNamespace(hand=[{"tile": "swirl", "cooldown": 3, "charged": 3, "ready": True, "fx": 0.45, "fy": 0.88}])
+    assert b.do("queue:spear", p, blank, Kit.of("swirl", "arrow", "spear")) is None
+    assert gw.clicks == []
+
+
+def test_shrine_upgrade_is_taken_with_the_cursor_moved_away(tmp_path, monkeypatch):
+    # [run 20261028-092419 f0089-f0091] UPGRADE lit brown (not peach) after Swirl went into
+    # the statue; 0.15 missed it, clicked again and skipped the shrine
+    from shogunbot import rewards
+    from shogunbot.bridge import Tracker
+    from shogunbot.model import Kit
+    shrine = frame("runs/20261028-092419/frames/f0089_CLICK.png")   # +1 DAMAGE +1 COOLDOWN; arrow, katana, swirl
+    lit = frame("runs/20261028-092419/frames/f0090_CLICK.png")      # swirl in the statue
+    done = frame("collect/20261027-164727/f0112_idle.png")
+    monkeypatch.setattr(rewards, "evaluate", prefer("upgrade:swirl"))
+    gw = FakeGW([(shrine, [(1028, 900, 1132, 1008)]), (lit, [(800, 718, 1130, 786)]), (done, [])])
+    b = make_bot(tmp_path, gw)
+    tr = Tracker(Kit.of("swirl", "arrow", "katana"))
+    assert b._reward(shrine, tr, "bamboo-2", 10) == "taken"
+    assert gw.clicks == [(1080, 954), (962, 752)]
+    assert (tr.kit["swirl"].damage, tr.kit["swirl"].cooldown, tr.kit["swirl"].used) == (3, 4, 1)
+
+
+def test_wrong_tile_in_the_statue_is_swapped_for_the_chosen_one(tmp_path, monkeypatch):
+    # [run 20261028-092419 f0124-f0126] the hand closes up after a tile leaves it; a click at
+    # the old spot put Arrow in the statue. The bot must find Katana again and click it.
+    from shogunbot import rewards
+    from shogunbot.bridge import Tracker
+    from shogunbot.model import Kit
+    shrine = frame("runs/20261028-092419/frames/f0124_CLICK.png")   # +1 DAMAGE; arrow, katana, swirl
+    wrong = frame("runs/20261028-092419/frames/f0126_CLICK.png")    # arrow in the statue; swirl, katana in hand
+    right = frame("runs/20261028-092419/frames/f0125_CLICK.png")    # katana in the statue
+    done = frame("collect/20261027-164727/f0112_idle.png")
+    monkeypatch.setattr(rewards, "evaluate", prefer("upgrade:katana"))
+    gw = FakeGW([(shrine, [(908, 900, 1012, 1008)]), (wrong, [(968, 900, 1072, 1008)]),
+                 (right, [(800, 718, 1130, 786)]), (done, [])])
+    b = make_bot(tmp_path, gw)
+    tr = Tracker(Kit.of("swirl", "arrow", "katana"))
+    assert b._reward(shrine, tr, "boss", 9) == "taken"
+    assert gw.clicks == [(960, 954), (1020, 954), (962, 752)]
+    assert tr.kit["katana"].damage == 3

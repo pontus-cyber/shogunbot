@@ -1,9 +1,28 @@
-"""Offline Stage 1 self-play: the planner against the simulator.
+"""Offline self-play: the planner against the simulator.
 
-Zero-cost tuning bench. Level sizes, wave counts and enemy pools come from
-the catalogue (data/regions.json); wave composition and spawn rules are
+Zero-cost bench, and the engine behind reward valuation (rewards.py).
+Level sizes, wave counts, enemy pools and HP come from the catalogue
+(data/regions.json, data/enemies.json); wave composition and spawn rules are
 approximations of what was observed live (domain model section 3). M3
 replaces them with a generator learned from logs.
+
+Common random numbers: everything about a run's opposition is fixed by its
+seed alone, so two kits played on the same seed meet the same fight:
+  - each wave's enemies, their preferred spawn cells and facings are drawn
+    up front from the seed;
+  - enemy choices (telegraphs, preset outcomes) on turn t of a level use a
+    random stream seeded by (seed, level, t), whatever happened before.
+The only differences between two kits' runs then come from how the hero
+plays them.
+
+Scenarios:
+  stage1  the rest of Stage 1 from a given level (Bamboo Grove I, II, boss)
+  stress  harder fights than Stage 1, so reward options separate: a Bamboo
+          Grove II board with Day 5+ enemy HP [wiki] and 7 waves of 2-3 (Stage 1
+          has 5 of 1-3), then Daisuke at Day 5+ HP (20) [wiki]. Calibrated
+          2026-10-28 (16 seeds, depth 3, full HP): Swirl+Arrow wins 12/16 (4 boss
+          deaths), Swirl+Arrow+Spear 16/16 ending on 8.7 HP; in Stage 1 both win
+          16/16 on about 9 HP, so options there separate only by noise
 
     python -m shogunbot selfplay -n 200 --depth 3
 """
@@ -33,7 +52,7 @@ def telegraph(s: State, rng: random.Random) -> None:
         e.intent = None
         e.primed = (e.armed and e.wind >= 1 and ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0
                     and _hits_hero(s, e, e.queue[0]))
-    for e in s.alive():
+    for e in sorted(s.alive(), key=lambda e: e.x):
         if e.frozen > 0:
             continue
         opts = enemy_options(s, e)
@@ -67,6 +86,13 @@ LEVELS = _levels()                 # bamboo-1: 5 cells, 4 waves; bamboo-2: 7 cel
 _BOSS_LV = CAT.levels["boss"]
 _BOSS = CAT.enemy(_BOSS_LV["boss"])
 SPAWN_WHEN_ALIVE_AT_MOST = 1  # Normal room: next wave when <= this many remain ([web] 1-2)
+SCENARIOS = ("stage1", "stress")
+STRESS_WAVES = 7
+
+
+def enemy_hp(kind: str, day5: bool) -> int:
+    e = CAT.enemy(kind)
+    return (e.hp_day5 if day5 and e.hp_day5 else e.hp) or ENEMY_KINDS[kind][0]
 
 
 @dataclass
@@ -78,102 +104,135 @@ class Result:
     timeout: bool = False   # turn limit hit with the hero alive (the planner stalled)
 
 
-def _spawn(rng: random.Random, s: State, kinds: list[str], uid0: int) -> list[Enemy]:
-    cap = (s.cells + 1) // 2
+@dataclass
+class LevelPlan:
+    """One level's opposition, fixed by the seed. waves: per wave, the
+    enemies as (kind, cells in order of preference, facing toward the hero?)."""
+    name: str
+    cells: int
+    hero_x: int
+    waves: list
+    day5: bool = False
+    boss: bool = False
+
+
+def plan_levels(seed: int, start: str = "bamboo-1", scenario: str = "stage1") -> list[LevelPlan]:
+    """The levels a run plays, drawn from the seed only (common random numbers)."""
+    g = random.Random(seed)
     out = []
-    for i, k in enumerate(kinds):
-        if len(s.alive()) + len(out) >= cap:
-            break
-        empties = [x for x in range(s.cells)
-                   if x != s.hero.x and all(e.x != x for e in s.alive() + out)]
-        if not empties:
-            break
-        x = rng.choice(empties)
-        toward = 1 if s.hero.x > x else -1
-        facing = toward if rng.random() < 0.6 else -toward  # spawn-facing conflict: mix both
-        out.append(Enemy(k, x, facing, ENEMY_KINDS[k][0], [], uid=uid0 + i))
+
+    def wave(pool, cells, lo, hi):
+        return [(g.choice(pool), g.sample(range(cells), cells), g.random() < 0.6)
+                for _ in range(g.randint(lo, hi))]
+
+    if scenario == "stress":
+        name, cells, hx, nwaves, pool = LEVELS[-1]
+        out.append(LevelPlan("stress-" + name, cells, hx, [wave(pool, cells, 2, 3) for _ in range(STRESS_WAVES)], True))
+        out.append(LevelPlan("stress-boss", _BOSS_LV["cells"], _BOSS_LV["hero_cell"], [], True, True))
+        return out
+    started = False
+    for name, cells, hx, nwaves, pool in LEVELS:
+        started = started or name == start
+        waves = [wave(pool, cells, 1, 3) for _ in range(nwaves)]
+        if started:
+            out.append(LevelPlan(name, cells, hx, waves))
+    out.append(LevelPlan("boss", _BOSS_LV["cells"], _BOSS_LV["hero_cell"], [], False, True))
     return out
 
 
-def play_level(rng, s: State, waves: list[list[str]], depth: int, w: dict, max_turns=200,
+def _spawn(s: State, wave: list, uid0: int, day5: bool) -> list[Enemy]:
+    cap = (s.cells + 1) // 2
+    out = []
+    for i, (k, prefs, toward_hero) in enumerate(wave):
+        if len(s.alive()) + len(out) >= cap:
+            break
+        taken = {s.hero.x} | {e.x for e in s.alive() + out}
+        x = next((c for c in prefs if c not in taken), None)
+        if x is None:
+            break
+        toward = 1 if s.hero.x > x else -1
+        facing = toward if toward_hero else -toward    # spawn-facing conflict: mix both [obs]
+        out.append(Enemy(k, x, facing, enemy_hp(k, day5), [], uid=uid0 + i))
+    return out
+
+
+def _turn_rng(seed: int, level_i: int, t: int) -> random.Random:
+    return random.Random((seed * 1_000_003 + level_i * 10_007 + t) & 0xFFFFFFFF)
+
+
+def _play_turn(s: State, rng: random.Random, depth: int, w: dict, telegraphs: bool) -> State:
+    if telegraphs:
+        telegraph(s, rng)
+    d = plan(s, depth or auto_depth(s), w)
+    outs = step(s, d.action, validate=False)
+    r, acc = rng.random(), 0.0
+    for p, s2, _ in outs:
+        acc += p
+        if r <= acc:
+            break
+    return s2
+
+
+def play_level(seed: int, level_i: int, lp: LevelPlan, s: State, depth: int, w: dict, max_turns=200,
                telegraphs: bool = True) -> tuple[State, bool]:
-    pending = list(waves)
+    pending = list(lp.waves)
     uid = 1
     last_size = len(pending[0])
-    s.enemies = _spawn(rng, s, pending.pop(0), uid)
+    s.enemies = _spawn(s, pending.pop(0), uid, lp.day5)
     uid += 10
     s.wave = 1
-    s.waves_total = len(waves)
-    for _ in range(max_turns):
+    s.waves_total = len(lp.waves)
+    for t in range(max_turns):
         if s.hero.hp <= 0:
             return s, False
         alive_n = len(s.alive())
         if pending and (alive_n == 0 or (alive_n <= SPAWN_WHEN_ALIVE_AT_MOST and last_size >= 3)):
             last_size = len(pending[0])
-            s.enemies += _spawn(rng, s, pending.pop(0), uid)
+            s.enemies += _spawn(s, pending.pop(0), uid, lp.day5)
             uid += 10
             s.wave += 1
         if not s.alive() and not pending:
             return s, True
-        if telegraphs:
-            telegraph(s, rng)
-        d = plan(s, depth or auto_depth(s), w)
-        outs = step(s, d.action)
-        r, acc = rng.random(), 0.0
-        for p, s2, _ in outs:
-            acc += p
-            if r <= acc:
-                break
-        s = s2
+        s = _play_turn(s, _turn_rng(seed, level_i, t), depth, w, telegraphs)
     return s, False
 
 
-def boss(rng, hp: int, depth: int, w: dict, kit: Kit = DEFAULT_KIT, telegraphs: bool = True) -> tuple[State, bool]:
-    s = State(_BOSS_LV["cells"], Hero(_BOSS_LV["hero_cell"], 1, hp=hp, kit=kit),
-              [Enemy(_BOSS.id, 3, -1, _BOSS.hp, [], uid=99)], level="boss")
-    for _ in range(300):
+def boss(seed: int, level_i: int, lp: LevelPlan, hp: int, depth: int, w: dict, kit: Kit = DEFAULT_KIT,
+         telegraphs: bool = True, max_turns: int = 300) -> tuple[State, bool]:
+    s = State(lp.cells, Hero(lp.hero_x, 1, hp=hp, kit=kit),
+              [Enemy(_BOSS.id, 3, -1, enemy_hp(_BOSS.id, lp.day5), [], uid=99)], level="boss")
+    for t in range(max_turns):
         if s.hero.hp <= 0:
             return s, False
         if not any(e.kind == _BOSS.id for e in s.alive()):
             return s, True
-        if telegraphs:
-            telegraph(s, rng)
-        d = plan(s, depth or auto_depth(s), w)
-        outs = step(s, d.action)
-        r, acc = rng.random(), 0.0
-        for p, s2, _ in outs:
-            acc += p
-            if r <= acc:
-                break
-        s = s2
+        s = _play_turn(s, _turn_rng(seed, level_i, t), depth, w, telegraphs)
     return s, False
 
 
 def run_once(seed: int, depth: int = 3, w: dict = WEIGHTS, kit: Kit = DEFAULT_KIT,
-             start: str = "bamboo-1", hp: int = HERO_MAX_HP, telegraphs: bool = True) -> Result:
-    """One simulated Stage 1 run from level `start` with this kit and HP.
-    telegraphs=True shows the planner each enemy's next action, as the game does."""
-    rng = random.Random(seed)
+             start: str = "bamboo-1", hp: int = HERO_MAX_HP, telegraphs: bool = True,
+             scenario: str = "stage1") -> Result:
+    """One simulated run with this kit and HP: the rest of Stage 1 from level
+    `start`, or the 'stress' scenario. telegraphs=True shows the planner each
+    enemy's next action, as the game does."""
     turns = 0
-    started = False
-    for name, cells, hx, nwaves, pool in LEVELS:
-        started = started or name == start
-        waves = [[rng.choice(pool) for _ in range(rng.randint(1, 3))] for _ in range(nwaves)]
-        if not started:
-            continue
-        s = State(cells, Hero(hx, 1, hp=hp, kit=kit), [], level=name)
-        s, ok = play_level(rng, s, waves, depth, w, telegraphs=telegraphs)
+    for i, lp in enumerate(plan_levels(seed, start, scenario)):
+        if lp.boss:
+            s, ok = boss(seed, i, lp, hp, depth, w, kit, telegraphs)
+        else:
+            s = State(lp.cells, Hero(lp.hero_x, 1, hp=hp, kit=kit), [], level=lp.name)
+            s, ok = play_level(seed, i, lp, s, depth, w, telegraphs=telegraphs)
         hp, turns = s.hero.hp, turns + s.turn
         if not ok:
-            return Result(False, name, hp, turns, timeout=hp > 0)
-    s, ok = boss(rng, hp, depth, w, kit, telegraphs=telegraphs)
-    return Result(ok, "boss", s.hero.hp, turns + s.turn, timeout=not ok and s.hero.hp > 0)
+            return Result(False, lp.name, hp, turns, timeout=hp > 0)
+    return Result(True, lp.name, hp, turns)
 
 
 def bench(n: int = 50, depth: int = 3, w: dict = WEIGHTS, seed0: int = 0, kit: Kit = DEFAULT_KIT,
-          telegraphs: bool = True) -> dict:
+          telegraphs: bool = True, scenario: str = "stage1") -> dict:
     t = time.time()
-    res = [run_once(seed0 + i, depth, w, kit, telegraphs=telegraphs) for i in range(n)]
+    res = [run_once(seed0 + i, depth, w, kit, telegraphs=telegraphs, scenario=scenario) for i in range(n)]
     wins = sum(r.win for r in res)
     reached = {}
     for r in res:
