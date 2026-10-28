@@ -392,10 +392,13 @@ def perceive(rgb: np.ndarray) -> Perception:
                 # HP pips are a more reliable kind signal than the sprite (attack poses, hit flashes)
                 by_hp = {3: "ashigaru", 2: "tachi", 1: "charger"}.get(g + r)
                 by_tile = {"sword": "ashigaru", "swirl": "tachi", "charge": "charger"}.get(tiles[0]["tile"]) if tiles else None
-                if screen == "boss" and (g + r) == 0:
+                # Daisuke is the only unit without HP pips (his HP is the boss bar).
+                # Pips win over the sprite: a summoned Charger in the boss arena was
+                # read as a second Daisuke [run 20261028-053637, turns 101-161]
+                if by_hp:
+                    kind = by_hp
+                elif screen == "boss" and (g + r) == 0:
                     kind = "daisuke"
-                elif kind == "daisuke" and screen == "boss":
-                    pass
                 elif by_hp:
                     kind = by_hp
                 elif by_tile:

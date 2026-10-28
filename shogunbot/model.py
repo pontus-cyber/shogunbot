@@ -60,16 +60,19 @@ class Enemy:
     # began. It charges in that enemy phase; a lane opened by the hero's own
     # action is used the phase after [run 20261027-180145, turns 59-60].
     primed: bool = False
+    # phases since the queue was completed. R1: a unit fires at the earliest one
+    # phase after loading (red, then yellow). Units read from the screen start at 1.
+    wind: int = 1
 
     @property
     def armed(self) -> bool:
         return bool(self.queue)
 
     def clone(self) -> "Enemy":
-        return Enemy(self.kind, self.x, self.facing, self.hp, list(self.queue), self.uid, self.frozen, self.cd, self.intent, self.primed)
+        return Enemy(self.kind, self.x, self.facing, self.hp, list(self.queue), self.uid, self.frozen, self.cd, self.intent, self.primed, self.wind)
 
     def key(self) -> tuple:
-        return (self.kind, self.x, self.facing, self.hp, tuple(self.queue), self.frozen, self.cd, self.intent, self.primed)
+        return (self.kind, self.x, self.facing, self.hp, tuple(self.queue), self.frozen, self.cd, self.intent, self.primed, min(self.wind, 1))
 
 
 @dataclass

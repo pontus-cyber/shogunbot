@@ -96,6 +96,17 @@ class Tracker:
             facing_e = self._enemy_facing(kind, e, queue, intent, h["x"],
                                           p.confidence.get(f"enemy{e['x']}", 0.0))
             enemies.append(Enemy(kind, e["x"], facing_e, hp_e, queue, uid=i + 1, intent=intent))
+        bosses = [en for en in enemies if en.kind == "daisuke"]
+        if len(bosses) > 1:
+            # one boss only: keep the read nearest his last known cell, the rest are
+            # summoned Chargers whose pips were hidden [run 20261028-053637]
+            last = next((q[1] for q in self.prev if q[0] == "daisuke"), None)
+            keep = min(bosses, key=lambda en: abs(en.x - last)) if last is not None else max(bosses, key=lambda en: len(en.queue))
+            for en in bosses:
+                if en is not keep:
+                    en.kind, en.hp = "charger", 1
+                    en.queue = [t for t in en.queue if t == "charge"][:1]
+            self.notes.append(f"{len(bosses)} Daisuke reads; kept cell {keep.x}")
         self.prev = [(en.kind, en.x, en.facing, en.intent) for en in enemies]
         self.swapped_uid_x = None
 

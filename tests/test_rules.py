@@ -147,3 +147,40 @@ def test_intents_cover_one_phase_only():
     s.enemies[0].intent = "move-left"
     s2, _ = only(step(s, "wait"))
     assert s2.enemies[0].x == 3 and s2.enemies[0].intent is None
+
+
+# ---- run 20261028-053637 (boss) and the user's swap trick ------------------
+def test_swap_turns_a_charge_into_an_ally():
+    # [user] when an enemy is about to charge you, swap with it the step before it
+    # fires: it keeps its facing, now points away from you, and runs into its ally
+    s = mk(5, 2, 1, [("ashigaru", 0, 1, 3, []), ("charger", 3, -1, 1, ["charge"])])
+    s.enemies[1].intent = "fire"
+    s.enemies[0].intent = "hold"
+    s2, ev = only(step(s, "right"))
+    assert s2.hero.x == 3 and s2.hero.hp == 10
+    assert any(k[0] == "ashigaru" for k in ev.enemy_damage) or s2.enemies[0].hp < 3
+
+
+def test_planner_finds_the_swap_trick():
+    s = mk(5, 2, 1, [("ashigaru", 0, 1, 3, []), ("charger", 3, -1, 1, ["charge"])])
+    s.enemies[1].intent = "fire"
+    s.enemies[0].intent = "hold"
+    s.hero.charge = {"swirl": 0, "arrow": 0}
+    assert plan(s, 3).action == "right"
+
+
+def test_daisuke_loads_charge_then_sword_before_firing():
+    # turns 120-123: queue charge, queue sword, hold, then fire
+    s = mk(5, 1, 1, [("daisuke", 4, -1, 15, ["charge"])])
+    for _, s2, _ in step(s, "wait"):
+        assert s2.hero.hp == 10
+
+
+def test_enemy_holds_the_phase_after_loading():
+    # R1 in the presets: loaded this phase -> cannot fire next phase
+    s = mk(5, 1, 1, [("ashigaru", 2, -1, 3, [])])
+    s.enemies[0].intent = "queue"
+    s2, _ = only(step(s, "wait"))
+    assert s2.enemies[0].armed and s2.hero.hp == 10
+    s3, _ = only(step(s2, "wait"))
+    assert s3.hero.hp == 10

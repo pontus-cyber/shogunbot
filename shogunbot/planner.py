@@ -22,7 +22,8 @@ WEIGHTS: dict[str, float] = {
     "swirl_ready": 8.0,
     "arrow_ready": 6.0,
     "swap_ready": 6.0,
-    "queued_tile": 5.0,          # tiles already loaded are tempo
+    "queued_tile": 12.0,         # loaded tiles are tempo; must beat the lost "ready" bonus
+                                 # or the bot never loads while waiting [run 20261028-053637]
     "enemy_facing_away": 4.0,
     "cornered_no_swap": -12.0,   # at an edge with swap on cooldown and an enemy adjacent
     "kill": 30.0,                # per kill along the path

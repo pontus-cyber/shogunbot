@@ -186,6 +186,9 @@ def enemy_options(s: State, e: Enemy) -> list[tuple[float, tuple]]:
     if e.kind == "daisuke":
         return _daisuke_options(s, e, d, dist, facing_hero, move_or_wait)
 
+    if e.armed and e.primed:
+        return [(1.0, ("fire",))]  # yellow at the start of the turn (R2)
+
     _, tile = ENEMY_KINDS[e.kind]
     needs_facing = tile in ("sword", "charge")
     if needs_facing and not facing_hero:
@@ -201,10 +204,13 @@ def enemy_options(s: State, e: Enemy) -> list[tuple[float, tuple]]:
             return [(0.6, ("queue", tile)), (0.4, move_or_wait(-d))]
         return [(1.0, ("queue", tile))]
     if e.kind == "charger":
-        # fires only if its lane was already clear when the hero's turn began
+        # fires only if its lane was already clear when the hero's turn began,
+        # and not in the phase right after it loaded (R1)
         return [(1.0, ("fire",))] if e.primed else [(1.0, ("wait",))]
-    if _hits_hero(s, e, e.queue[0]):
+    if e.primed:
         return [(1.0, ("fire",))]
+    if _hits_hero(s, e, e.queue[0]):
+        return [(1.0, ("wait",))]  # hero just walked in: red now, yellow next phase
     return [(1.0, move_or_wait(d))]
 
 
@@ -246,17 +252,23 @@ def _intent_options(s: State, e: Enemy, move_or_wait):
 
 def _daisuke_options(s, e, d, dist, facing_hero, move_or_wait):
     # [web] distance-based combo choice; probabilities are placeholders (HYP)
+    if e.armed and e.primed and e.queue != ["charge"]:
+        return [(1.0, ("fire",))]
     if not facing_hero:
         return [(1.0, ("turn",))]
     if e.armed:
+        if e.queue == ["charge"]:
+            # Charge + Sword is loaded in two phases, sometimes with a hold between
+            # [run 20261028-053637 turns 120-123, 130-133]
+            return [(0.5, ("queue", "sword")), (0.5, ("wait",))]
         if _hits_hero(s, e, e.queue[0]):
-            return [(1.0, ("fire",))]
+            return [(1.0, ("wait",))]
         if e.queue[0] == "charge":
             # lane blocked: waits or steps
             return [(0.5, ("wait",)), (0.5, move_or_wait(d))]
         return [(1.0, move_or_wait(d))]
     if dist >= 2:
-        return [(0.6, ("queue", "charge+sword")), (0.2, ("queue", "summon")), (0.2, move_or_wait(d))]
+        return [(0.6, ("queue", "charge")), (0.2, ("queue", "summon")), (0.2, move_or_wait(d))]
     return [(0.4, ("queue", "sword")), (0.4, ("queue", "swirl")), (0.2, ("queue", "summon"))]
 
 
@@ -313,6 +325,8 @@ def _apply_enemy_action(s: State, uid: int, action: tuple, ev: Events) -> None:
     kind = action[0]
     if kind != "fire" and e.cd > 0:
         e.cd -= 1
+    if kind not in ("queue", "fire"):
+        e.wind = min(e.wind + 1, 2)
     if kind == "frozen":
         e.frozen -= 1
     elif kind == "turn":
@@ -320,6 +334,7 @@ def _apply_enemy_action(s: State, uid: int, action: tuple, ev: Events) -> None:
     elif kind == "queue":
         tile = action[1]
         e.queue = e.queue + tile.split("+")
+        e.wind = 0
     elif kind == "fire":
         _enemy_fire(s, e, ev)
     elif kind == "move":
@@ -367,13 +382,17 @@ def step(s: State, action: str) -> list[tuple[float, State, Events]]:
     if action not in legal_hero_actions(s):
         ev0.invalid = action
         return [(1.0, s.clone(), ev0)]
+    # Yellow is decided BEFORE the hero acts: a loaded enemy (past its one-phase
+    # wind-up, R1) with the hero in its footprint at the start of the turn fires
+    # this phase whatever the hero does (R2). That is what makes the swap trick
+    # work: the swapped enemy keeps its facing and fires away from the hero
+    # [user; run 20261028-053637]. A red enemy instead turns or waits.
     primed = {e.uid for e in s.alive()
-              if e.kind == "charger" and e.armed and _hits_hero(s, e, e.queue[0])}
+              if e.armed and e.wind >= 1 and e.queue[0] in ("sword", "swirl", "charge")
+              and _hits_hero(s, e, e.queue[0])}
     s1 = apply_hero(s, action, ev0)
     for e in s1.enemies:
-        # still needs the hero in its lane after the hero's action (a swap puts the
-        # hero behind it: it turns instead [run 20261027-180145 turns 16-17])
-        e.primed = e.uid in primed and _hits_hero(s1, e, e.queue[0]) if e.queue else False
+        e.primed = e.uid in primed
     out = []
     for p, s2, ev in enemy_phase(s1):
         merged = ev0.clone()

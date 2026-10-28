@@ -34,7 +34,7 @@ from .planner import WEIGHTS, auto_depth, plan
 from .runlog import RunLogger
 from .winio import GameWindow
 
-VERSION = "0.9"
+VERSION = "0.10"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {"bamboo-1": 4, "bamboo-2": 5, "boss": 0}
 VK_F8 = 0x77
