@@ -184,3 +184,18 @@ def test_enemy_holds_the_phase_after_loading():
     assert s2.enemies[0].armed and s2.hero.hp == 10
     s3, _ = only(step(s2, "wait"))
     assert s3.hero.hp == 10
+
+
+# ---- consumables (wiki: Kami Brew shield, Mass Ice) -------------------------
+def test_shield_negates_the_next_hit():
+    s = mk(5, 2, 1, [("ashigaru", 3, -1, 3, ["sword"])], shield=True)
+    s.enemies[0].intent = "fire"
+    s2, ev = only(step(s, "wait"))
+    assert s2.hero.hp == 10 and not s2.hero.shield and not ev.hero_damage
+
+
+def test_frozen_enemy_does_not_act():
+    s = mk(5, 2, 1, [("ashigaru", 3, -1, 3, ["sword"])])
+    s.enemies[0].frozen = 3
+    s2, _ = only(step(s, "wait"))
+    assert s2.hero.hp == 10 and s2.enemies[0].frozen == 2

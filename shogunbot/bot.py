@@ -34,12 +34,12 @@ from .planner import WEIGHTS, auto_depth, plan
 from .runlog import RunLogger
 from .winio import GameWindow
 
-VERSION = "0.10"
+VERSION = "0.11"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {"bamboo-1": 4, "bamboo-2": 5, "boss": 0}
 VK_F8 = 0x77
-HEAL_AT = 4               # drink the green potion at or below this HP
-HEAL_AT_BOSS = 5
+HEAL_AT = 7               # Edamame Brew restores up to 3 HP [wiki]: drink at 7 or lower
+POISON_MIN_VALUE = 4      # use Mass Poison when it deals at least this much in total
 BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink
 BLINK_GAP_S = 0.15
 UNKNOWN_FRAME_S = 6.0     # save a frame when a screen stays unknown this long
@@ -151,6 +151,39 @@ class Bot:
             return False
         return self._wait_change(frame)
 
+    # ------------------------------------------------------------------ items
+    def _pre_plan_item(self, p, s, tries: dict):
+        """Items whose value does not depend on this turn's plan."""
+        have = {it["item"] for it in p.items}
+        if "green_potion" in have and tries.get("green_potion", 0) < 2 and 0 < s.hero.hp <= HEAL_AT:
+            return "green_potion", f"HP {s.hero.hp}"
+        if "skull_card" in have and tries.get("skull_card", 0) < 2:
+            # Mass Poison: every enemy, 1 damage per turn for 3 turns [wiki]
+            value = sum(min(e.hp, 3) for e in s.alive())
+            if value >= POISON_MIN_VALUE or any(e.kind == "daisuke" for e in s.alive()):
+                return "skull_card", f"poison worth {value} damage"
+        return None
+
+    def _use_item(self, item: str, p, s, frame, turn: int, reason: str, tr, tries: dict) -> None:
+        slot = next(it for it in p.items if it["item"] == item)
+        tries[item] = tries.get(item, 0) + 1
+        self.say(f"   using {item}: {reason}")
+        self.log.event("item_use", item=item, reason=reason, hp=s.hero.hp, turn=turn, attempt=tries[item])
+        self.click(slot["fx"], slot["fy"], frame, item=item)
+        time.sleep(1.0)
+        after = perceive(self.gw.grab_stable(settle_s=0.2, timeout_s=2.0))
+        still = sum(1 for it in after.items if it["item"] == item) >= sum(1 for it in p.items if it["item"] == item)
+        self.log.event("item_result", item=item, consumed=not still)
+        if not still:
+            tries[item] = 0
+            # the effect goes into the model only once the item is really gone
+            if item == "ice_card":
+                tr.freeze(3)      # Mass Ice: all enemies frozen for 3 turns [wiki]
+            elif item == "blue_potion":
+                tr.shield = True  # Kami Brew: negates the next attack [wiki]
+        else:
+            self.say(f"   {item} still in its slot; the click may not have registered")
+
     # ------------------------------------------------------------------ run
     def run(self) -> str:
         gw, log = self.gw, self.log
@@ -173,7 +206,7 @@ class Bot:
         zero_hp = 0
         last_key, last_action = None, None
         potion_check = None
-        card_tries = 0
+        item_tries: dict = {}
         potion_failed: set = set()
         banned: dict = {}
         result = "stopped"
@@ -311,27 +344,13 @@ class Bot:
                     if s.hero.hp <= hp_before:
                         potion_failed.add(used)
                     potion_check = None
-                heal_at = HEAL_AT_BOSS if s.level == "boss" else HEAL_AT
-                pot = next((it for it in p.items if it["item"] == "green_potion"), None)
-                if pot and p.hero["hp_max"] and 0 < s.hero.hp <= heal_at and "green_potion" not in potion_failed:
-                    # consumables cost no turn [obs]
-                    self.say(f"   HP {s.hero.hp}: drinking green potion")
-                    log.event("potion_use", item="green_potion", hp=s.hero.hp, turn=turn)
-                    self.click(pot["fx"], pot["fy"], frame, item="green_potion")
-                    potion_check = (s.hero.hp, "green_potion")
-                    time.sleep(1.0)
-                    continue
-                card = next((it for it in p.items if it["item"] == "skull_card"), None)
-                boss_e = next((e for e in p.enemies if e["kind"] == "daisuke"), None)
-                if card and boss_e and card_tries < 2:
-                    # poison is damage over time [user]: most value on the 15-HP boss, early
-                    card_tries += 1
-                    self.say("   poisoning Daisuke with the skull card")
-                    log.event("item_use", item="skull_card", target_x=boss_e["x"], turn=turn, attempt=card_tries)
-                    self.click(card["fx"], card["fy"], frame, item="skull_card")
-                    time.sleep(0.5)
-                    self.click(boss_e["cx"] / 1920, 0.64, frame, item="skull_card_target")
-                    time.sleep(1.0)
+                # ---- items before planning (all cost no turn [obs]; effects from the wiki)
+                use = self._pre_plan_item(p, s, item_tries)
+                if use:
+                    item, reason = use
+                    self._use_item(item, p, s, frame, turn, reason, tr, item_tries)
+                    if item == "green_potion":
+                        potion_check = (s.hero.hp, "green_potion")
                     continue
                 last_hp = s.hero.hp if p.hero["hp_max"] else last_hp
                 alive = s.alive()
@@ -368,14 +387,15 @@ class Bot:
                     d.action = alt
                 last_key, last_action = key, d.action
                 best = next((c for c in d.candidates if c["action"] == d.action), {})
-                shield = next((it for it in p.items if it["item"] == "blue_potion"), None)
-                if shield and best.get("exp_damage", 0) >= 1.0 and (s.level == "boss" or s.hero.hp <= 6):
-                    # shield [user] before a hit the planner cannot avoid; costs no turn
-                    self.say(f"   expecting {best['exp_damage']:.1f} damage: drinking blue (shield) potion")
-                    log.event("item_use", item="blue_potion", hp=s.hero.hp, turn=turn,
-                              exp_damage=best.get("exp_damage"))
-                    self.click(shield["fx"], shield["fy"], frame, item="blue_potion")
-                    time.sleep(1.0)
+                if best.get("exp_damage", 0) >= 1.0:
+                    # every move takes damage: freeze everyone (Mass Ice) or shield (Kami Brew),
+                    # then re-read and re-plan with the item's effect in the model
+                    have = {it["item"] for it in p.items}
+                    item = next((i for i in ("ice_card", "blue_potion") if i in have and item_tries.get(i, 0) < 2), None)
+                    if item:
+                        self._use_item(item, p, s, frame, turn,
+                                       f"expected {best['exp_damage']:.1f} damage on every move", tr, item_tries)
+                        continue
                 conf = dict(p.confidence)
                 log.turn(state=s, confidence=conf, perceive_ms=perceive_ms, decision=d,
                          plan_ms=plan_ms, frame=frame)

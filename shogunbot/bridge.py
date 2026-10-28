@@ -27,6 +27,8 @@ class Tracker:
         self.level = ""
         self.notes: list[str] = []
         self.prev: list = []          # enemies of the last state (for facing persistence)
+        self.freeze_left = 0          # turns of Mass Ice left
+        self.shield = False           # Kami Brew active
         self.swapped_uid_x: int | None = None
 
     # ------------------------------------------------------------------
@@ -69,7 +71,8 @@ class Tracker:
 
         hp = h["hp"] if h["hp_max"] else 0
         swap_charge = SWAP_COOLDOWN - min(SWAP_COOLDOWN, h.get("swap_red", 0))
-        hero = Hero(h["x"], facing, hp=hp, queue=queue, charge=charge, swap_charge=swap_charge)
+        hero = Hero(h["x"], facing, hp=hp, queue=queue, charge=charge, swap_charge=swap_charge,
+                    shield=self.shield)
 
         enemies = []
         for i, e in enumerate(p.enemies):
@@ -95,7 +98,10 @@ class Tracker:
                 queue = [ENEMY_KINDS[kind][1]]
             facing_e = self._enemy_facing(kind, e, queue, intent, h["x"],
                                           p.confidence.get(f"enemy{e['x']}", 0.0))
-            enemies.append(Enemy(kind, e["x"], facing_e, hp_e, queue, uid=i + 1, intent=intent))
+            en = Enemy(kind, e["x"], facing_e, hp_e, queue, uid=i + 1, intent=intent)
+            if self.freeze_left > 0:
+                en.frozen, en.intent = self.freeze_left, None
+            enemies.append(en)
         bosses = [en for en in enemies if en.kind == "daisuke"]
         if len(bosses) > 1:
             # one boss only: keep the read nearest his last known cell, the rest are
@@ -164,8 +170,18 @@ class Tracker:
             return f
         return e["facing"] or toward
 
+    def freeze(self, turns: int) -> None:
+        self.freeze_left = turns
+
     def acted(self, s: State, action: str) -> None:
         """Advance tracked charge and facing through the hero's action."""
+        if self.freeze_left > 0:
+            self.freeze_left -= 1
+        if self.shield:
+            from .rules import step
+            outs = step(s, action)
+            if outs and not max(outs, key=lambda t: t[0])[1].hero.shield:
+                self.shield = False  # the likeliest outcome used it up
         s2 = apply_hero(s, action, Events())
         self.charge = dict(s2.hero.charge)
         if action == "turn":

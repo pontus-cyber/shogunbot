@@ -272,6 +272,16 @@ def _daisuke_options(s, e, d, dist, facing_hero, move_or_wait):
     return [(0.4, ("queue", "sword")), (0.4, ("queue", "swirl")), (0.2, ("queue", "summon"))]
 
 
+def _hurt_hero(h, dmg: int, e: Enemy, ev: Events) -> None:
+    """A shield (Kami Brew) negates the next attack received [wiki]."""
+    if h.shield:
+        h.shield = False
+        ev.enemy_actions.append((e.uid, "hit absorbed by shield"))
+        return
+    h.hp -= dmg
+    ev.hero_damage.append((e.kind, e.uid, dmg))
+
+
 def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
     h = s.hero
     for tile in list(e.queue):
@@ -281,8 +291,7 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
         if tile == "sword":
             tx = e.x + e.facing
             if h.x == tx:
-                h.hp -= dmg
-                ev.hero_damage.append((e.kind, e.uid, dmg))
+                _hurt_hero(h, dmg, e, ev)
             else:
                 t = s.enemy_at(tx)
                 if t:
@@ -290,8 +299,7 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
         elif tile == "swirl":
             for tx in (e.x + 1, e.x - 1):
                 if h.x == tx:
-                    h.hp -= dmg
-                    ev.hero_damage.append((e.kind, e.uid, dmg))
+                    _hurt_hero(h, dmg, e, ev)
                 else:
                     t = s.enemy_at(tx)
                     if t:
@@ -302,8 +310,7 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
                 stop = (u.x if isinstance(u, Enemy) else h.x) - e.facing
                 e.x = stop
                 if u is h:
-                    h.hp -= dmg
-                    ev.hero_damage.append((e.kind, e.uid, dmg))
+                    _hurt_hero(h, dmg, e, ev)
                 else:
                     _damage_enemy(s, u, dmg, f"{e.kind}:charge", ev)
         elif tile == "summon":

@@ -84,6 +84,7 @@ class Hero:
     # current charge per tile; a tile is ready when charge == cooldown
     charge: dict[str, int] = field(default_factory=lambda: {k: v[1] for k, v in HERO_TILES.items()})
     swap_charge: int = SWAP_COOLDOWN
+    shield: bool = False  # Kami Brew: negates the next attack received [wiki]
 
     def ready(self, tile: str) -> bool:
         return tile not in self.queue and self.charge[tile] >= HERO_TILES[tile][1]
@@ -93,10 +94,10 @@ class Hero:
         return self.swap_charge >= SWAP_COOLDOWN
 
     def clone(self) -> "Hero":
-        return Hero(self.x, self.facing, self.hp, list(self.queue), dict(self.charge), self.swap_charge)
+        return Hero(self.x, self.facing, self.hp, list(self.queue), dict(self.charge), self.swap_charge, self.shield)
 
     def key(self) -> tuple:
-        return (self.x, self.facing, self.hp, tuple(self.queue), tuple(sorted(self.charge.items())), self.swap_charge)
+        return (self.x, self.facing, self.hp, tuple(self.queue), tuple(sorted(self.charge.items())), self.swap_charge, self.shield)
 
 
 @dataclass

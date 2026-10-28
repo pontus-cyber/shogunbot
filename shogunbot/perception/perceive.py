@@ -195,40 +195,51 @@ def hero_patch_facing(rgb: np.ndarray, cx: int) -> tuple[int, float]:
     return (-1 if dx > 0 else 1), (1.0 if len(xs) >= 30 else 0.7)
 
 
+ITEM_SLOTS_Y = (758, 857, 952)   # consumable column, measured on runs 20261027-182237 / 20261028-053637
+
+
+def _near(a: np.ndarray, rgb: tuple, tol: int = 14) -> np.ndarray:
+    return (np.abs(a[..., 0] - rgb[0]) < tol) & (np.abs(a[..., 1] - rgb[1]) < tol) & (np.abs(a[..., 2] - rgb[2]) < tol)
+
+
 def read_consumables(rgb: np.ndarray) -> list[dict]:
-    """Bottles in the consumable column (left edge): a cork (148,97,63) with
-    liquid below. Green liquid (55,107,31) = 'green_potion', blue (64,121,150)
-    = 'blue_potion' (shield [user]). Green card with a skull = 'skull_card'
-    (poisons an enemy, damage over time [user]). Measured on bot run
-    20261027-182237 frame f0104."""
-    a = rgb[690:1010, 85:155].astype(int)
-    cork = (np.abs(a[..., 0] - 148) < 14) & (np.abs(a[..., 1] - 97) < 14) & (np.abs(a[..., 2] - 63) < 14)
-    rows = np.nonzero(cork.sum(axis=1) >= 6)[0]
-    out, last = [], -100
-    for r in rows:
-        if r - last < 40:
-            continue
-        last = r
-        liq = a[r + 10:r + 75]
-        green = ((np.abs(liq[..., 0] - 55) < 14) & (np.abs(liq[..., 1] - 107) < 14) & (np.abs(liq[..., 2] - 31) < 14)).sum()
-        blue = ((np.abs(liq[..., 0] - 64) < 14) & (np.abs(liq[..., 1] - 121) < 14) & (np.abs(liq[..., 2] - 150) < 14)).sum()
-        kind = "green_potion" if green >= 80 else "blue_potion" if blue >= 80 else None
-        if kind:
-            out.append({"item": kind, "fx": 120 / 1920, "fy": (690 + r + 35) / 1080})
-    # skull card: green card with a pale-green skull (144,170,56), no cork
-    skull = (np.abs(a[..., 0] - 144) < 14) & (np.abs(a[..., 1] - 170) < 14) & (np.abs(a[..., 2] - 56) < 14)
-    srows = np.nonzero(skull.sum(axis=1) >= 3)[0]
-    if len(srows) >= 8:
-        groups, start, prev = [], srows[0], srows[0]
-        for r in list(srows[1:]) + [10 ** 6]:
-            if r - prev > 12:
-                groups.append((start, prev))
-                start = r
-            prev = r
-        for g0, g1 in groups:
-            if skull[g0:g1 + 1].sum() >= 40:
-                out.append({"item": "skull_card", "fx": 120 / 1920, "fy": (690 + (g0 + g1) / 2) / 1080})
-    out.sort(key=lambda it: it["fy"])
+    """Items in the consumable column (left edge), one per slot.
+
+    Names and effects from the wiki Consumables page:
+      green_potion  Edamame Brew: restores up to 3 HP          (cork + green liquid)
+      blue_potion   Kami Brew: shield, negates the next attack  (cork + blue liquid)
+      skull_card    Mass Poison: all enemies, 1 dmg/turn, 3 turns (green card, pale skull)
+      ice_card      Mass Ice: freezes all enemies for 3 turns   (navy card, cyan crystal)
+      red_card      red card with a mask; effect unconfirmed (not used yet)
+    Anything else in a filled slot is returned as 'unknown' so the bot can log it.
+    """
+    out = []
+    for cy in ITEM_SLOTS_Y:
+        a = rgb[cy - 45:cy + 45, 85:155].astype(int)
+        if (a.max(axis=2) > 60).mean() < 0.2:
+            continue  # empty slot (dark ring)
+        # hue rules, so items dimmed during animations still read [run 20261027-164727]
+        r_, g_, b_ = a[..., 0], a[..., 1], a[..., 2]
+        lit = a.max(axis=2) > 25
+        cork = int(((r_ > g_ + 25) & (g_ > b_ + 10) & (r_ > 60) & (r_ < 175) & lit)[:30].sum())
+        green_px = int(((g_ > r_ + 25) & (g_ > b_ + 30) & lit).sum())
+        blue_px = int(((b_ > r_ + 40) & (b_ >= g_ - 5) & lit).sum())
+        red_px = int(((r_ > g_ + 40) & (r_ > b_ + 40) & lit).sum())
+        skull = int(_near(a, (144, 170, 56), 30).sum())
+        navy = float(((b_ > r_ + 25) & (b_ > g_ + 15) & (b_ < 120) & lit).mean())
+        if cork >= 6 and green_px >= 150:
+            item = "green_potion"
+        elif cork >= 6 and blue_px >= 150:
+            item = "blue_potion"
+        elif skull >= 40:
+            item = "skull_card"
+        elif navy >= 0.15:
+            item = "ice_card"
+        elif red_px >= 300:
+            item = "red_card"  # mask card seen in the user's run; effect not confirmed
+        else:
+            item = "unknown"
+        out.append({"item": item, "fx": 120 / 1920, "fy": cy / 1080})
     return out
 
 
