@@ -45,9 +45,10 @@ from .planner import STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_
 from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS
 from .live import LiveView
 from .runlog import RunLogger
+from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.20.1"
+VERSION = "0.21"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -579,8 +580,7 @@ class Bot:
         turn = 0
         level = None
         seen_boss = False
-        prev_alive = 0
-        wave = 0
+        waves = Waves()
         last_hp = 10
         unknown_since = None
         unknown_saved = False
@@ -747,13 +747,27 @@ class Bot:
                     continue
                 if s.level != level:
                     level = s.level
-                    wave = 0
-                    prev_alive = 0
-                    log.level_start(level, s.hero.hp, LEVEL_WAVES.get(level, 0))
+                    waves.reset()
+                    log.level_start(level, s.hero.hp, p.wave[1] if p.wave else LEVEL_WAVES.get(level, 0))
                     log.event("kit", level=level, kit=tr.kit.to_list())
                     self.say(f"level {level}, HP {s.hero.hp}")
                 if level == "boss":
                     seen_boss = True
+                    s.wave = 0
+                elif s.alive():
+                    # the HUD counter, else a rise in living enemies (shogunbot.waves); before
+                    # anything that may skip this turn's planning, so no new unit goes unlogged
+                    for name, fields in waves.update(p.wave, s.alive(), tr.fresh, turn):
+                        if name == "wave_spawn":
+                            log.wave_seen(fields.pop("wave"), fields.pop("spawned"), fields.pop("alive_before"),
+                                          fields.pop("turn"), **fields)
+                        else:
+                            log.event(name, **fields)
+                    s.wave = waves.wave
+                    if waves.total:
+                        s.waves_total = waves.total
+                else:
+                    waves.prev_alive = 0
                 if p.hero["hp_max"] and s.hero.hp <= 0:
                     zero_hp += 1
                     if zero_hp >= 2:  # two stable reads, so a hit flash is not a death
@@ -787,17 +801,9 @@ class Bot:
                         potion_check = (s.hero.hp, "green_potion")
                     continue
                 last_hp = s.hero.hp if p.hero["hp_max"] else last_hp
-                alive = s.alive()
-                if not alive:
-                    prev_alive = 0
+                if not s.alive():
                     time.sleep(0.3)
                     continue
-                if len(alive) > prev_alive and level != "boss":
-                    wave += 1
-                    log.wave_seen(wave, [{"x": e.x, "kind": e.kind, "facing": e.facing} for e in alive],
-                                  prev_alive, turn)
-                prev_alive = len(alive)
-                s.wave = wave if level != "boss" else 0
                 s.turn = turn
                 # stall rule [user 2026-10-28]: after STALL_TURNS turns in which no enemy lost
                 # HP, died or appeared, a 1-HP trade that makes progress is allowed

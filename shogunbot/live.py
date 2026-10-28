@@ -22,8 +22,8 @@ EVENTS = 10
 # events worth showing in the viewer, with a one-line text
 _EVENT_TEXT = {
     "level_start": lambda d: f"level {d.get('level')} starts at {d.get('hp')} HP",
-    "wave_spawn": lambda d: f"wave {d.get('wave')}: " + ", ".join(
-        f"{u.get('kind')}@{u.get('x')}" for u in d.get("spawned", [])),
+    "wave_spawn": lambda d: f"wave {d.get('wave')}" + (f"/{d['total']}" if d.get("total") else "") + ": " + (
+        ", ".join(f"{u.get('kind')}@{u.get('x')}" for u in d.get("spawned", [])) or "no new unit read"),
     "item_use": lambda d: f"used {d.get('name')}: {d.get('reason')}",
     "item_result": lambda d: f"{d.get('item')} {'consumed' if d.get('consumed') else 'still in its slot'}",
     "potion_result": lambda d: f"{d.get('item')}: HP {d.get('hp_before')} -> {d.get('hp_after')}",

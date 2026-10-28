@@ -7,7 +7,9 @@ perceive(rgb) returns a Perception with:
   hero         {x, facing, hp, queue[...], hand[{tile, ready, cx}]}
   enemies      [{x, kind, facing, hp, queue[...], fire_now, intent, spawning}]
   boss_frac    boss HP bar fill 0..1 (boss screen only)
-  wave_alert   True when the WAVE text is red (next wave spawns soon)
+  wave         (wave, waves in the level) from the HUD counter "WAVE x/y", or None
+  wave_alert   True when the WAVE text is salmon: the turn a wave pops in (56 of 70 salmon
+               frames in the recordings), sometimes the turns before the next one
   confidence   per-field 0..1, so the logger can flag weak reads
 
 Coordinates assume a 1920x1080 client area (normalize() resizes otherwise).
@@ -23,7 +25,7 @@ import numpy as np
 
 from ..catalogue import CAT
 from ..model import DEFAULT_KIT
-from . import screens
+from . import hud, screens
 from .board import cells as find_cells
 
 ASSETS = Path(__file__).parent / "assets"
@@ -382,18 +384,27 @@ def read_hand(rgb: np.ndarray, kit_tiles=None) -> list[dict]:
 
 
 # ---------------------------------------------------------------- screen
+BOARD_CELLS = (5, 7, 9)   # level widths [wiki]; 9 cells first seen in Hot Springs and the Castle
+                          # [collect/20261028-190026]
+
+
 def screen_type(rgb: np.ndarray, cells_: list[dict]) -> str:
+    """Reward screens first (their SKIP pill), then the fight HUD (screens.combat_hud), then
+    the menus. 0.20.1 tested the menus first, and in the full-game recording only 315 of
+    about 1,450 fight frames read as a fight: red backdrops read as camp or title, the cave
+    as map [user review of collect/20261028-190026]. A frame with the fight HUD but no
+    readable board is 'unknown': the bot waits instead of acting on a menu rule."""
     a = rgb.astype(int)
+    board = len(cells_) in BOARD_CELLS and any(c["kind"] == "hero" for c in cells_)
+    if a.mean() >= 3 and screens.find_skip(rgb) is None and screens.combat_hud(rgb):
+        if not board:
+            return "unknown"
+        return "boss" if screens.boss_bar(rgb) else "combat"
     menu = screens.classify(rgb)
     if menu is not None:
         return menu
-    if len(cells_) in (5, 7) and any(c["kind"] == "hero" for c in cells_):
-        # boss bar: long red bar near y=115
-        bar = a[108:124, 640:1280]
-        if ((bar[..., 0] > 120) & (bar[..., 1] < 60)).mean() > 0.05 or (bar.sum(axis=2) < 60).mean() > 0.6 and \
-                ((a[96:100, 640:1280].sum(axis=2) > 500).mean() > 0.6):
-            return "boss"
-        return "combat"
+    if board:
+        return "boss" if screens.boss_bar(rgb) else "combat"
     # death: red kanji in the middle
     mid = a[380:500, 860:1060]
     if ((mid[..., 0] > 180) & (mid[..., 1] < 50)).mean() > 0.05:
@@ -424,12 +435,14 @@ class Perception:
     hand: list = field(default_factory=list)
     items: list = field(default_factory=list)
     boss_frac: float | None = None
+    wave: tuple | None = None
     wave_alert: bool = False
     confidence: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in
-                ("screen", "cells", "hero", "enemies", "hand", "items", "boss_frac", "wave_alert", "confidence")}
+                ("screen", "cells", "hero", "enemies", "hand", "items", "boss_frac", "wave", "wave_alert",
+                 "confidence")}
 
 
 def perceive(rgb: np.ndarray, kit_tiles=None) -> Perception:
@@ -438,6 +451,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None) -> Perception:
     cs = find_cells(rgb)
     screen = screen_type(rgb, cs)
     p = Perception(screen=screen)
+    if screen in ("combat", "unknown"):
+        p.wave = hud.read_wave(rgb)
     if screen not in ("combat", "boss"):
         return p
     conf = {}

@@ -180,12 +180,16 @@ class RunLogger:
         self.event("level_end", **self._level)
         self._level = None
 
-    def wave_seen(self, wave: int, spawned: list[dict], alive_before: int, turn: int) -> None:
+    def wave_seen(self, wave: int, spawned: list[dict], alive_before: int, turn: int, **extra) -> None:
+        """extra (0.21): total (waves in the level, from the HUD), source ('hud' or 'count'),
+        survivors (older enemies on the board when it arrived)."""
         if self._level:
             if wave > self._level["waves_seen"] and self._level["waves_seen"] > 0:
                 self.stats.waves_cleared += 1
             self._level["waves_seen"] = max(wave, self._level["waves_seen"])
-        self.event("wave_spawn", wave=wave, turn=turn, alive_before=alive_before, spawned=spawned)
+            if extra.get("total"):
+                self._level["waves_total"] = extra["total"]
+        self.event("wave_spawn", wave=wave, turn=turn, alive_before=alive_before, spawned=spawned, **extra)
 
     # ---- turns ----------------------------------------------------------
     def turn(self, *, state: State, confidence: dict, perceive_ms: float, decision, plan_ms: float,

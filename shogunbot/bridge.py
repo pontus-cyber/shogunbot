@@ -138,6 +138,7 @@ class Tracker:
         self.level = ""
         self.notes: list[str] = []
         self.prev: list = []          # enemies of the last state (for facing persistence)
+        self.fresh: list = []         # (x, kind, facing) of the units new in the last state
         self.hist: list = []          # enemies when the bot last acted: (kind, x, telegraph, fage), for the
                                       # behaviour model's history features (behaviour.carry)
         self.freeze_left = 0          # turns of Mass Ice left
@@ -259,6 +260,7 @@ class Tracker:
                     en.kind, en.hp = "charger", 1
                     en.queue = [t for t in en.queue if t == "charge"][:1]
             self.notes.append(f"{len(bosses)} Daisuke reads; kept cell {keep.x}")
+        self.fresh = [(en.x, en.kind, en.facing) for en in self._unmatched(enemies)]
         self.prev = [(en.kind, en.x, en.facing, en.intent) for en in enemies]
         self.swapped_uid_x = None
         # what each enemy did last turn and how long since it fired: the learned model's
@@ -375,6 +377,29 @@ class Tracker:
         if kind == "charger":
             return toward
         return e["facing"] or toward
+
+    def _unmatched(self, enemies: list) -> list:
+        """The enemies that none of last state's units can have become: new units (a
+        wave, a summon), or every enemy at a level's first state. One old unit accounts
+        for one enemy: same cell first, then a telegraphed move, a charge or a dash, or
+        one cell for a unit whose telegraph is not known (after a swap or a mirror)."""
+        free = list(range(len(self.prev)))
+        left = []
+        for en in enemies:
+            i = next((i for i in free if self.prev[i][0] == en.kind and self.prev[i][1] == en.x), None)
+            if i is None:
+                left.append(en)
+            else:
+                free.remove(i)
+        out = []
+        for en in left:
+            cand = [i for i in free if self.prev[i][0] == en.kind and (
+                self._could_be(self.prev[i], en.x) or (self.prev[i][3] is None and abs(self.prev[i][1] - en.x) == 1))]
+            if cand:
+                free.remove(min(cand, key=lambda i: abs(self.prev[i][1] - en.x)))
+            else:
+                out.append(en)
+        return out
 
     @staticmethod
     def _could_be(q: tuple, x: int) -> bool:

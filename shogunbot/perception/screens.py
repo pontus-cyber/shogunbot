@@ -164,6 +164,38 @@ def find_restart(rgb: np.ndarray) -> tuple[float, float] | None:
     return ((1400 + (xs.min() + xs.max()) / 2) / w, (850 + (y0 + y1) / 2) / h)
 
 
+HUD_BAND = (10, 65, 820, 1100)   # y0, y1, x0, x1: the skull progress track (boss fights: the boss name)
+HUD_PX = 60   # band pixels brighter than the band's median by 60: fights 1,264-4,940 (also under the
+              # red flash of a hit, which tints the skulls pink), level-end banners 120-448, every
+              # camp, map, title, death and black frame 0, reward screens up to 3,920 (told apart
+              # by SKIP first) [all frames of 22 runs, collect/20261027-164727 and the full-game
+              # recording 20261028-190026]
+
+
+def hud_pixels(rgb: np.ndarray) -> int:
+    """Bright structure in the HUD band, relative to the band's own median brightness, so
+    a red damage flash over the whole screen does not hide it."""
+    y0, y1, x0, x1 = HUD_BAND
+    lum = rgb[y0:y1, x0:x1].astype(np.int16).mean(axis=2)
+    return int((lum > np.median(lum) + 60).sum())
+
+
+def combat_hud(rgb: np.ndarray) -> bool:
+    """A fight's HUD (or what is left of it during a level-end banner) is at the top centre.
+    Red level backdrops (Spirit Gateway, Hot Springs) passed the camp/title test and the tan
+    cave of Whispering Caves the map test, so fights read as menus in the full-game
+    recording; a frame with this HUD is never a menu [0.21]."""
+    return hud_pixels(rgb) >= HUD_PX
+
+
+def boss_bar(rgb: np.ndarray) -> bool:
+    """The long red boss HP bar near y 115 (or its empty frame at the end of the fight)."""
+    a = rgb.astype(np.int16)
+    bar = a[108:124, 640:1280]
+    return bool(((bar[..., 0] > 120) & (bar[..., 1] < 60)).mean() > 0.05 or
+                ((bar.sum(axis=2) < 60).mean() > 0.6 and (a[96:100, 640:1280].sum(axis=2) > 500).mean() > 0.6))
+
+
 def features(rgb: np.ndarray) -> dict:
     a = rgb.astype(int)
     s = a[200:800, 150:1800]
@@ -185,5 +217,17 @@ def classify(rgb: np.ndarray) -> str | None:
     if find_skip(rgb) is not None:
         return "reward"
     if f["red"] > 0.5:
-        return "camp" if f["wood"] > 0.08 else "title"
+        if f["wood"] > 0.08:
+            return "camp"
+        # the title needs its logo: the red flash of a hit made a boss fight (Iwao, no
+        # hand panel lit) pass the red test [collect/20261028-190026 f0300]
+        return "title" if title_logo(rgb) else None
     return None
+
+
+TITLE_LOGO_PX = 20000   # white px of the SHOGUN showdown logo: 75,792 on every title frame, 0 on fights
+
+
+def title_logo(rgb: np.ndarray) -> bool:
+    a = rgb[320:600, 560:1360].astype(np.int16)
+    return int((a.min(axis=2) > 200).sum()) >= TITLE_LOGO_PX
