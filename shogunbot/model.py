@@ -63,16 +63,17 @@ class Enemy:
     # phases since the queue was completed. R1: a unit fires at the earliest one
     # phase after loading (red, then yellow). Units read from the screen start at 1.
     wind: int = 1
+    cursed: bool = False  # Mass Curse: next hit deals double damage
 
     @property
     def armed(self) -> bool:
         return bool(self.queue)
 
     def clone(self) -> "Enemy":
-        return Enemy(self.kind, self.x, self.facing, self.hp, list(self.queue), self.uid, self.frozen, self.cd, self.intent, self.primed, self.wind)
+        return Enemy(self.kind, self.x, self.facing, self.hp, list(self.queue), self.uid, self.frozen, self.cd, self.intent, self.primed, self.wind, self.cursed)
 
     def key(self) -> tuple:
-        return (self.kind, self.x, self.facing, self.hp, tuple(self.queue), self.frozen, self.cd, self.intent, self.primed, min(self.wind, 1))
+        return (self.kind, self.x, self.facing, self.hp, tuple(self.queue), self.frozen, self.cd, self.intent, self.primed, min(self.wind, 1), self.cursed)
 
 
 @dataclass

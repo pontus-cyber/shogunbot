@@ -29,6 +29,7 @@ class Tracker:
         self.prev: list = []          # enemies of the last state (for facing persistence)
         self.freeze_left = 0          # turns of Mass Ice left
         self.shield = False           # Kami Brew active
+        self.cursed = False           # Mass Curse on every enemy until our next attack
         self.swapped_uid_x: int | None = None
 
     # ------------------------------------------------------------------
@@ -101,6 +102,7 @@ class Tracker:
             en = Enemy(kind, e["x"], facing_e, hp_e, queue, uid=i + 1, intent=intent)
             if self.freeze_left > 0:
                 en.frozen, en.intent = self.freeze_left, None
+            en.cursed = self.cursed
             enemies.append(en)
         bosses = [en for en in enemies if en.kind == "daisuke"]
         if len(bosses) > 1:
@@ -173,10 +175,17 @@ class Tracker:
     def freeze(self, turns: int) -> None:
         self.freeze_left = turns
 
+    def mirror(self) -> None:
+        """Rain of Mirrors turned every enemy: flip the remembered facings, or the
+        facing-persistence rule would undo the flip."""
+        self.prev = [(k, x, -f, None) for k, x, f, _ in self.prev]
+
     def acted(self, s: State, action: str) -> None:
         """Advance tracked charge and facing through the hero's action."""
         if self.freeze_left > 0:
             self.freeze_left -= 1
+        if action == "attack":
+            self.cursed = False  # approximation: our attack uses the curse up
         if self.shield:
             from .rules import step
             outs = step(s, action)

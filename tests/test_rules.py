@@ -199,3 +199,11 @@ def test_frozen_enemy_does_not_act():
     s.enemies[0].frozen = 3
     s2, _ = only(step(s, "wait"))
     assert s2.hero.hp == 10 and s2.enemies[0].frozen == 2
+
+
+def test_curse_doubles_the_next_hit():
+    s = mk(5, 2, 1, [("ashigaru", 3, -1, 3, [])])
+    s.enemies[0].cursed = True
+    s.hero.queue = ["swirl"]
+    s2, ev = only(step(s, "attack"))
+    assert ("ashigaru", 1, "hero:swirl") in ev.kills

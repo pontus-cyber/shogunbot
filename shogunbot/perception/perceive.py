@@ -210,7 +210,8 @@ def read_consumables(rgb: np.ndarray) -> list[dict]:
       blue_potion   Kami Brew: shield, negates the next attack  (cork + blue liquid)
       skull_card    Mass Poison: all enemies, 1 dmg/turn, 3 turns (green card, pale skull)
       ice_card      Mass Ice: freezes all enemies for 3 turns   (navy card, cyan crystal)
-      red_card      red card with a mask; effect unconfirmed (not used yet)
+      curse_card    Mass Curse: all enemies take double damage on the next hit (red card, mask) [user]
+      mirror_card   Rain of Mirrors: all enemies and bosses turn around (grey card) [user, look unverified]
     Anything else in a filled slot is returned as 'unknown' so the bot can log it.
     """
     out = []
@@ -236,7 +237,10 @@ def read_consumables(rgb: np.ndarray) -> list[dict]:
         elif navy >= 0.15:
             item = "ice_card"
         elif red_px >= 300:
-            item = "red_card"  # mask card seen in the user's run; effect not confirmed
+            item = "curse_card"   # Mass Curse: red card with a mask [user]
+        elif (lit.mean() > 0.35 and a.mean() < 150 and float(((a.max(axis=2) - a.min(axis=2)) < 22)[lit].mean()) > 0.7
+              and cork < 6):
+            item = "mirror_card"  # Rain of Mirrors: grey card [user, unverified: first sighting saves a frame]
         else:
             item = "unknown"
         out.append({"item": item, "fx": 120 / 1920, "fy": cy / 1080})

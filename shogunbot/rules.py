@@ -72,6 +72,9 @@ def legal_hero_actions(s: State) -> list[str]:
 def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events) -> None:
     if e.hp <= 0 or dmg <= 0:
         return
+    if e.cursed:
+        dmg *= 2          # Mass Curse: double damage on the next hit [wiki] [user]
+        e.cursed = False
     e.hp -= dmg
     ev.enemy_damage.append((e.kind, e.uid, dmg, source))
     if e.hp <= 0:

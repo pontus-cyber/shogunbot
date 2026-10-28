@@ -34,7 +34,7 @@ from .planner import WEIGHTS, auto_depth, plan
 from .runlog import RunLogger
 from .winio import GameWindow
 
-VERSION = "0.11"
+VERSION = "0.12"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {"bamboo-1": 4, "bamboo-2": 5, "boss": 0}
 VK_F8 = 0x77
@@ -164,6 +164,29 @@ class Bot:
                 return "skull_card", f"poison worth {value} damage"
         return None
 
+    @staticmethod
+    def _mirror_saves(s) -> bool:
+        """Would turning every enemy around leave a zero-damage move?"""
+        m = s.clone()
+        for e in m.enemies:
+            e.facing = -e.facing
+        d = plan(m, 2)
+        return min(c["exp_damage"] for c in d.candidates) < 0.5
+
+    @staticmethod
+    def _curse_gain(s) -> bool:
+        """Does doubling the coming hit kill more, or hit the boss harder?"""
+        from .rules import step
+        def result(cursed: bool):
+            m = s.clone()
+            for e in m.enemies:
+                e.cursed = cursed
+            out = max(step(m, "attack"), key=lambda t: t[0])[2]
+            return len(out.kills), sum(d for k, _, d, _ in out.enemy_damage if k == "daisuke")
+        k0, b0 = result(False)
+        k1, b1 = result(True)
+        return k1 > k0 or b1 >= b0 + 2
+
     def _use_item(self, item: str, p, s, frame, turn: int, reason: str, tr, tries: dict) -> None:
         slot = next(it for it in p.items if it["item"] == item)
         tries[item] = tries.get(item, 0) + 1
@@ -181,6 +204,10 @@ class Bot:
                 tr.freeze(3)      # Mass Ice: all enemies frozen for 3 turns [wiki]
             elif item == "blue_potion":
                 tr.shield = True  # Kami Brew: negates the next attack [wiki]
+            elif item == "curse_card":
+                tr.cursed = True  # Mass Curse: next hit on each enemy is doubled [wiki]
+            elif item == "mirror_card":
+                tr.mirror()       # Rain of Mirrors: every enemy turned around [wiki]
         else:
             self.say(f"   {item} still in its slot; the click may not have registered")
 
@@ -207,6 +234,7 @@ class Bot:
         last_key, last_action = None, None
         potion_check = None
         item_tries: dict = {}
+        seen_items: set = set()
         potion_failed: set = set()
         banned: dict = {}
         result = "stopped"
@@ -344,6 +372,12 @@ class Bot:
                     if s.hero.hp <= hp_before:
                         potion_failed.add(used)
                     potion_check = None
+                for it in p.items:
+                    if it["item"] not in seen_items:
+                        # first sighting of each item type: keep a frame to verify the read
+                        seen_items.add(it["item"])
+                        log.save_frame(frame, f"item_{it['item']}")
+                        log.event("item_seen", item=it["item"], fy=round(float(it["fy"]), 3))
                 # ---- items before planning (all cost no turn [obs]; effects from the wiki)
                 use = self._pre_plan_item(p, s, item_tries)
                 if use:
@@ -387,15 +421,25 @@ class Bot:
                     d.action = alt
                 last_key, last_action = key, d.action
                 best = next((c for c in d.candidates if c["action"] == d.action), {})
+                have = {it["item"] for it in p.items if item_tries.get(it["item"], 0) < 2}
                 if best.get("exp_damage", 0) >= 1.0:
-                    # every move takes damage: freeze everyone (Mass Ice) or shield (Kami Brew),
-                    # then re-read and re-plan with the item's effect in the model
-                    have = {it["item"] for it in p.items}
-                    item = next((i for i in ("ice_card", "blue_potion") if i in have and item_tries.get(i, 0) < 2), None)
+                    # every move takes damage: freeze everyone (Mass Ice), turn everyone
+                    # around (Rain of Mirrors) if that removes the damage, or shield
+                    # (Kami Brew); then re-read and re-plan with the effect in the model
+                    item = None
+                    if "ice_card" in have:
+                        item = "ice_card"
+                    elif "mirror_card" in have and self._mirror_saves(s):
+                        item = "mirror_card"
+                    elif "blue_potion" in have:
+                        item = "blue_potion"
                     if item:
                         self._use_item(item, p, s, frame, turn,
                                        f"expected {best['exp_damage']:.1f} damage on every move", tr, item_tries)
                         continue
+                if d.action == "attack" and "curse_card" in have and self._curse_gain(s):
+                    self._use_item("curse_card", p, s, frame, turn, "doubles the hit about to land", tr, item_tries)
+                    continue
                 conf = dict(p.confidence)
                 log.turn(state=s, confidence=conf, perceive_ms=perceive_ms, decision=d,
                          plan_ms=plan_ms, frame=frame)
