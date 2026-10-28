@@ -1,0 +1,7 @@
+# run data stays on the PC (large; reviewed through `analyze`)
+runs/
+collect/
+*.tar
+__pycache__/
+.pytest_cache/
+*.pyc

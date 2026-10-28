@@ -1,0 +1,2 @@
+# installed into the existing local-game-MCP venv (it already has dxcam, numpy, pillow, winrt OCR)
+opencv-python-headless>=4.9
