@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "source": "Shogun Showdown wiki, Regions and Bamboo Grove pages (shogunshowdown.wiki.gg), fetched 2026-10-28, CC BY-SA 4.0; spawn details from the Stage 1 domain model."
+  },
+  "rules": {
+    "cells": "Each level is 5, 7 or 9 cells wide [wiki].",
+    "enemy_cap": "max alive = (cells + 1) / 2 [wiki] [web]",
+    "boss_levels": "Boss levels have no waves; killing the boss ends the level even with summons alive [wiki] [web].",
+    "rewards": "Between levels: a tile choice (one of two, or skip) or a tile upgrade; options can be rerolled for coins [wiki].",
+    "tile_choice_levels": ["bamboo_grove/1", "whispering_caves/1", "hibiku_wastelands/1", "moonlit_port/boss", "spirit_gateway/boss", "forsaken_grounds/boss"],
+    "spawn_patterns": {
+      "normal": "next wave when only 1-2 enemies remain [web]; Bamboo Grove spawns while 1 is alive, at once when 0 [obs]",
+      "quick": "spawns on a turn interval until the cap or the pool is reached [web]",
+      "mixed": "alternates normal and quick [web]"
+    },
+    "spawn_pool": "Enemies from earlier regions can appear later; Yumi Sniper, Warden, Strider and Kabukai only after meeting them in their home region [wiki]."
+  },
+  "regions": [
+    {"id": "camp", "name": "The Camp", "index": "0", "levels": 1, "enemies": [], "boss": null},
+    {"id": "bamboo_grove", "name": "Bamboo Grove", "index": "1", "levels": 3, "enemies": ["ashigaru", "tachi", "charger"], "boss": ["daisuke", "rei"],
+     "next": ["whispering_caves", "hibiku_wastelands"],
+     "level_list": [
+       {"id": "bamboo-1", "n": 1, "cells": 5, "waves": 4, "spawn": "normal", "new_enemies": ["ashigaru", "tachi"], "reward": "tile_choice", "hero_cell": 2},
+       {"id": "bamboo-2", "n": 2, "cells": 7, "waves": 5, "spawn": "normal", "new_enemies": ["charger"], "reward": "tile_upgrade", "hero_cell": 3},
+       {"id": "boss", "n": 3, "cells": 5, "waves": 0, "spawn": null, "boss": "daisuke", "boss_day2": "rei", "boss_day2_cells": 7, "reward": "tile_upgrade", "hero_cell": 1}
+     ]},
+    {"id": "whispering_caves", "name": "Whispering Caves", "index": "2.1", "levels": 3, "enemies": ["yari_master"], "boss": ["iwao"], "next": ["moonlit_port"]},
+    {"id": "hibiku_wastelands", "name": "Hibiku Wastelands", "index": "2.2", "levels": 3, "enemies": ["yumi_sniper"], "boss": ["baru"], "next": ["moonlit_port"]},
+    {"id": "moonlit_port", "name": "Moonlit Port", "index": "3", "levels": 4, "enemies": ["ashigaru_archer", "guardian"], "boss": ["the_twins"], "next": ["spirit_gateway", "forsaken_grounds"]},
+    {"id": "spirit_gateway", "name": "Spirit Gateway", "index": "4.1", "levels": 4, "enemies": ["grappler", "shinobi"], "boss": ["the_statue"], "next": ["hot_springs"]},
+    {"id": "forsaken_grounds", "name": "Forsaken Grounds", "index": "4.2", "levels": 4, "enemies": ["warden", "strider"], "boss": ["fumiko"], "next": ["theatre_of_illusions"]},
+    {"id": "hot_springs", "name": "Hot Springs", "index": "5.1", "levels": 4, "enemies": ["shielder"], "boss": ["kowa"], "next": ["hideyoshis_keep", "nobunagas_fortress"]},
+    {"id": "theatre_of_illusions", "name": "Theatre of Illusions", "index": "5.2", "levels": 4, "enemies": ["kabukai"], "boss": ["sato"], "next": ["nobunagas_fortress", "ieyasus_garden"]},
+    {"id": "hideyoshis_keep", "name": "Hideyoshi's Keep", "index": "6.1", "levels": 4, "enemies": ["shadow_charger"], "boss": ["hideyoshi"], "next": ["shoguns_castle"]},
+    {"id": "nobunagas_fortress", "name": "Nobunaga's Fortress", "index": "6.2", "levels": 2, "enemies": ["shadow_charger"], "boss": ["nobunaga"], "next": ["shoguns_castle"]},
+    {"id": "ieyasus_garden", "name": "Ieyasu's Garden", "index": "6.3", "levels": 2, "enemies": ["shadow_charger"], "boss": ["ieyasu"], "next": ["shoguns_castle"]},
+    {"id": "shoguns_castle", "name": "The Shogun's Castle", "index": "7", "levels": 2, "enemies": [], "boss": ["the_shogun"], "next": ["crimson_shrine"]},
+    {"id": "crimson_shrine", "name": "Crimson Shrine", "index": "8", "levels": 1, "enemies": [], "boss": ["corrupted_soul"], "next": []}
+  ]
+}

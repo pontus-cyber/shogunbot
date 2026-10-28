@@ -1,0 +1,47 @@
+{
+  "_meta": {
+    "source": "Shogun Showdown wiki, Tiles page sections on upgrades and tile choices (shogunshowdown.wiki.gg), fetched 2026-10-28, CC BY-SA 4.0; shrine texts as the game prints them [bot: runs 20261027-182237 to 20261028-061420, collect 20261027-164727].",
+    "fields": {
+      "lines": "text lines the shrine bubble shows, upper case. seen=true: read on a recorded frame; seen=false: expected wording [hyp]",
+      "damage, cooldown, slots": "changes applied to the chosen tile",
+      "uses_level": "false for slot upgrades, which never consume a level [wiki]"
+    }
+  },
+  "rules": {
+    "levels": "Each upgrade consumes one of the tile's max levels (the grey dots above a tile; used levels turn yellow [bot: collect 20261027-164727 f0112]). New tiles get a random max level of 2 to 4 [wiki].",
+    "one_enchantment": "A tile can hold one enchantment, except Free-Play [wiki].",
+    "floor": "Damage and cooldown do not go below 0 [hyp].",
+    "shrine_flow": "Click a hand tile: it moves into the statue's mouth and UPGRADE lights up; click UPGRADE. REROLL costs coins; SKIP leaves [bot: collect 20261027-164727 f0109-f0112].",
+    "tile_choice_flow": "Click a pedestal tile to add it to the hand; REROLL costs coins; SKIP leaves [bot: collect 20261027-164727 f0042-f0043]."
+  },
+  "stat_upgrades": [
+    {"id": "damage_1", "name": "+1 Damage", "lines": ["+1 DAMAGE"], "seen": false, "damage": 1, "cooldown": 0, "slots": 0, "uses_level": true},
+    {"id": "damage_1_cooldown_1", "name": "+1 Damage, +1 Cooldown", "lines": ["+1 DAMAGE", "+1 COOLDOWN"], "seen": true, "damage": 1, "cooldown": 1, "slots": 0, "uses_level": true},
+    {"id": "damage_2_cooldown_3", "name": "+2 Damage, +3 Cooldown", "lines": ["+2 DAMAGE", "+3 COOLDOWN"], "seen": true, "damage": 2, "cooldown": 3, "slots": 0, "uses_level": true},
+    {"id": "cooldown_minus_1", "name": "-1 Cooldown", "lines": ["-1 COOLDOWN"], "seen": true, "damage": 0, "cooldown": -1, "slots": 0, "uses_level": true},
+    {"id": "cooldown_minus_2", "name": "-2 Cooldown", "lines": ["-2 COOLDOWN"], "seen": true, "damage": 0, "cooldown": -2, "slots": 0, "uses_level": true},
+    {"id": "cooldown_minus_4_damage_minus_1", "name": "-4 Cooldown, -1 Damage", "lines": ["-4 COOLDOWN", "-1 DAMAGE"], "seen": false, "damage": -1, "cooldown": -4, "slots": 0, "uses_level": true},
+    {"id": "slot_1", "name": "+1 Upgrade Slot", "lines": ["+1 UPGRADE SLOT"], "seen": false, "damage": 0, "cooldown": 0, "slots": 1, "uses_level": false},
+    {"id": "slot_1_cooldown_minus_1", "name": "+1 Upgrade Slot, -1 Cooldown", "lines": ["+1 UPGRADE SLOT", "-1 COOLDOWN"], "seen": true, "damage": 0, "cooldown": -1, "slots": 1, "uses_level": false},
+    {"id": "sacrifice", "name": "Sacrifice a Tile", "lines": ["SACRIFICE A TILE"], "seen": false, "damage": 0, "cooldown": 0, "slots": 0, "uses_level": false, "removes_tile": true, "coins": 40},
+    {"id": "warriors_gamble", "name": "Warrior's Gamble", "lines": ["WARRIOR'S GAMBLE"], "seen": false, "damage": 0, "cooldown": 0, "slots": 0, "uses_level": true, "unknown_effect": true}
+  ],
+  "enchantments": [
+    {"id": "shockwave", "name": "Shockwave", "lines": ["SHOCKWAVE"], "seen": false, "cooldown": 1, "text": "On hit, enemies adjacent to the target take 1 damage each."},
+    {"id": "perfect_strike", "name": "Perfect Strike", "lines": ["PERFECT STRIKE"], "seen": false, "cooldown": 1, "text": "Recharges the tile if the attack leaves the target at exactly 0 HP."},
+    {"id": "poison", "name": "Poison", "lines": ["POISON"], "seen": false, "cooldown": 2, "text": "Poisoned enemies take 1 damage at the end of the turn for 3 turns."},
+    {"id": "ice", "name": "Ice", "lines": ["ICE"], "seen": false, "cooldown": 2, "text": "Freezes the target for 3 turns."},
+    {"id": "double_strike", "name": "Double-Strike", "lines": ["DOUBLE-STRIKE"], "seen": false, "cooldown": 4, "text": "Performs the attack twice."},
+    {"id": "curse", "name": "Curse", "lines": ["CURSE"], "seen": false, "cooldown": 2, "text": "Curses the enemy on hit; it takes double damage from the next hit."},
+    {"id": "freeplay", "name": "Freeplay", "lines": ["FREEPLAY"], "seen": false, "cooldown": 3, "text": "Adding the tile to the queue does not pass the turn."}
+  ],
+  "shop_upgrades": [
+    {"id": "damage_1", "name": "+1 Damage", "coins": 20},
+    {"id": "cooldown_minus_2", "name": "-2 Cooldown", "coins": 20},
+    {"id": "max_level_1", "name": "+1 Max Level", "coins": 10},
+    {"id": "random_enchantment", "name": "Random Enchantment", "coins": 20},
+    {"id": "sacrifice", "name": "Sacrifice a Tile (gain 40 coins)", "coins": 0}
+  ],
+  "shop_rules": "Each purchase raises that upgrade's price by the number of times it has been bought; slot-increasing upgrades never consume slots [wiki].",
+  "reroll": "The first reroll costs 3 coins and the price rises with each reroll and with region progress [wiki] [bot: REROLL 3]."
+}

@@ -28,17 +28,21 @@ import time
 import numpy as np
 
 from .bridge import Tracker
+from .catalogue import CAT
+from .model import DEFAULT_KIT, HERO_MAX_HP
 from .perception import screens
 from .perception.perceive import merge_blink, perceive
 from .planner import WEIGHTS, auto_depth, plan
+from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS
 from .runlog import RunLogger
 from .winio import GameWindow
 
-VERSION = "0.13"
+VERSION = "0.14"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
-LEVEL_WAVES = {"bamboo-1": 4, "bamboo-2": 5, "boss": 0}
+LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
-HEAL_AT = 7               # Edamame Brew restores up to 3 HP [wiki]: drink at 7 or lower
+# Edamame Brew restores up to 3 HP [catalogue]: drink at 7 or lower, so no healing is wasted
+HEAL_AT = HERO_MAX_HP - CAT.consumable_by_screen("green_potion").effect["amount"]
 POISON_MIN_VALUE = 4      # use Mass Poison when it deals at least this much in total
 BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink
 BLINK_GAP_S = 0.15
@@ -158,8 +162,8 @@ class Bot:
         if "green_potion" in have and tries.get("green_potion", 0) < 2 and 0 < s.hero.hp <= HEAL_AT:
             return "green_potion", f"HP {s.hero.hp}"
         if "skull_card" in have and tries.get("skull_card", 0) < 2:
-            # Mass Poison: every enemy, 1 damage per turn for 3 turns [wiki]
-            value = sum(min(e.hp, 3) for e in s.alive())
+            # Mass Poison: every enemy, 1 damage per turn for 3 turns [catalogue]
+            value = sum(min(e.hp, POISON_TICK * POISON_TURNS) for e in s.alive())
             if value >= POISON_MIN_VALUE or any(e.kind == "daisuke" for e in s.alive()):
                 return "skull_card", f"poison worth {value} damage"
         return None
@@ -190,8 +194,10 @@ class Bot:
     def _use_item(self, item: str, p, s, frame, turn: int, reason: str, tr, tries: dict) -> None:
         slot = next(it for it in p.items if it["item"] == item)
         tries[item] = tries.get(item, 0) + 1
-        self.say(f"   using {item}: {reason}")
-        self.log.event("item_use", item=item, reason=reason, hp=s.hero.hp, turn=turn, attempt=tries[item])
+        cons = CAT.consumable_by_screen(item)
+        name = cons.name if cons else item
+        self.say(f"   using {name}: {reason}")
+        self.log.event("item_use", item=item, name=name, reason=reason, hp=s.hero.hp, turn=turn, attempt=tries[item])
         self.click(slot["fx"], slot["fy"], frame, item=item)
         time.sleep(1.0)
         after = perceive(self.gw.grab_stable(settle_s=0.2, timeout_s=2.0))
@@ -201,7 +207,7 @@ class Bot:
             tries[item] = 0
             # the effect goes into the model only once the item is really gone
             if item == "ice_card":
-                tr.freeze(3)      # Mass Ice: all enemies frozen for 3 turns [wiki]
+                tr.freeze(ICE_TURNS)  # Mass Ice: all enemies frozen for 3 turns [catalogue]
             elif item == "blue_potion":
                 tr.shield = True  # Kami Brew: negates the next attack [wiki]
             elif item == "curse_card":
@@ -216,7 +222,7 @@ class Bot:
         gw, log = self.gw, self.log
         gw.focus()
         run_id = log.start_run({"bot_version": VERSION, "weights": WEIGHTS,
-                                "autostart": self.autostart, "kit": "wanderer default"})
+                                "autostart": self.autostart, "kit": DEFAULT_KIT.to_list()})
         self.rec.start(log.run_dir / "frames")
         self.say(f"run {run_id} started; recording to runs/{run_id}/frames; hold F8 to stop")
         tr = Tracker()

@@ -1,21 +1,38 @@
-"""Stage 1 rules engine: hero actions and enemy presets.
+"""Rules engine: hero actions and enemy presets.
 
-Hypotheses from the domain model (tagged [hyp] there) are marked HYP here,
-so a simulator mismatch in the logs points straight at the rule to fix.
+Tile footprints come from the catalogue (data/tiles.json, field 'attack'),
+so hero and enemy attacks share one resolver and a new tile is a data
+change. Behaviour presets per enemy kind stay in code until M3 learns them
+from logs. Hypotheses from the domain model (tagged [hyp] there) are marked
+HYP here, so a simulator mismatch in the logs points straight at the rule.
 """
 
 from __future__ import annotations
 
-import copy
-import itertools
 from dataclasses import dataclass, field
 
+from .catalogue import CAT
 from .model import (
-    ENEMY_KINDS, ENEMY_TILE_COOLDOWN, ENEMY_TILE_DAMAGE, HERO_TILES, QUEUE_MAX, SWAP_COOLDOWN,
+    DEFAULT_KIT, ENEMY_KINDS, ENEMY_TILE_COOLDOWN, ENEMY_TILE_DAMAGE, QUEUE_MAX, SWAP_COOLDOWN,
     Enemy, Hero, State,
 )
 
-HERO_ACTIONS = ("left", "right", "turn", "wait", "queue:swirl", "queue:arrow", "attack")
+MOVES = ("left", "right", "turn", "wait")
+HERO_ACTIONS = MOVES + DEFAULT_KIT.queue_actions + ("attack",)   # default kit; see hero_actions()
+POISON_TICK = next(c.effect["damage"] for c in CAT.consumables.values() if c.effect["type"] == "poison_all")
+POISON_TURNS = next(c.effect["turns"] for c in CAT.consumables.values() if c.effect["type"] == "poison_all")
+ICE_TURNS = next(c.effect["turns"] for c in CAT.consumables.values() if c.effect["type"] == "freeze_all")
+
+
+def hero_actions(hero: Hero) -> tuple[str, ...]:
+    return MOVES + hero.kit.queue_actions + ("attack",)
+
+
+# tile id -> (kind, offsets, dir, range, cannot_kill): the catalogue footprint, unpacked for hot loops
+SPEC: dict[str, tuple] = {
+    t.id: (t.kind, tuple(t.attack.get("offsets", ())), t.attack.get("dir", 1), t.attack.get("range"),
+           bool(t.attack.get("cannot_kill")))
+    for t in CAT.tiles.values()}
 
 
 @dataclass
@@ -44,13 +61,54 @@ class Events:
 
 
 # ---------------------------------------------------------------------------
+# footprints (shared by hero and enemies)
+# ---------------------------------------------------------------------------
+
+def _first_unit_ahead(s: State, x: int, facing: int, skip_uid: int | None = None, rng: int | None = None):
+    nx = x + facing
+    while s.in_bounds(nx) and (rng is None or abs(nx - x) <= rng):
+        u = s.unit_at(nx)
+        if u is not None and not (isinstance(u, Enemy) and u.uid == skip_uid):
+            return u
+        nx += facing
+    return None
+
+
+def _furthest_unit_ahead(s: State, x: int, facing: int):
+    found, nx = None, x + facing
+    while s.in_bounds(nx):
+        u = s.unit_at(nx)
+        if u is not None:
+            found = u
+        nx += facing
+    return found
+
+
+def tile_hits(s: State, x: int, facing: int, tile: str, skip_uid: int | None = None) -> list:
+    """Units a tile fired from cell x with this facing would hit, ignoring
+    movement during the attack (used for threat checks)."""
+    spec = CAT.tile(tile).attack
+    k = spec["kind"]
+    d = facing * spec.get("dir", 1)
+    if k == "cells":
+        return [u for off in spec["offsets"] if (u := s.unit_at(x + facing * off)) is not None]
+    if k in ("first", "dash_strike"):
+        u = _first_unit_ahead(s, x, d, skip_uid, spec.get("range"))
+        return [u] if u is not None else []
+    if k == "furthest":
+        u = _furthest_unit_ahead(s, x, d)
+        return [u] if u is not None else []
+    return []
+
+
+# ---------------------------------------------------------------------------
 # hero
 # ---------------------------------------------------------------------------
 
 def legal_hero_actions(s: State) -> list[str]:
     out = []
     h = s.hero
-    for a in HERO_ACTIONS:
+    for a in MOVES:
         if a in ("left", "right"):
             d = -1 if a == "left" else 1
             nx = h.x + d
@@ -59,53 +117,131 @@ def legal_hero_actions(s: State) -> list[str]:
             occ = s.enemy_at(nx)
             if occ is not None and not (h.facing == d and h.swap_ready):
                 continue
-        elif a.startswith("queue:"):
-            t = a.split(":", 1)[1]
-            if len(h.queue) >= QUEUE_MAX or not h.ready(t):
-                continue
-        elif a == "attack" and not h.queue:
-            continue
         out.append(a)
+    q = h.queue
+    if len(q) < QUEUE_MAX:
+        ch = h.charge
+        for (lb, cd), a in zip(h.kit.cooldowns, h.kit.queue_actions):
+            if lb not in q and ch.get(lb, 0) >= cd:
+                out.append(a)
+    if q:
+        out.append("attack")
     return out
 
 
-def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events) -> None:
+def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events, cannot_kill: bool = False) -> None:
     if e.hp <= 0 or dmg <= 0:
         return
     if e.cursed:
         dmg *= 2          # Mass Curse: double damage on the next hit [wiki] [user]
         e.cursed = False
+    if cannot_kill:
+        dmg = min(dmg, e.hp - 1)   # Nagiboku leaves at least 1 HP [wiki]
+        if dmg <= 0:
+            return
     e.hp -= dmg
     ev.enemy_damage.append((e.kind, e.uid, dmg, source))
     if e.hp <= 0:
         ev.kills.append((e.kind, e.uid, source))
 
 
-def _first_unit_ahead(s: State, x: int, facing: int, skip_uid: int | None = None):
-    nx = x + facing
-    while s.in_bounds(nx):
-        u = s.unit_at(nx)
-        if u is not None and not (isinstance(u, Enemy) and u.uid == skip_uid):
-            return u
-        nx += facing
-    return None
+def _hero_hit(s: State, e: Enemy, kt, spec: dict, ev: Events) -> bool:
+    """One hero tile hitting one enemy, with the tile's enchantment.
+    Returns True on an exact kill (Perfect Strike)."""
+    src = "hero:" + kt.tile
+    hp0 = e.hp
+    _damage_enemy(s, e, kt.damage, src, ev, spec.get("cannot_kill", False))
+    ench = kt.enchant
+    if ench is None:
+        return False
+    if ench == "shockwave":
+        for nx in (e.x - 1, e.x + 1):   # enemies next to the target take 1 [wiki]
+            n = s.enemy_at(nx)
+            if n is not None and n is not e:
+                _damage_enemy(s, n, 1, src + "+shockwave", ev)
+    if e.hp > 0:
+        if ench == "poison":
+            e.poison = max(e.poison, POISON_TURNS)
+        elif ench == "ice":
+            e.frozen = max(e.frozen, ICE_TURNS)
+            e.intent = None
+        elif ench == "curse":
+            e.cursed = True
+    return ench == "perfect_strike" and hp0 > 0 and e.hp == 0
 
 
-def _hero_fire(s: State, ev: Events) -> None:
+def _hero_attack(s: State, kt, ev: Events) -> bool:
+    """Fire one kit tile from the hero's current cell. Returns True when the
+    tile recharges at once (Perfect Strike)."""
     h = s.hero
-    for tile in list(h.queue):  # bottom first
-        dmg = HERO_TILES[tile][0]
-        if tile == "swirl":
-            for cx in (h.x + h.facing, h.x - h.facing):
-                e = s.enemy_at(cx)
+    spec = CAT.tile(kt.tile).attack
+    k = spec["kind"]
+    d = h.facing * spec.get("dir", 1)
+    recharge = False
+    for _ in range(2 if kt.enchant == "double_strike" else 1):
+        if k == "cells":
+            for off in spec["offsets"]:
+                e = s.enemy_at(h.x + h.facing * off)
                 if e:
-                    _damage_enemy(s, e, dmg, "hero:swirl", ev)
-        elif tile == "arrow":
-            u = _first_unit_ahead(s, h.x, h.facing)
+                    recharge |= _hero_hit(s, e, kt, spec, ev)
+        elif k in ("first", "furthest"):
+            u = (_first_unit_ahead(s, h.x, d, rng=spec.get("range")) if k == "first"
+                 else _furthest_unit_ahead(s, h.x, d))
             if isinstance(u, Enemy):
-                _damage_enemy(s, u, dmg, "hero:arrow", ev)
-        h.charge[tile] = 0
+                recharge |= _hero_hit(s, u, kt, spec, ev)
+        elif k == "damaged":
+            for e in [e for e in s.alive() if e.hp < e.max_hp]:
+                recharge |= _hero_hit(s, e, kt, spec, ev)
+        elif k == "dash_strike":
+            # HYP: the hero stops next to the first unit and strikes it; with
+            # nothing in the way it dashes to the last cell (catalogue no_target)
+            u = _first_unit_ahead(s, h.x, d)
+            if u is None:
+                if spec.get("no_target") == "edge":
+                    h.x = s.cells - 1 if d > 0 else 0
+            else:
+                h.x = u.x - d
+                recharge |= _hero_hit(s, u, kt, spec, ev)
+        elif k == "dash_through":
+            # HYP: passes every unit of the first group ahead, lands on the
+            # first empty cell behind them and strikes each one it passed
+            nx = h.x + d
+            while s.in_bounds(nx) and s.unit_at(nx) is None:
+                nx += d
+            passed = []
+            while s.in_bounds(nx) and s.enemy_at(nx) is not None:
+                passed.append(s.enemy_at(nx))
+                nx += d
+            if passed and s.in_bounds(nx):
+                h.x = nx
+                for e in passed:
+                    recharge |= _hero_hit(s, e, kt, spec, ev)
+    return recharge
+
+
+def _hero_fire(s: State, ev: Events) -> set[str]:
+    """Fire the queue bottom first. Returns the labels that do not recharge
+    from zero (Perfect Strike)."""
+    h = s.hero
+    keep = set()
+    for label in list(h.queue):
+        kt = h.kit.by_label.get(label)
+        if kt is None:
+            continue
+        if _hero_attack(s, kt, ev):
+            keep.add(label)
+        else:
+            h.charge[label] = 0
     h.queue = []
+    return keep
+
+
+def free_action(s: State, action: str) -> bool:
+    """Queueing a Freeplay-enchanted tile does not pass the turn [wiki]."""
+    if not action.startswith("queue:"):
+        return False
+    kt = s.hero.kit.by_label.get(action[6:])
+    return kt is not None and kt.enchant == "freeplay"
 
 
 def apply_hero(s: State, action: str, ev: Events) -> State:
@@ -129,14 +265,17 @@ def apply_hero(s: State, action: str, ev: Events) -> State:
     elif action == "wait":
         pass
     elif action.startswith("queue:"):
-        h.queue.append(action.split(":", 1)[1])
+        h.queue.append(action[6:])
+        if free_action(s, action):
+            return s   # no turn passes, nothing recharges
     elif action == "attack":
-        fired = set(h.queue)
-        _hero_fire(s, ev)
+        fired = set(h.queue) - _hero_fire(s, ev)
     # a turn passes: recharge everything not queued and not just fired
-    for t, (_, cd) in HERO_TILES.items():
-        if t not in h.queue and t not in fired and h.charge[t] < cd:
-            h.charge[t] += 1
+    ch, q = h.charge, h.queue
+    for lb, cd in h.kit.cooldowns:
+        c = ch.get(lb, 0)
+        if c < cd and lb not in q and lb not in fired:
+            ch[lb] = c + 1
     if ev.swapped_with is None and h.swap_charge < SWAP_COOLDOWN:
         h.swap_charge += 1
     s.enemies = [e for e in s.enemies if e.hp > 0]
@@ -152,14 +291,20 @@ def _toward(e: Enemy, hx: int) -> int:
 
 
 def _hits_hero(s: State, e: Enemy, tile: str) -> bool:
-    hx = s.hero.x
-    if tile == "sword":
-        return e.x + e.facing == hx
-    if tile == "swirl":
-        return abs(e.x - hx) == 1
-    if tile == "charge":
-        # HYP/[user]: only with a clear lane to the hero
-        return _first_unit_ahead(s, e.x, e.facing, skip_uid=e.uid) is s.hero
+    if tile not in ENEMY_TILE_DAMAGE:
+        return False
+    k, offs, dr, rng, _ = SPEC[tile]
+    if k == "cells":
+        hx, ex, f = s.hero.x, e.x, e.facing
+        for off in offs:
+            if ex + f * off == hx:
+                return True
+        return False
+    if k in ("first", "dash_strike"):
+        # HYP/[user]: a charge needs a clear lane to the hero
+        return _first_unit_ahead(s, e.x, e.facing * dr, skip_uid=e.uid, rng=rng) is s.hero
+    if k == "furthest":
+        return _furthest_unit_ahead(s, e.x, e.facing * dr) is s.hero
     return False
 
 
@@ -193,8 +338,7 @@ def enemy_options(s: State, e: Enemy) -> list[tuple[float, tuple]]:
         return [(1.0, ("fire",))]  # yellow at the start of the turn (R2)
 
     _, tile = ENEMY_KINDS[e.kind]
-    needs_facing = tile in ("sword", "charge")
-    if needs_facing and not facing_hero:
+    if CAT.tile(tile).directional and not facing_hero:
         return [(1.0, ("turn",))]
     if not e.armed and e.cd > 0:
         # recharging: Ashigaru/Tachi reposition toward the hero, others hold
@@ -285,44 +429,41 @@ def _hurt_hero(h, dmg: int, e: Enemy, ev: Events) -> None:
     ev.hero_damage.append((e.kind, e.uid, dmg))
 
 
+def _enemy_hit(s: State, e: Enemy, u, dmg: int, tile: str, ev: Events) -> None:
+    if u is s.hero:
+        _hurt_hero(s.hero, dmg, e, ev)
+    elif u is not None:
+        _damage_enemy(s, u, dmg, f"{e.kind}:{tile}", ev)
+
+
 def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
     h = s.hero
     for tile in list(e.queue):
         if tile not in ENEMY_TILE_DAMAGE:
             tile = "sword"  # unknown icon read: assume the common melee hit
         dmg = ENEMY_TILE_DAMAGE[tile]
-        if tile == "sword":
-            tx = e.x + e.facing
-            if h.x == tx:
-                _hurt_hero(h, dmg, e, ev)
-            else:
-                t = s.enemy_at(tx)
-                if t:
-                    _damage_enemy(s, t, dmg, f"{e.kind}:sword", ev)
-        elif tile == "swirl":
-            for tx in (e.x + 1, e.x - 1):
-                if h.x == tx:
-                    _hurt_hero(h, dmg, e, ev)
-                else:
-                    t = s.enemy_at(tx)
-                    if t:
-                        _damage_enemy(s, t, dmg, f"{e.kind}:swirl", ev)
-        elif tile == "charge":
-            u = _first_unit_ahead(s, e.x, e.facing, skip_uid=e.uid)
+        spec = CAT.tile(tile).attack
+        k = spec["kind"]
+        if k == "cells":
+            # friendly fire: Twin Tachi and Daisuke's Swirl hit allies too [wiki]
+            for off in spec["offsets"]:
+                _enemy_hit(s, e, s.unit_at(e.x + e.facing * off), dmg, tile, ev)
+        elif k in ("first", "furthest"):
+            fn = _first_unit_ahead if k == "first" else _furthest_unit_ahead
+            _enemy_hit(s, e, fn(s, e.x, e.facing * spec.get("dir", 1)), dmg, tile, ev)
+        elif k == "dash_strike":
+            u = _first_unit_ahead(s, e.x, e.facing * spec.get("dir", 1), skip_uid=e.uid)
             if u is not None:
-                stop = (u.x if isinstance(u, Enemy) else h.x) - e.facing
-                e.x = stop
-                if u is h:
-                    _hurt_hero(h, dmg, e, ev)
-                else:
-                    _damage_enemy(s, u, dmg, f"{e.kind}:charge", ev)
-        elif tile == "summon":
+                e.x = u.x - e.facing * spec.get("dir", 1)
+                _enemy_hit(s, e, u, dmg, tile, ev)
+        elif k == "summon":
             empties = [x for x in range(s.cells) if s.unit_at(x) is None]
             if empties:
                 # HYP: random cell; planner assumes the cell farthest from the hero
                 x = max(empties, key=lambda c: abs(c - h.x))
                 uid = max([u.uid for u in s.enemies] + [0]) + 1
-                s.enemies.append(Enemy("charger", x, 1 if h.x > x else -1, ENEMY_KINDS["charger"][0], [], uid))
+                kind = spec.get("unit", "charger")
+                s.enemies.append(Enemy(kind, x, 1 if h.x > x else -1, ENEMY_KINDS[kind][0], [], uid))
     e.cd = max((ENEMY_TILE_COOLDOWN.get(t, 0) for t in e.queue), default=0)
     e.queue = []
 
@@ -353,6 +494,15 @@ def _apply_enemy_action(s: State, uid: int, action: tuple, ev: Events) -> None:
             e.x = nx
 
 
+def _poison_tick(s: State, ev: Events) -> None:
+    """End of turn: every poisoned enemy takes 1 damage [wiki]."""
+    for e in s.alive():
+        if e.poison > 0:
+            e.poison -= 1
+            _damage_enemy(s, e, POISON_TICK, "poison", ev)
+    s.enemies = [x for x in s.enemies if x.hp > 0]
+
+
 def enemy_phase(s: State, max_outcomes: int = 12) -> list[tuple[float, State, Events]]:
     """All enemy-phase outcomes as (prob, state, events).
 
@@ -361,6 +511,7 @@ def enemy_phase(s: State, max_outcomes: int = 12) -> list[tuple[float, State, Ev
     earlier kill is seen by a later Charger.
     """
     order = [e.uid for e in sorted(s.alive(), key=lambda e: e.x)]
+    poisoned = any(e.poison > 0 for e in s.enemies)   # only the hero's action applies poison
     frontier: list[tuple[float, State, Events]] = [(1.0, s.clone(), Events())]
     for uid in order:
         nxt = []
@@ -379,26 +530,32 @@ def enemy_phase(s: State, max_outcomes: int = 12) -> list[tuple[float, State, Ev
         nxt.sort(key=lambda t: -t[0])
         frontier = nxt[:max_outcomes]
     total = sum(p for p, _, _ in frontier) or 1.0
-    for _, st, _ in frontier:
+    for _, st, ev in frontier:
+        if poisoned:
+            _poison_tick(st, ev)
         for e in st.enemies:
             e.intent = None  # telegraphs only cover the coming phase
             e.primed = False
     return [(p / total, st, ev) for p, st, ev in frontier]
 
 
-def step(s: State, action: str) -> list[tuple[float, State, Events]]:
-    """Full turn: hero action then enemy phase."""
+def step(s: State, action: str, validate: bool = True) -> list[tuple[float, State, Events]]:
+    """Full turn: hero action then enemy phase. The planner passes
+    validate=False for actions it took from legal_hero_actions itself."""
     ev0 = Events()
-    if action not in legal_hero_actions(s):
+    if validate and action not in legal_hero_actions(s):
         ev0.invalid = action
         return [(1.0, s.clone(), ev0)]
+    if free_action(s, action):
+        s1 = apply_hero(s, action, ev0)
+        return [(1.0, s1, ev0)]
     # Yellow is decided BEFORE the hero acts: a loaded enemy (past its one-phase
     # wind-up, R1) with the hero in its footprint at the start of the turn fires
     # this phase whatever the hero does (R2). That is what makes the swap trick
     # work: the swapped enemy keeps its facing and fires away from the hero
     # [user; run 20261028-053637]. A red enemy instead turns or waits.
     primed = {e.uid for e in s.alive()
-              if e.armed and e.wind >= 1 and e.queue[0] in ("sword", "swirl", "charge")
+              if e.armed and e.wind >= 1 and ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0
               and _hits_hero(s, e, e.queue[0])}
     s1 = apply_hero(s, action, ev0)
     for e in s1.enemies:

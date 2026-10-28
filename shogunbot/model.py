@@ -1,8 +1,8 @@
-"""Game state for Stage 1 (Bamboo Grove), Wanderer with the default kit.
+"""Game state for the simulator.
 
-Every number here comes from the Stage 1 domain model
-(project doc claude/stage1-domain-model.md). Cells are indexed 0..n-1 from
-the left; facing is +1 (right) or -1 (left).
+Game facts (tile damage and cooldowns, enemy HP and tiles, the hero's kit)
+come from the catalogue (shogunbot/data/*.json, see catalogue.py). Cells are
+indexed 0..n-1 from the left; facing is +1 (right) or -1 (left).
 """
 
 from __future__ import annotations
@@ -10,37 +10,128 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Literal
 
+from .catalogue import CAT
+
 Facing = Literal[-1, 1]
 
-# ---- tiles ------------------------------------------------------------------
-# name: (damage, cooldown)
-HERO_TILES: dict[str, tuple[int, int]] = {
-    "swirl": (2, 3),  # ahead and behind
-    "arrow": (2, 5),  # first unit ahead, any range
-}
-SWAP_COOLDOWN = 4
-HERO_MAX_HP = 10
-QUEUE_MAX = 3
+# ---- hero -------------------------------------------------------------------
+HERO_ID = "wanderer"
+_HERO = CAT.hero(HERO_ID)
+HERO_MAX_HP: int = _HERO.hp
+SWAP_COOLDOWN: int = _HERO.special["cooldown"]
+QUEUE_MAX: int = CAT.hero_rules["queue_max"]
+START_LEVELS: int = CAT.hero_rules["starting_levels"]
 
-# enemy tile name: damage
-ENEMY_TILE_DAMAGE: dict[str, int] = {
-    "sword": 2,   # cell directly ahead
-    "swirl": 2,   # ahead and behind
-    "charge": 1,  # dash forward to first unit ahead, then strike it
-    "summon": 0,
-}
 
-# HYP: enemy tiles recharge like hero tiles (wiki cooldowns: Swirl 3, Charge 4).
-# Ashigaru "Sword" cooldown is unknown; logged re-arm timing will settle it.
-ENEMY_TILE_COOLDOWN: dict[str, int] = {"sword": 2, "swirl": 3, "charge": 4, "summon": 6}
+@dataclass(frozen=True)
+class KitTile:
+    """One tile the hero owns, with its current (possibly upgraded) stats."""
+    label: str              # unique in the kit: the tile id, '#2' added for a second copy
+    tile: str               # catalogue tile id
+    damage: int
+    cooldown: int
+    enchant: str | None = None
+    levels: int = START_LEVELS   # max level: the dots above the tile
+    used: int = 0                # levels used by upgrades
 
-# enemy kind: (max_hp, default tile)
-ENEMY_KINDS: dict[str, tuple[int, str]] = {
-    "ashigaru": (3, "sword"),
-    "tachi": (2, "swirl"),
-    "charger": (1, "charge"),
-    "daisuke": (15, "sword"),
-}
+    @property
+    def free_levels(self) -> int:
+        return self.levels - self.used
+
+
+class Kit:
+    """The hero's tiles in hand order. Immutable, so search nodes share one."""
+    __slots__ = ("tiles", "by_label", "labels", "queue_actions", "cooldowns", "ready_values", "_hash")
+
+    def __init__(self, tiles):
+        self.tiles: tuple[KitTile, ...] = tuple(tiles)
+        self.by_label = {t.label: t for t in self.tiles}
+        if len(self.by_label) != len(self.tiles):
+            raise ValueError(f"duplicate kit labels: {[t.label for t in self.tiles]}")
+        self.labels = tuple(t.label for t in self.tiles)
+        self.queue_actions = tuple("queue:" + lb for lb in self.labels)
+        # (label, cooldown) and (label, cooldown, planner ready value), for the hot loops
+        self.cooldowns = tuple((t.label, t.cooldown) for t in self.tiles)
+        self.ready_values = tuple((t.label, t.cooldown, CAT.tile(t.tile).ready_value) for t in self.tiles)
+        self._hash = hash(self.tiles)
+
+    def __getitem__(self, label: str) -> KitTile:
+        return self.by_label[label]
+
+    def __contains__(self, label: str) -> bool:
+        return label in self.by_label
+
+    def __iter__(self):
+        return iter(self.tiles)
+
+    def __len__(self) -> int:
+        return len(self.tiles)
+
+    def __eq__(self, other) -> bool:
+        return isinstance(other, Kit) and other.tiles == self.tiles
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __deepcopy__(self, memo):
+        return self  # immutable
+
+    def __repr__(self) -> str:
+        return "Kit(" + ", ".join(f"{t.label}:{t.damage}/{t.cooldown}" + (f"+{t.enchant}" if t.enchant else "")
+                                  for t in self.tiles) + ")"
+
+    def to_list(self) -> list[dict]:
+        return [asdict(t) for t in self.tiles]
+
+    @staticmethod
+    def from_list(items) -> "Kit":
+        return Kit(KitTile(**d) for d in items)
+
+    @staticmethod
+    def of(*tile_ids: str) -> "Kit":
+        """Catalogue stats for each tile id, in order."""
+        k = Kit(())
+        for t in tile_ids:
+            k = k.add(t)
+        return k
+
+    def add(self, tile_id: str, damage: int | None = None, cooldown: int | None = None,
+            levels: int = START_LEVELS, used: int = 0, enchant: str | None = None) -> "Kit":
+        """A new kit with this tile appended (a second copy gets label 'id#2')."""
+        t = CAT.tile(tile_id)
+        label, n = tile_id, 1
+        while label in self.by_label:
+            n += 1
+            label = f"{tile_id}#{n}"
+        kt = KitTile(label, tile_id, t.damage if damage is None else damage,
+                     t.cooldown if cooldown is None else cooldown, enchant, levels, used)
+        return Kit(self.tiles + (kt,))
+
+    def replace(self, label: str, new: KitTile) -> "Kit":
+        return Kit(new if t.label == label else t for t in self.tiles)
+
+    def remove(self, label: str) -> "Kit":
+        return Kit(t for t in self.tiles if t.label != label)
+
+
+def default_kit(hero: str = HERO_ID, tile_set: int = 0) -> Kit:
+    """The hero's starting tiles from the catalogue (Wanderer set 1: Swirl, Arrow)."""
+    return Kit.of(*CAT.hero(hero).tile_sets[tile_set])
+
+
+DEFAULT_KIT = default_kit()
+# name: (damage, cooldown) of the default kit, for code that predates the dynamic kit
+HERO_TILES: dict[str, tuple[int, int]] = {t.label: (t.damage, t.cooldown) for t in DEFAULT_KIT}
+
+# ---- enemies ----------------------------------------------------------------
+# enemy id: (max_hp, default tile), for every unit the simulator has presets for
+ENEMY_KINDS: dict[str, tuple[int, str]] = {e.id: (e.hp, e.tile) for e in CAT.enemies.values() if e.sim}
+_ENEMY_TILES = sorted({t for e in CAT.enemies.values() if e.sim for t in e.tiles})
+# tile id: damage / cooldown of the tiles those units carry. Sword and Summon
+# cooldowns are hypotheses (catalogue cooldown_source); logged re-arm timing settles them.
+ENEMY_TILE_DAMAGE: dict[str, int] = {t: CAT.tile(t).damage or 0 for t in _ENEMY_TILES}
+ENEMY_TILE_COOLDOWN: dict[str, int] = {t: CAT.tile(t).cooldown or 0 for t in _ENEMY_TILES}
+ENEMY_TAG: dict[str, str] = {e.id: e.tag for e in CAT.enemies.values()}
 
 
 @dataclass
@@ -51,7 +142,7 @@ class Enemy:
     hp: int
     queue: list[str] = field(default_factory=list)  # bottom first
     uid: int = 0
-    frozen: int = 0  # unused in default kit, kept for later
+    frozen: int = 0  # turns left frozen (Mass Ice, Ice enchantment)
     cd: int = 0      # turns until it may queue again (HYP)
     # telegraphed action for the coming enemy phase, read from the screen:
     # 'fire' | 'queue' | 'turn' | 'move-left' | 'move-right' | 'hold' | None (unknown)
@@ -63,17 +154,24 @@ class Enemy:
     # phases since the queue was completed. R1: a unit fires at the earliest one
     # phase after loading (red, then yellow). Units read from the screen start at 1.
     wind: int = 1
-    cursed: bool = False  # Mass Curse: next hit deals double damage
+    cursed: bool = False  # Mass Curse / Curse enchantment: next hit deals double damage
+    poison: int = 0       # turns of poison left: 1 damage at the end of each turn [wiki]
 
     @property
     def armed(self) -> bool:
         return bool(self.queue)
 
+    @property
+    def max_hp(self) -> int:
+        return ENEMY_KINDS.get(self.kind, (self.hp, None))[0] or self.hp
+
     def clone(self) -> "Enemy":
-        return Enemy(self.kind, self.x, self.facing, self.hp, list(self.queue), self.uid, self.frozen, self.cd, self.intent, self.primed, self.wind, self.cursed)
+        return Enemy(self.kind, self.x, self.facing, self.hp, list(self.queue), self.uid, self.frozen, self.cd,
+                     self.intent, self.primed, self.wind, self.cursed, self.poison)
 
     def key(self) -> tuple:
-        return (self.kind, self.x, self.facing, self.hp, tuple(self.queue), self.frozen, self.cd, self.intent, self.primed, min(self.wind, 1), self.cursed)
+        return (self.kind, self.x, self.facing, self.hp, tuple(self.queue), self.frozen, self.cd, self.intent,
+                self.primed, min(self.wind, 1), self.cursed, self.poison)
 
 
 @dataclass
@@ -81,24 +179,38 @@ class Hero:
     x: int
     facing: Facing
     hp: int = HERO_MAX_HP
-    queue: list[str] = field(default_factory=list)  # bottom first
-    # current charge per tile; a tile is ready when charge == cooldown
-    charge: dict[str, int] = field(default_factory=lambda: {k: v[1] for k, v in HERO_TILES.items()})
+    queue: list[str] = field(default_factory=list)  # kit labels, bottom first
+    # current charge per kit label; a tile is ready when charge == its cooldown.
+    # None = all full (level start).
+    charge: dict[str, int] | None = None
     swap_charge: int = SWAP_COOLDOWN
     shield: bool = False  # Kami Brew: negates the next attack received [wiki]
+    kit: Kit = DEFAULT_KIT
 
-    def ready(self, tile: str) -> bool:
-        return tile not in self.queue and self.charge[tile] >= HERO_TILES[tile][1]
+    def __post_init__(self) -> None:
+        if self.charge is None:
+            self.charge = {t.label: t.cooldown for t in self.kit.tiles}
+
+    def ready(self, label: str) -> bool:
+        t = self.kit.by_label.get(label)
+        return t is not None and label not in self.queue and self.charge.get(label, 0) >= t.cooldown
+
+    def ready_labels(self) -> list[str]:
+        q, ch = self.queue, self.charge
+        return [lb for lb, cd in self.kit.cooldowns if lb not in q and ch.get(lb, 0) >= cd]
 
     @property
     def swap_ready(self) -> bool:
         return self.swap_charge >= SWAP_COOLDOWN
 
     def clone(self) -> "Hero":
-        return Hero(self.x, self.facing, self.hp, list(self.queue), dict(self.charge), self.swap_charge, self.shield)
+        return Hero(self.x, self.facing, self.hp, list(self.queue), dict(self.charge), self.swap_charge,
+                    self.shield, self.kit)
 
     def key(self) -> tuple:
-        return (self.x, self.facing, self.hp, tuple(self.queue), tuple(sorted(self.charge.items())), self.swap_charge, self.shield)
+        # the kit is constant within one search, so it is not part of the key
+        return (self.x, self.facing, self.hp, tuple(self.queue), tuple(sorted(self.charge.items())),
+                self.swap_charge, self.shield)
 
 
 @dataclass
@@ -141,11 +253,15 @@ class State:
         return [e for e in self.enemies if e.hp > 0]
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d["hero"]["kit"] = self.hero.kit.to_list()
+        return d
 
     @staticmethod
     def from_dict(d: dict) -> "State":
-        hero = Hero(**d["hero"])
+        hd = dict(d["hero"])
+        kit = Kit.from_list(hd.pop("kit")) if hd.get("kit") else DEFAULT_KIT
+        hero = Hero(**hd, kit=kit)
         enemies = [Enemy(**e) for e in d.get("enemies", [])]
         rest = {k: v for k, v in d.items() if k not in ("hero", "enemies")}
         return State(hero=hero, enemies=enemies, **rest)
@@ -161,7 +277,7 @@ class State:
             if e is None:
                 out.append(".")
             else:
-                tag = {"ashigaru": "A", "tachi": "T", "charger": "C", "daisuke": "D"}.get(e.kind, "?")
+                tag = ENEMY_TAG.get(e.kind, "?")
                 tag += str(e.hp)
                 if e.armed:
                     tag += "*"

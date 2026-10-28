@@ -1,0 +1,49 @@
+{
+  "_meta": {
+    "source": "Shogun Showdown wiki, Consumables page (shogunshowdown.wiki.gg), fetched 2026-10-28, CC BY-SA 4.0. Looks are from the bot's frames.",
+    "fields": {
+      "effect": "machine-readable effect used by the bot and the simulator",
+      "screen_id": "label perception gives the item in the consumable column (perceive.read_consumables)",
+      "look": "how the item looks in the consumable column, with the source of that read"
+    }
+  },
+  "rules": {
+    "max_held": 3,
+    "max_held_source": "[wiki] the Big Pockets skill raises it",
+    "use_costs_turn": false,
+    "use_costs_turn_source": "[wiki] [obs]",
+    "full_inventory": "a collected consumable turns into 1 coin [wiki]",
+    "obtained": "dropped by slain enemies, sold in shops; left-over drops are collected at the end of combat [wiki]"
+  },
+  "consumables": [
+    {"id": "edamame_brew", "name": "Edamame Brew", "kind": "brew", "sell": 5,
+     "effect": {"type": "heal", "amount": 3}, "screen_id": "green_potion",
+     "look": "bottle with a cork, green liquid [bot]", "text": "Restores up to 3 HP."},
+    {"id": "kami_brew", "name": "Kami Brew", "kind": "brew", "sell": 2,
+     "effect": {"type": "shield"}, "screen_id": "blue_potion",
+     "look": "bottle with a cork, blue liquid [bot]", "text": "Grants a shield that negates the next attack received."},
+    {"id": "cool_up", "name": "Cool Up", "kind": "brew", "sell": 2,
+     "effect": {"type": "recharge_all"}, "screen_id": "white_potion",
+     "look": "bottle with a cork, pale grey-white liquid [bot: run 20261028-061420 item_unknown.png]; identified as Cool Up by elimination, the wiki lists exactly three brews [inference]",
+     "text": "Recharges all tiles and the hero's special ability."},
+    {"id": "mass_curse", "name": "Mass Curse", "kind": "potion", "sell": 2,
+     "effect": {"type": "curse_all"}, "screen_id": "curse_card",
+     "look": "red card with a mask [user]", "text": "Curses every enemy; a cursed enemy takes double damage from the next hit."},
+    {"id": "mass_poison", "name": "Mass Poison", "kind": "potion", "sell": 2,
+     "effect": {"type": "poison_all", "turns": 3, "damage": 1}, "screen_id": "skull_card",
+     "look": "green card with a pale skull [bot]", "text": "Poisons every enemy for 3 turns; 1 damage at the end of each turn."},
+    {"id": "mass_ice", "name": "Mass Ice", "kind": "potion", "sell": 2,
+     "effect": {"type": "freeze_all", "turns": 3}, "screen_id": "ice_card",
+     "look": "navy card with a cyan crystal [bot]", "text": "Freezes every enemy for 3 turns."},
+    {"id": "rain_of_mirrors", "name": "Rain of Mirrors", "kind": "potion", "sell": 2,
+     "effect": {"type": "turn_all"}, "screen_id": "mirror_card",
+     "look": "grey card [user]; not yet seen by the bot", "text": "Turns every enemy and boss around."},
+    {"id": "lucky_die", "name": "Lucky Die", "kind": "card", "sell": 2,
+     "effect": {"type": "reroll"}, "screen_id": null,
+     "look": "die [wiki]; not yet seen by the bot", "text": "In combat: rerolls enemy intentions. Out of combat: rerolls a reward or a shop."}
+  ],
+  "currencies": [
+    {"id": "coin", "name": "Coin", "text": "Run currency; dropped in combat and collected automatically."},
+    {"id": "skull", "name": "Skull", "text": "Meta-progression currency kept between runs; only bosses drop it."}
+  ]
+}

@@ -1,8 +1,9 @@
 """Offline Stage 1 self-play: the planner against the simulator.
 
-Zero-cost tuning bench. Wave composition and spawn rules are approximations
-of what was observed live (domain model section 3); replace them with logged
-data as runs accumulate.
+Zero-cost tuning bench. Level sizes, wave counts and enemy pools come from
+the catalogue (data/regions.json); wave composition and spawn rules are
+approximations of what was observed live (domain model section 3). M3
+replaces them with a generator learned from logs.
 
     python -m shogunbot selfplay -n 200 --depth 3
 """
@@ -13,15 +14,25 @@ import random
 import time
 from dataclasses import dataclass
 
-from .model import ENEMY_KINDS, Enemy, Hero, State
+from .catalogue import CAT
+from .model import DEFAULT_KIT, ENEMY_KINDS, HERO_MAX_HP, Enemy, Hero, Kit, State
 from .planner import WEIGHTS, auto_depth, plan
 from .rules import step
 
-# (level, cells, hero start cell, waves: list of enemy-kind lists)
-LEVELS = [
-    ("bamboo-1", 5, 2, 4, ["ashigaru", "tachi"]),
-    ("bamboo-2", 7, 3, 5, ["ashigaru", "tachi", "charger"]),
-]
+
+def _levels(region: str = "bamboo_grove") -> list[tuple]:
+    """(level id, cells, hero start cell, waves, enemy pool) for the wave levels."""
+    out, pool = [], []
+    for lv in CAT.regions[region]["level_list"]:
+        pool = pool + [e for e in lv.get("new_enemies", []) if e not in pool]
+        if lv["waves"]:
+            out.append((lv["id"], lv["cells"], lv["hero_cell"], lv["waves"], list(pool)))
+    return out
+
+
+LEVELS = _levels()                 # bamboo-1: 5 cells, 4 waves; bamboo-2: 7 cells, 5 waves
+_BOSS_LV = CAT.levels["boss"]
+_BOSS = CAT.enemy(_BOSS_LV["boss"])
 SPAWN_WHEN_ALIVE_AT_MOST = 1  # Normal room: next wave when <= this many remain ([web] 1-2)
 
 
@@ -80,12 +91,13 @@ def play_level(rng, s: State, waves: list[list[str]], depth: int, w: dict, max_t
     return s, False
 
 
-def boss(rng, hp: int, depth: int, w: dict) -> tuple[State, bool]:
-    s = State(5, Hero(1, 1, hp=hp), [Enemy("daisuke", 3, -1, 15, [], uid=99)], level="boss")
+def boss(rng, hp: int, depth: int, w: dict, kit: Kit = DEFAULT_KIT) -> tuple[State, bool]:
+    s = State(_BOSS_LV["cells"], Hero(_BOSS_LV["hero_cell"], 1, hp=hp, kit=kit),
+              [Enemy(_BOSS.id, 3, -1, _BOSS.hp, [], uid=99)], level="boss")
     for _ in range(300):
         if s.hero.hp <= 0:
             return s, False
-        if not any(e.kind == "daisuke" for e in s.alive()):
+        if not any(e.kind == _BOSS.id for e in s.alive()):
             return s, True
         d = plan(s, depth or auto_depth(s), w)
         outs = step(s, d.action)
@@ -98,24 +110,29 @@ def boss(rng, hp: int, depth: int, w: dict) -> tuple[State, bool]:
     return s, False
 
 
-def run_once(seed: int, depth: int = 3, w: dict = WEIGHTS) -> Result:
+def run_once(seed: int, depth: int = 3, w: dict = WEIGHTS, kit: Kit = DEFAULT_KIT,
+             start: str = "bamboo-1", hp: int = HERO_MAX_HP) -> Result:
+    """One simulated Stage 1 run from level `start` with this kit and HP."""
     rng = random.Random(seed)
-    hp = 10
     turns = 0
+    started = False
     for name, cells, hx, nwaves, pool in LEVELS:
+        started = started or name == start
         waves = [[rng.choice(pool) for _ in range(rng.randint(1, 3))] for _ in range(nwaves)]
-        s = State(cells, Hero(hx, 1, hp=hp), [], level=name)
+        if not started:
+            continue
+        s = State(cells, Hero(hx, 1, hp=hp, kit=kit), [], level=name)
         s, ok = play_level(rng, s, waves, depth, w)
         hp, turns = s.hero.hp, turns + s.turn
         if not ok:
             return Result(False, name, hp, turns)
-    s, ok = boss(rng, hp, depth, w)
+    s, ok = boss(rng, hp, depth, w, kit)
     return Result(ok, "boss", s.hero.hp, turns + s.turn)
 
 
-def bench(n: int = 50, depth: int = 3, w: dict = WEIGHTS, seed0: int = 0) -> dict:
+def bench(n: int = 50, depth: int = 3, w: dict = WEIGHTS, seed0: int = 0, kit: Kit = DEFAULT_KIT) -> dict:
     t = time.time()
-    res = [run_once(seed0 + i, depth, w) for i in range(n)]
+    res = [run_once(seed0 + i, depth, w, kit) for i in range(n)]
     wins = sum(r.win for r in res)
     reached = {}
     for r in res:

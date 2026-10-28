@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .model import HERO_TILES, State
-from .rules import _first_unit_ahead, legal_hero_actions, step, threats
+from .model import QUEUE_MAX, State
+from .rules import SPEC, _first_unit_ahead, _furthest_unit_ahead, legal_hero_actions, step, threats
 
 WEIGHTS: dict[str, float] = {
     "hero_hp": 1000.0,           # damage-first [user]: one HP outweighs any kill combo
@@ -19,8 +19,7 @@ WEIGHTS: dict[str, float] = {
     "death": -100000.0,
     "threat_dmg": -45.0,         # per point of damage an armed enemy would deal right now
     "open_charge_lane": -30.0,   # loaded Charger with a clear lane to the hero
-    "swirl_ready": 8.0,
-    "arrow_ready": 6.0,
+    "tile_ready": 1.0,           # x each ready tile's catalogue ready_value (Swirl 8, Arrow 6)
     "swap_ready": 6.0,
     "queued_tile": 12.0,         # loaded tiles are tempo; must beat the lost "ready" bonus
                                  # or the bot never loads while waiting [run 20261028-053637]
@@ -53,9 +52,10 @@ def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
     more_waves = s.waves_total and s.wave < s.waves_total
     if not alive and not more_waves:
         terms["wave_clear"] = w["wave_clear"]
+    q, ch = h.queue, h.charge
     if more_waves and len(alive) <= SPAWN_THRESHOLD:
         # the next wave arrives now: arriving enemies meet whatever is recharged
-        unready = sum(1 for t in HERO_TILES if not h.ready(t) and t not in h.queue)
+        unready = sum(1 for lb, cd in h.kit.cooldowns if lb not in q and ch.get(lb, 0) < cd)
         terms["spawn_unready"] = w["spawn_unready"] * (unready + (0 if h.swap_ready else 1))
     terms["threat_dmg"] = w["threat_dmg"] * sum(t["dmg"] for t in threats(s))
     lanes = 0
@@ -63,8 +63,8 @@ def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
         if e.kind == "charger" and e.armed and _first_unit_ahead(s, e.x, e.facing, e.uid) is h:
             lanes += 1
     terms["open_charge_lane"] = w["open_charge_lane"] * lanes
-    terms["swirl_ready"] = w["swirl_ready"] * (h.ready("swirl"))
-    terms["arrow_ready"] = w["arrow_ready"] * (h.ready("arrow"))
+    terms["tiles_ready"] = w["tile_ready"] * sum(rv for lb, cd, rv in h.kit.ready_values
+                                                 if lb not in q and ch.get(lb, 0) >= cd)
     terms["swap_ready"] = w["swap_ready"] * h.swap_ready
     terms["queued_tile"] = w["queued_tile"] * len(h.queue)
     away = 0
@@ -76,8 +76,8 @@ def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
     # damage potential: what the loaded queue would kill, and what queue+ready tiles could kill
     loaded = _queue_damage(s, h.queue)
     terms["lethal_loaded"] = w["lethal_loaded"] * sum(1 for e in alive if loaded.get(e.uid, 0) >= e.hp)
-    full = list(h.queue) + [t for t in HERO_TILES if h.ready(t)]
-    potential = _queue_damage(s, full[:3])
+    full = list(h.queue) + h.ready_labels()
+    potential = _queue_damage(s, full[:QUEUE_MAX])
     terms["lethal_ready"] = w["lethal_ready"] * sum(1 for e in alive if potential.get(e.uid, 0) >= e.hp)
     at_edge = h.x in (0, s.cells - 1)
     adjacent = any(abs(e.x - h.x) == 1 for e in alive)
@@ -89,27 +89,60 @@ def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
 
 
 def _queue_damage(s: State, queue: list[str]) -> dict[int, int]:
-    """Damage per enemy uid if this queue fired now (sequential, no kills removed)."""
+    """Damage per enemy uid if this queue fired now from the hero's cell.
+
+    A quick estimate for scoring: tiles fire in order, units already brought
+    to 0 HP by earlier tiles are passed over, the hero does not move (dashes
+    strike their first target in place) and curses are ignored."""
     h = s.hero
     dmg: dict[int, int] = {}
-    hp = {e.uid: e.hp for e in s.alive()}
-    for tile in queue:
-        d = HERO_TILES[tile][0]
-        if tile == "swirl":
-            for cx in (h.x + h.facing, h.x - h.facing):
-                e = s.enemy_at(cx)
-                if e and hp[e.uid] > 0:
-                    dmg[e.uid] = dmg.get(e.uid, 0) + d
-                    hp[e.uid] -= d
-        elif tile == "arrow":
-            nx = h.x + h.facing
-            while s.in_bounds(nx):
+    if not queue:
+        return dmg
+    hp = {e.uid: e.hp for e in s.enemies if e.hp > 0}
+    byl = h.kit.by_label
+    hx, f = h.x, h.facing
+    for label in queue:
+        kt = byl.get(label)
+        if kt is None:
+            continue
+        d = kt.damage
+        k, offs, dr, rng, cannot_kill = SPEC[kt.tile]
+        st = f * dr
+        hits = []
+        if k == "cells":
+            for off in offs:
+                e = s.enemy_at(hx + f * off)
+                if e is not None and hp[e.uid] > 0:
+                    hits.append(e)
+        elif k == "first" or k == "dash_strike":
+            nx = hx + st
+            while 0 <= nx < s.cells and (rng is None or abs(nx - hx) <= rng):
                 e = s.enemy_at(nx)
-                if e and hp[e.uid] > 0:
-                    dmg[e.uid] = dmg.get(e.uid, 0) + d
-                    hp[e.uid] -= d
+                if e is not None and hp[e.uid] > 0:
+                    hits.append(e)
                     break
-                nx += h.facing
+                nx += st
+        elif k == "furthest":
+            u = _furthest_unit_ahead(s, hx, st)
+            if u is not None and hp.get(getattr(u, "uid", None), 0) > 0:
+                hits.append(u)
+        elif k == "dash_through":
+            nx = hx + st
+            while s.in_bounds(nx) and s.unit_at(nx) is None:
+                nx += st
+            while s.in_bounds(nx) and (e := s.enemy_at(nx)) is not None and hp[e.uid] > 0:
+                hits.append(e)
+                nx += st
+            if not s.in_bounds(nx):
+                hits = []
+        elif k == "damaged":
+            hits = [e for e in s.alive() if 0 < hp[e.uid] < e.max_hp]
+        for e in hits:
+            dd = min(d, hp[e.uid] - 1) if cannot_kill else d
+            if dd <= 0:
+                continue
+            dmg[e.uid] = dmg.get(e.uid, 0) + dd
+            hp[e.uid] -= dd
     return dmg
 
 
@@ -124,15 +157,26 @@ class Decision:
 
 
 GAMMA = 0.97  # future damage counts almost as much as damage now [user: HP is the run's most valuable resource]
-# tie-break order when values are equal: commit, then hold, then reposition, turn last
-PRIORITY = {"attack": 0, "queue:swirl": 1, "queue:arrow": 2, "wait": 3, "left": 4, "right": 4, "turn": 5}
+# tie-break order when values are equal: commit, then load (kit order), then hold,
+# then reposition, turn last
+PRIORITY = {"attack": 0, "wait": 3, "left": 4, "right": 4, "turn": 5}
+
+
+def _priority(s: State, a: str) -> float:
+    if a.startswith("queue:"):
+        labels = s.hero.kit.labels
+        lb = a[6:]
+        if lb not in labels:
+            return 9
+        return 1 + labels.index(lb) / len(labels)   # in kit order, between attack and wait
+    return PRIORITY.get(a, 9)
 
 
 def _action_value(s: State, a: str, depth: int, w: dict, stats: dict):
     v = 0.0
     p_dmg = 0.0
     exp_dmg = 0.0
-    outs = step(s, a)
+    outs = step(s, a, validate=False)   # a comes from legal_hero_actions
     for p, s2, ev in outs:
         lost = sum(d for _, _, d in ev.hero_damage)
         if lost:
@@ -166,7 +210,7 @@ def plan(s: State, depth: int = 3, w: dict[str, float] = WEIGHTS) -> Decision:
         v += w.get("hp_lost_now", 0.0) * exp_dmg
         cands.append({"action": a, "value": round(v, 2), "p_damage": round(p_dmg, 3),
                       "exp_damage": round(exp_dmg, 3), "_outs": outs})
-    cands.sort(key=lambda c: (-c["value"], PRIORITY.get(c["action"], 9)))
+    cands.sort(key=lambda c: (-c["value"], _priority(s, c["action"])))
     best = cands[0]
     predicted = [
         {"p": round(p, 3), "board": s2.render(), "hero_hp": s2.hero.hp, "events": ev.to_dict(),

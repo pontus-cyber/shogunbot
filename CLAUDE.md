@@ -21,6 +21,7 @@ Game rules with sources are in `claude/stage1-domain-model.md`.
 6. Update `claude/status.md` in the project (run history, version log, next actions).
 
 ## Code rules
+- Game facts live in `shogunbot/data/*.json` (tiles, enemies, traits, consumables, upgrades, regions, heroes), read through `catalogue.py`. Never hard-code a tile's damage or footprint, an enemy's HP or tiles, or an item's effect in code; add or fix it in the data with its source tag.
 - `rules.py` and `model.py` are the simulator. A rule change needs a regression test that cites the run and turn that showed it.
 - Damage-first scoring: never trade HP for kills while a zero-damage move exists (`planner.WEIGHTS`).
 - Perception thresholds are measured on recorded frames. Note the frame or run in a comment when you change one.

@@ -8,19 +8,21 @@ rules the simulator applies, and reconciles it with the ready flags it sees.
 
 from __future__ import annotations
 
-from .model import HERO_TILES, SWAP_COOLDOWN, ENEMY_KINDS, Enemy, Hero, State
+from .catalogue import CAT
+from .model import DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, Enemy, Hero, Kit, State
 from .rules import apply_hero, Events
 
-DAISUKE_HP = 15
-DAISUKE_TILES = ("sword", "swirl", "charge", "summon")
+DAISUKE_HP = CAT.enemy("daisuke").hp
+DAISUKE_TILES = CAT.enemy("daisuke").tiles
 
 
 class Tracker:
-    def __init__(self) -> None:
+    def __init__(self, kit: Kit = DEFAULT_KIT) -> None:
+        self.kit = kit
         self.reset()
 
     def reset(self) -> None:
-        self.charge = {k: v[1] for k, v in HERO_TILES.items()}
+        self.charge = {t.label: t.cooldown for t in self.kit}
         self.facing = 1
         self.facing_known = False
         self.facing_disagree = 0
@@ -46,7 +48,7 @@ class Tracker:
             level = "bamboo-1" if cells == 5 else "bamboo-2" if cells == 7 else f"cells-{cells}"
         if level != self.level:
             # new level: every tile starts fully recharged [wiki]
-            self.charge = {k: v[1] for k, v in HERO_TILES.items()}
+            self.charge = {t.label: t.cooldown for t in self.kit}
             self.level = level
             self.facing_known = False
             self.prev = []
@@ -54,10 +56,12 @@ class Tracker:
         h = p.hero
         facing = self._hero_facing(h, p.confidence.get("hero_facing", 0.0))
 
-        queue = [t for t in h["queue"] if t in HERO_TILES]
+        kit = self.kit
+        queue = [t for t in h["queue"] if t in kit]
         charge = dict(self.charge)
-        seen = {t["tile"]: t["ready"] for t in p.hand if t["tile"] in HERO_TILES}
-        for tile, (_, cd) in HERO_TILES.items():
+        seen = {t["tile"]: t["ready"] for t in p.hand if t["tile"] in kit}
+        for kt in kit:
+            tile, cd = kt.label, kt.cooldown
             if tile in queue:
                 continue
             if tile in seen:
@@ -73,7 +77,7 @@ class Tracker:
         hp = h["hp"] if h["hp_max"] else 0
         swap_charge = SWAP_COOLDOWN - min(SWAP_COOLDOWN, h.get("swap_red", 0))
         hero = Hero(h["x"], facing, hp=hp, queue=queue, charge=charge, swap_charge=swap_charge,
-                    shield=self.shield)
+                    shield=self.shield, kit=kit)
 
         enemies = []
         for i, e in enumerate(p.enemies):

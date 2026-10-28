@@ -21,6 +21,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from ..catalogue import CAT
+from ..model import DEFAULT_KIT
 from . import screens
 from .board import cells as find_cells
 
@@ -71,7 +73,11 @@ def classify_sprite(crop: np.ndarray) -> tuple[str, int, float]:
     return str(kind), facing, min(conf_kind, conf_face * 4)
 
 
-HERO_KIT = ("swirl", "arrow")  # tiles the hero owns (default kit); M1/M2 will make this dynamic
+HERO_KIT = tuple(t.tile for t in DEFAULT_KIT)  # tiles the hero owns (default kit, from the catalogue)
+# Stage 1 enemies told apart by HP pips and by the tile in their bubble (catalogue)
+REGION = "bamboo_grove"
+KIND_BY_HP = CAT.kinds_by_hp(REGION)        # {3: ashigaru, 2: tachi, 1: charger}
+KIND_BY_TILE = CAT.kinds_by_tile(REGION)    # {sword: ashigaru, swirl: tachi, charge: charger}
 
 
 def classify_icon(interior: np.ndarray, allowed: tuple | None = None) -> tuple[str, float]:
@@ -215,13 +221,15 @@ def _near(a: np.ndarray, rgb: tuple, tol: int = 14) -> np.ndarray:
 def read_consumables(rgb: np.ndarray) -> list[dict]:
     """Items in the consumable column (left edge), one per slot.
 
-    Names and effects from the wiki Consumables page:
-      green_potion  Edamame Brew: restores up to 3 HP          (cork + green liquid)
-      blue_potion   Kami Brew: shield, negates the next attack  (cork + blue liquid)
-      skull_card    Mass Poison: all enemies, 1 dmg/turn, 3 turns (green card, pale skull)
-      ice_card      Mass Ice: freezes all enemies for 3 turns   (navy card, cyan crystal)
-      curse_card    Mass Curse: all enemies take double damage on the next hit (red card, mask) [user]
-      mirror_card   Rain of Mirrors: all enemies and bosses turn around (grey card) [user, look unverified]
+    Labels are the catalogue's screen ids (data/consumables.json maps each to
+    its item and effect):
+      green_potion  Edamame Brew   (cork + green liquid)
+      blue_potion   Kami Brew      (cork + blue liquid)
+      white_potion  Cool Up        (cork + pale liquid) [run 20261028-061420 item_unknown.png]
+      skull_card    Mass Poison    (green card, pale skull)
+      ice_card      Mass Ice       (navy card, cyan crystal)
+      curse_card    Mass Curse     (red card, mask) [user]
+      mirror_card   Rain of Mirrors (grey card) [user, look unverified]
     Anything else in a filled slot is returned as 'unknown' so the bot can log it.
     """
     out = []
@@ -248,6 +256,10 @@ def read_consumables(rgb: np.ndarray) -> list[dict]:
             item = "ice_card"
         elif red_px >= 300:
             item = "curse_card"   # Mass Curse: red card with a mask [user]
+        elif cork >= 6 and int(((a.min(axis=2) > 150) & (a.max(axis=2) - a.min(axis=2) < 30)).sum()) >= 300:
+            # pale liquid: 848 px on run 20261028-061420 item_unknown.png; 0 on the other bottles.
+            # Dimmed outside combat (reward screens), where it stays 'unknown'.
+            item = "white_potion"
         elif (lit.mean() > 0.35 and a.mean() < 150 and float(((a.max(axis=2) - a.min(axis=2)) < 22)[lit].mean()) > 0.7
               and cork < 6):
             item = "mirror_card"  # Rain of Mirrors: grey card [user, unverified: first sighting saves a frame]
@@ -415,8 +427,8 @@ def perceive(rgb: np.ndarray) -> Perception:
                 elif tiles and tiles[0]["colour"] == "yellow":
                     intent = "fire"
                 # HP pips are a more reliable kind signal than the sprite (attack poses, hit flashes)
-                by_hp = {3: "ashigaru", 2: "tachi", 1: "charger"}.get(g + r)
-                by_tile = {"sword": "ashigaru", "swirl": "tachi", "charge": "charger"}.get(tiles[0]["tile"]) if tiles else None
+                by_hp = KIND_BY_HP.get(g + r)
+                by_tile = KIND_BY_TILE.get(tiles[0]["tile"]) if tiles else None
                 # Daisuke is the only unit without HP pips (his HP is the boss bar).
                 # Pips win over the sprite: a summoned Charger in the boss arena was
                 # read as a second Daisuke [run 20261028-053637, turns 101-161]

@@ -5,6 +5,8 @@ Zero token cost per run: screen capture -> perception -> expectimax planner over
 
 Project docs (claude.ai project "autogame"): `claude/00-start-here.md`, `claude/status.md`, `claude/run-review-procedure.md`, `claude/stage1-domain-model.md`.
 
+Game catalogue: `shogunbot/data/*.json` holds every tile, enemy, trait, consumable, upgrade, region and hero (from the wiki, with source tags); `shogunbot/catalogue.py` loads it.
+
 ## Run (Windows, from this folder)
 
     .\play.bat                                                   # one run, hold F8 to stop

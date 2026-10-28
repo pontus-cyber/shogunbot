@@ -1,0 +1,34 @@
+{
+  "_meta": {
+    "source": "Shogun Showdown wiki, Characters page (shogunshowdown.wiki.gg), fetched 2026-10-28, CC BY-SA 4.0; HP and swap cooldown from the bot's observations."
+  },
+  "rules": {
+    "queue_max": 3,
+    "queue_max_source": "[wiki] [obs] the queue holds at most 3 tiles and fires bottom to top in one action",
+    "level_start": "every tile starts a level fully recharged [wiki]",
+    "starting_levels": 3,
+    "starting_levels_source": "[bot] the default Swirl and Arrow show 3 level dots"
+  },
+  "heroes": [
+    {"id": "wanderer", "name": "The Wanderer", "hp": 10, "hp_source": "[obs] map shows HP 10/10",
+     "tile_sets": [["swirl", "arrow"], ["lightning", "earth_impale"]],
+     "special": {"id": "swap", "text": "Moving forward into an adjacent enemy swaps places; both keep their facing.", "cooldown": 4, "cooldown_source": "[obs] tutorial text"},
+     "unlock": "default"},
+    {"id": "ronin", "name": "The Ronin", "hp": null,
+     "tile_sets": [["spear", "smoke_bomb"], ["crossbow", "swap_toss"]],
+     "special": {"id": "push", "text": "Pushes an enemy in front of him by moving forward.", "cooldown": null},
+     "unlock": "defeat The Twins"},
+    {"id": "shadow", "name": "The Shadow", "hp": null,
+     "tile_sets": [["swirl", "grappling_hook"], ["spear", "mirror"]],
+     "special": {"id": "phase", "text": "Phases through enemies in front by moving forward; when moving, advances as far as possible.", "cooldown": null},
+     "unlock": "defeat Nobunaga the Wicked"},
+    {"id": "jujitsuka", "name": "The Jujitsuka", "hp": null,
+     "tile_sets": [["dragon_punch", "scar_strike"], ["sai", "ki_push"]],
+     "special": {"id": "throw", "text": "Throws an enemy standing behind her by moving backward.", "cooldown": null},
+     "unlock": "defeat the Shogun on Day 2"},
+    {"id": "chain_master", "name": "The Chain Master", "hp": null,
+     "tile_sets": [["meteor_hammer", "charge"], ["twin_tessen", "hookblade"]],
+     "special": {"id": "swap_toss", "text": "Swap Toss directly in front of or behind her by moving into them.", "cooldown": null},
+     "unlock": "defeat the Shogun on Day 3"}
+  ]
+}
