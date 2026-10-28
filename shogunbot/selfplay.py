@@ -1,28 +1,33 @@
 """Offline self-play: the planner against the simulator.
 
 Zero-cost bench, and the engine behind reward valuation (rewards.py).
-Level sizes, wave counts, enemy pools and HP come from the catalogue
-(data/regions.json, data/enemies.json); wave composition and spawn rules are
-approximations of what was observed live (domain model section 3). M3
-replaces them with a generator learned from logs.
+Level sizes, enemy pools and HP come from the catalogue (data/regions.json,
+data/enemies.json). Since 0.22 the waves follow the generator learned from the
+recordings (data/waves.json, shogunbot.levelgen): each wave's units by level and
+wave number, spawn cells weighted by distance from the hero, facing by kind, and
+the next wave at once when no enemy is left or, with one left, by the learned
+per-turn chance (for sure on the sixth turn in a row). GENERATOR = "handset" plays
+the 0.21 rules (1-3 random units, next wave at 0 alive or at 1 after a wave of 3+).
 
 Common random numbers: everything about a run's opposition is fixed by its
 seed alone, so two kits played on the same seed meet the same fight:
-  - each wave's enemies, their preferred spawn cells and facings are drawn
-    up front from the seed;
+  - each wave's enemies, and the draws that settle their cells and facings
+    when they come, are made up front from the seed;
   - enemy choices (telegraphs, preset outcomes) on turn t of a level use a
-    random stream seeded by (seed, level, t), whatever happened before.
+    random stream seeded by (seed, level, t), whatever happened before, and
+    whether the next wave comes on turn t a stream of its own (_spawn_rng).
 The only differences between two kits' runs then come from how the hero
 plays them.
 
 Scenarios:
   stage1  the rest of Stage 1 from a given level (Bamboo Grove I, II, boss)
   stress  harder fights than Stage 1, so reward options separate: a Bamboo
-          Grove II board with Day 5+ enemy HP [wiki] and 7 waves of 2-3 (Stage 1
-          has 5 of 1-3), then Daisuke at Day 5+ HP (20) [wiki]. Calibrated
-          2026-10-28 (16 seeds, depth 3, full HP): Swirl+Arrow wins 12/16 (4 boss
-          deaths), Swirl+Arrow+Spear 16/16 ending on 8.7 HP; in Stage 1 both win
-          16/16 on about 9 HP, so options there separate only by noise
+          Grove II board with Day 5+ enemy HP [wiki] and 7 waves (Stage 1 has 5)
+          drawn from its learned templates, then Daisuke at Day 5+ HP (20) [wiki].
+          On the valuation's 48 seeds (depth 3, full HP; score = HP left - 0.02
+          per turn, -10 for a death): Swirl+Arrow wins 46 and scores 5.64,
+          Swirl+Arrow+Spear wins 48 and scores 7.54 (0.22). With the hand-set
+          generator (0.16, 16 seeds): Swirl+Arrow won 12, Swirl+Arrow+Spear 16
 
     python -m shogunbot selfplay -n 200 --depth 3
 """
@@ -36,7 +41,7 @@ from dataclasses import dataclass
 from .catalogue import CAT
 from .model import DEFAULT_KIT, ENEMY_KINDS, HERO_MAX_HP, Enemy, Hero, Kit, State
 from .planner import STALL_TURNS, WEIGHTS, auto_depth, plan, progress_key, stall_weights
-from . import behaviour, rules
+from . import behaviour, levelgen, rules
 from .rules import ENEMY_TILE_DAMAGE, _hits_hero, enemy_options, step
 
 _INTENT = {"turn": "turn", "queue": "queue", "fire": "fire", "wait": "hold"}
@@ -97,7 +102,8 @@ def _levels(region: str = "bamboo_grove") -> list[tuple]:
 LEVELS = _levels()                 # bamboo-1: 5 cells, 4 waves; bamboo-2: 7 cells, 5 waves
 _BOSS_LV = CAT.levels["boss"]
 _BOSS = CAT.enemy(_BOSS_LV["boss"])
-SPAWN_WHEN_ALIVE_AT_MOST = 1  # Normal room: next wave when <= this many remain ([web] 1-2)
+SPAWN_WHEN_ALIVE_AT_MOST = 1  # handset rules: next wave when <= this many remain ([web] 1-2)
+GENERATOR = "learned"         # "learned": data/waves.json; "handset": the 0.21 rules, for comparisons
 SCENARIOS = ("stage1", "stress")
 GAME_BEHAVIOUR = "learned"   # how simulated enemies choose; "presets" = the 0.16 tables. The planner's
                              # own model of them is rules.BEHAVIOUR, so the two can be compared
@@ -120,14 +126,17 @@ class Result:
 
 @dataclass
 class LevelPlan:
-    """One level's opposition, fixed by the seed. waves: per wave, the
-    enemies as (kind, cells in order of preference, facing toward the hero?)."""
+    """One level's opposition, fixed by the seed. waves: per wave, the enemies as
+    (kind, a uniform draw for the cell, a uniform draw for the facing); the cell and
+    facing are settled at spawn time from those draws, where the hero stands then.
+    learned: the data/waves.json level the waves follow."""
     name: str
     cells: int
     hero_x: int
     waves: list
     day5: bool = False
     boss: bool = False
+    learned: str = ""
 
 
 def plan_levels(seed: int, start: str = "bamboo-1", scenario: str = "stage1") -> list[LevelPlan]:
@@ -135,39 +144,69 @@ def plan_levels(seed: int, start: str = "bamboo-1", scenario: str = "stage1") ->
     g = random.Random(seed)
     out = []
 
-    def wave(pool, cells, lo, hi):
-        return [(g.choice(pool), g.sample(range(cells), cells), g.random() < 0.6)
-                for _ in range(g.randint(lo, hi))]
+    def wave(level, i, pool, lo, hi):
+        templates = levelgen.wave_templates(level, i) if GENERATOR == "learned" else []
+        if templates:
+            r = g.random() * sum(n for _, n in templates)
+            kinds = list(templates[-1][0])
+            for units, n in templates:
+                r -= n
+                if r <= 0:
+                    kinds = list(units)
+                    break
+            g.shuffle(kinds)
+        else:
+            kinds = [g.choice(pool) for _ in range(g.randint(lo, hi))]
+        return [(k, g.random(), g.random()) for k in kinds]
 
     if scenario == "stress":
         name, cells, hx, nwaves, pool = LEVELS[-1]
-        out.append(LevelPlan("stress-" + name, cells, hx, [wave(pool, cells, 2, 3) for _ in range(STRESS_WAVES)], True))
+        out.append(LevelPlan("stress-" + name, cells, hx, [wave(name, i + 1, pool, 2, 3) for i in range(STRESS_WAVES)],
+                             True, learned=name))
         out.append(LevelPlan("stress-boss", _BOSS_LV["cells"], _BOSS_LV["hero_cell"], [], True, True))
         return out
     started = False
     for name, cells, hx, nwaves, pool in LEVELS:
         started = started or name == start
-        waves = [wave(pool, cells, 1, 3) for _ in range(nwaves)]
+        waves = [wave(name, i + 1, pool, 1, 3) for i in range(nwaves)]
         if started:
-            out.append(LevelPlan(name, cells, hx, waves))
+            out.append(LevelPlan(name, cells, hx, waves, learned=name))
     out.append(LevelPlan("boss", _BOSS_LV["cells"], _BOSS_LV["hero_cell"], [], False, True))
     return out
 
 
-def _spawn(s: State, wave: list, uid0: int, day5: bool) -> list[Enemy]:
+def _spawn(s: State, wave: list, uid0: int, day5: bool, learned: str = "") -> list[Enemy]:
+    """Place a wave: each unit on a free cell drawn with the learned weight for its distance
+    from the hero (a cell next to him about a third as often), facing him with the learned
+    chance for its kind; at most (cells + 1) / 2 enemies alive [wiki]. The handset
+    generator draws cells uniformly and faces 60% toward the hero."""
     cap = (s.cells + 1) // 2
     out = []
-    for i, (k, prefs, toward_hero) in enumerate(wave):
+    for i, (k, r_cell, r_face) in enumerate(wave):
         if len(s.alive()) + len(out) >= cap:
             break
         taken = {s.hero.x} | {e.x for e in s.alive() + out}
-        x = next((c for c in prefs if c not in taken), None)
-        if x is None:
+        free = [c for c in range(s.cells) if c not in taken]
+        if not free:
             break
+        ws = [levelgen.cell_weight(learned, abs(c - s.hero.x)) if learned and GENERATOR == "learned" else 1.0
+              for c in free]
+        r, x = r_cell * sum(ws), free[-1]
+        for c, wgt in zip(free, ws):
+            r -= wgt
+            if r <= 0:
+                x = c
+                break
         toward = 1 if s.hero.x > x else -1
-        facing = toward if toward_hero else -toward    # spawn-facing conflict: mix both [obs]
+        p = levelgen.p_toward(k) if learned and GENERATOR == "learned" else 0.6
+        facing = toward if r_face < p else -toward
         out.append(Enemy(k, x, facing, enemy_hp(k, day5), [], uid=uid0 + i))
     return out
+
+
+def _spawn_rng(seed: int, level_i: int, t: int) -> random.Random:
+    """The next-wave draws, a stream of their own so enemy choices stay on _turn_rng's."""
+    return random.Random((seed * 2_000_003 + level_i * 30_011 + t * 7 + 1) & 0xFFFFFFFF)
 
 
 def _turn_rng(seed: int, level_i: int, t: int) -> random.Random:
@@ -212,20 +251,29 @@ def play_level(seed: int, level_i: int, lp: LevelPlan, s: State, depth: int, w: 
     pending = list(lp.waves)
     uid = 1
     last_size = len(pending[0])
-    s.enemies = _spawn(s, pending.pop(0), uid, lp.day5)
+    s.enemies = _spawn(s, pending.pop(0), uid, lp.day5, lp.learned)
     uid += 10
     s.wave = 1
     s.waves_total = len(lp.waves)
     stall = _Stall()
+    age = ones = 0          # turns since the wave came; turns in a row with at most one enemy left
     for t in range(max_turns):
         if s.hero.hp <= 0:
             return s, False
         alive_n = len(s.alive())
-        if pending and (alive_n == 0 or (alive_n <= SPAWN_WHEN_ALIVE_AT_MOST and last_size >= 3)):
+        if t > 0:
+            age += 1
+            ones = ones + 1 if alive_n <= 1 else 0
+        if GENERATOR == "learned" and lp.learned:
+            due = _spawn_rng(seed, level_i, t).random() < levelgen.p_next_wave(alive_n, ones, age)
+        else:
+            due = alive_n == 0 or (alive_n <= SPAWN_WHEN_ALIVE_AT_MOST and last_size >= 3)
+        if pending and due:
             last_size = len(pending[0])
-            s.enemies += _spawn(s, pending.pop(0), uid, lp.day5)
+            s.enemies += _spawn(s, pending.pop(0), uid, lp.day5, lp.learned)
             uid += 10
             s.wave += 1
+            age = ones = 0
         if not s.alive() and not pending:
             return s, True
         s = _play_turn(s, _turn_rng(seed, level_i, t), depth, w, telegraphs, stall)
