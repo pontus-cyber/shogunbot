@@ -21,7 +21,8 @@ Screens:
 The run ends on: boss beaten (the reward after the boss fight is taken first),
 hero HP 0 or a death screen, or a screen that stays unknown too long.
 In a series, a won run is given up from the pause menu (the game would go on to
-Stage 2), which leads to the death screen; the next run clicks RESTART there.
+Stage 2), which leads back to the camp; the next run walks to GO there. After a
+death the next run clicks RESTART on the death screen.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS
 from .runlog import RunLogger
 from .winio import GameWindow
 
-VERSION = "0.18.2"
+VERSION = "0.18.3"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -371,10 +372,12 @@ class Bot:
     def _give_up(self) -> bool:
         """End a won run so the next one can start [user 2026-10-28]: after the boss the
         game goes on to Stage 2, so the bot opens PAUSE MENU (the bottom of the three
-        round buttons, bottom right), picks GIVE UP, then YES: GIVE UP. That leads to the
-        death screen, where the next run clicks RESTART. Each click waits until its screen
-        is recognised; on any doubt the bot stops and leaves the game as it is.
-        True when the death screen with RESTART shows."""
+        round buttons, bottom right), picks GIVE UP, then YES: GIVE UP. From the Stage 2
+        map that leads straight to the camp [run 20261028-130456, give_up_failed.png];
+        given up in a fight it leads to the death screen [captures 2026-10-28]. The next
+        run starts from either (camp: walk to GO; death screen: RESTART). Each click waits
+        until its screen is recognised; on any doubt the bot stops and leaves the game as
+        it is. True when the camp, the title or the death screen shows."""
         gw, log = self.gw, self.log
         t0 = time.time()
         log.event("give_up", step="start")
@@ -414,15 +417,17 @@ class Bot:
             m = c
         if c is None or c[0] != "confirm":
             return self._give_up_failed(f"confirmation not recognised ({c[0] if c else 'nothing'})", frame)
-        # 4. YES: GIVE UP, the second of two rows; then wait for the death screen
+        # 4. YES: GIVE UP, the second of two rows; then wait for where the game goes:
+        #    the camp, the title, or the death screen
         self.click(*c[1][1], frame, away=True, screen="give_up", step="yes")
         clicked_again = False
         while time.time() - t0 < GIVE_UP_WAIT_S + 30:
             time.sleep(0.5)
             frame = gw.grab()
             f = normalize(frame)
-            if screens.find_restart(f) is not None:
-                log.event("give_up", step="done", seconds=round(time.time() - t0, 1))
+            where = "death" if screens.find_restart(f) is not None else screens.classify(f)
+            if where in ("camp", "title", "death"):
+                log.event("give_up", step="done", screen=where, seconds=round(time.time() - t0, 1))
                 log.save_frame(frame, "gave_up")
                 return True
             c = screens.menu(f)
@@ -430,7 +435,7 @@ class Bot:
                 time.sleep(1.0)
                 self.click(*c[1][1], frame, away=True, screen="give_up", step="yes_again")
                 clicked_again = True
-        return self._give_up_failed("no death screen after YES: GIVE UP", frame)
+        return self._give_up_failed("no camp, title or death screen after YES: GIVE UP", frame)
 
     def _give_up_failed(self, reason: str, frame) -> bool:
         self.log.event("give_up_failed", reason=reason)
@@ -509,7 +514,7 @@ class Bot:
                     log.save_frame(frame, "win")
                     break
                 if scr == "death" and turn == 0:
-                    # the last run's death screen (a death, or a won run given up): RESTART
+                    # the last run's death screen (a death, or a run given up in a fight): RESTART
                     # starts this one [run 20261027-182223 ended after 1 s on that screen]
                     if not self.autostart:           # the player restarts
                         time.sleep(0.5)
@@ -771,7 +776,8 @@ def play(runs: int = 1, frame_policy: str = "events", autostart: bool = True) ->
     results = []
     for i in range(runs):
         # each run starts where the last one ended: a won run is given up from the pause
-        # menu, and the next run clicks RESTART on the death screen [user 2026-10-28]
+        # menu, which leads back to the camp; after a death the next run clicks RESTART on
+        # the death screen [user 2026-10-28]
         bot.restart_after = autostart and i < runs - 1
         res = bot.run()
         results.append(res)

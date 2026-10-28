@@ -1,5 +1,6 @@
-"""0.18: series of runs. A won run is given up from the pause menu and the next run
-clicks RESTART on the death screen [user 2026-10-28]. Frames come from
+"""0.18: series of runs. A won run is given up from the pause menu, which leads back to
+the camp [run 20261028-130456]; a run given up in a fight, or a death, leads to the death
+screen, where the next run clicks RESTART [user 2026-10-28]. Frames come from
 collect/20261028-121900-giveup (captured while the path was tested by hand) and the
 bot's own runs; tests are skipped when the frames are missing.
 """
@@ -9,6 +10,7 @@ import pytest
 from test_bot_flow import FakeGW, Rec, frame, make_bot
 
 GIVEUP = "collect/20261028-121900-giveup/"
+SERIES = "runs/20261028-130456/frames/"   # 0.18.2 giving up its won run from the Stage 2 map
 PAUSE_BOX = (1784, 972, 1855, 1035)      # the PAUSE MENU disc
 GIVE_UP_ROW = (858, 612, 1057, 652)      # third of the five pause menu rows
 YES_ROW = (810, 532, 1105, 572)          # second of the two confirmation rows
@@ -31,10 +33,17 @@ def test_detectors_tell_the_screens_apart():
         "death_give_up": frame(GIVEUP + "f0003_death_after_give_up.png"),
         "death_slain": frame("runs/20261027-182223/frames/death.png"),    # a real death
         "death_fading_in": frame("runs/20261028-053637/frames/death.png"),  # no buttons yet
+        # the bot's own frames from its first give-up [run 20261028-130456]
+        "stage2_map": frame(SERIES + "f0100_CLICK.png"),
+        "pause_live": frame(SERIES + "f0101_CLICK.png"),
+        "confirm_live": frame(SERIES + "f0102_CLICK.png"),
+        "camp_after_give_up": frame(SERIES + "give_up_failed.png"),
     }
-    assert {k for k, f in shots.items() if S.pause_button(f)} == {"combat", "map", "shrine"}
+    assert {k for k, f in shots.items() if S.pause_button(f)} == {"combat", "map", "shrine", "stage2_map"}
     menus = {k: S.menu(f) for k, f in shots.items()}
-    assert {k for k, m in menus.items() if m} == {"pause", "confirm"}
+    assert {k for k, m in menus.items() if m} == {"pause", "confirm", "pause_live", "confirm_live"}
+    assert menus["pause_live"][0] == "pause" and menus["confirm_live"][0] == "confirm"
+    assert S.classify(shots["camp_after_give_up"]) == "camp"
     px = lambda rows: [(round(x * 1920), round(y * 1080)) for x, y in rows]
     assert menus["pause"][0] == "pause" and px(menus["pause"][1]) == \
         [(958, 472), (958, 552), (958, 632), (958, 712), (958, 792)]
@@ -44,8 +53,22 @@ def test_detectors_tell_the_screens_apart():
     assert px([restart["death_give_up"]]) == [(1640, 908)] == px([restart["death_slain"]])
 
 
-def test_won_run_is_given_up_from_the_pause_menu(tmp_path):
-    gw = FakeGW([(frame("runs/20261028-104830/frames/map_1.png"), [PAUSE_BOX]),
+def test_won_run_is_given_up_from_the_pause_menu_and_lands_in_camp(tmp_path):
+    # [run 20261028-130456] from the Stage 2 map, YES: GIVE UP goes straight to the camp;
+    # 0.18.2 waited for a death screen and stopped the series although the give-up worked
+    gw = FakeGW([(frame(SERIES + "f0100_CLICK.png"), [PAUSE_BOX]),
+                 (frame(SERIES + "f0101_CLICK.png"), [GIVE_UP_ROW]),
+                 (frame(SERIES + "f0102_CLICK.png"), [YES_ROW]),
+                 (frame(SERIES + "give_up_failed.png"), [])])
+    b = make_bot(tmp_path, gw)
+    assert b._give_up() is True
+    assert gw.clicks == [(1820, 1001), (958, 632), (958, 552)]
+
+
+def test_run_given_up_in_a_fight_ends_on_the_death_screen(tmp_path, monkeypatch):
+    from shogunbot import bot as B
+    monkeypatch.setattr(B, "GIVE_UP_WAIT_S", 0.2)   # not a map: the pause click waits half of this
+    gw = FakeGW([(frame(GIVEUP + "f0004_new_run.png"), [PAUSE_BOX]),
                  (frame(GIVEUP + "f0001_pause_menu.png"), [GIVE_UP_ROW]),
                  (frame(GIVEUP + "f0002_confirm.png"), [YES_ROW]),
                  (frame(GIVEUP + "f0003_death_after_give_up.png"), [])])

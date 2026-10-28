@@ -16,11 +16,11 @@ Rewards (0.16, `rewards.py`): pure-gain upgrades (+damage, −cooldown, +slot) a
     .\play.bat                                                   # one run, hold F8 to stop
     .\play.bat --runs 10                                         # ten runs in a row, unattended (0.18)
     ..\local-game-MCP\.venv\Scripts\python.exe -m shogunbot analyze   # text report of the last run
+    ..\local-game-MCP\.venv\Scripts\python.exe -m pytest -q tests     # tests
 
-In a series, a won run is given up from the pause menu (PAUSE MENU, GIVE UP, YES: GIVE UP) and the
-next run starts with RESTART on the death screen; after a death the next run clicks RESTART too.
+In a series, a won run is given up from the pause menu (PAUSE MENU, GIVE UP, YES: GIVE UP), which
+leads back to the camp, and the next run walks to GO; after a death the next run clicks RESTART.
 Start a series from the title screen, the camp, a Stage 1 map, a Stage 1 fight or the death screen,
 not from the Stage 2 map a won run ends on.
-    ..\local-game-MCP\.venv\Scripts\python.exe -m pytest -q tests     # tests
 
 Requires the sibling `local-game-MCP` venv (capture + input) and `opencv-python-headless`.
