@@ -108,7 +108,17 @@ class RunLogger:
 
     # ---- lifecycle ------------------------------------------------------
     def start_run(self, meta: dict) -> str:
-        self.run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+        # one logger serves a whole series (play --runs N): each run starts from zero
+        self.stats = _Stats()
+        self._pending = None
+        self._t0 = time.time()
+        self._level = None
+        run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+        n = 2
+        while (self.root / run_id).exists():      # two runs started in the same second
+            run_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{n}"
+            n += 1
+        self.run_id = run_id
         self.run_dir = self.root / self.run_id
         (self.run_dir / "frames").mkdir(parents=True, exist_ok=True)
         meta = {"run_id": self.run_id, "started": datetime.now().isoformat(timespec="seconds"), **meta}

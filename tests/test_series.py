@@ -115,3 +115,17 @@ def test_series_continues_after_a_win_only_when_the_give_up_worked(monkeypatch, 
     B.play(runs=4)
     assert seen == [True, True, True]          # the third run won but could not be given up
     assert "could not be given up" in capsys.readouterr().out
+
+
+def test_one_logger_starts_every_run_of_a_series_from_zero(tmp_path):
+    # 0.18 review: start_run kept the last run's stats, so run 2's summary held run 1's turns
+    from shogunbot.runlog import RunLogger
+    log = RunLogger(str(tmp_path), "none")
+    first = log.start_run({"n": 1})
+    log.level_start("bamboo-1", 10, 4)
+    log.stats.turns = 25
+    s1 = log.end_run("win")
+    second = log.start_run({"n": 2})
+    s2 = log.end_run("death")
+    assert second != first and (s1["turns"], s2["turns"]) == (25, 0)
+    assert s2["levels"] == [] and s2["minutes"] < 1
