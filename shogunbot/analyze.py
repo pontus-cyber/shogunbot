@@ -77,6 +77,26 @@ def analyze(run_dir: Path) -> str:
             L.append(f"  EXCEPTION at {e.get('where')}: {e.get('error')}  last: {tb[-3].strip() if len(tb) >= 3 else ''}  {e.get('frame') or ''}")
         elif e["event"] in ("loop_break", "potion_use", "potion_result", "item_use", "item_result", "item_seen", "act_failed", "unknown_screen"):
             L.append("  " + json.dumps({k: v for k, v in e.items() if k != "ts"}))
+    # rewards (M2): what was offered, how each option scored, what was taken
+    for e in events:
+        if e["event"] == "reward_screen":
+            offers = ", ".join(f"{o.get('tile')} {o.get('damage')}/{o.get('cooldown')} L{o.get('levels')}"
+                               for o in e.get("offers") or [])
+            what = offers if e.get("layout") == "tile_choice" else (e.get("upgrade") or f"unread {e.get('upgrade_lines')}")
+            L.append(f"  REWARD {e.get('level')} {e.get('layout')}: {what}  (frame {e.get('frame')})"
+                     + (f"  notes {e['notes']}" if e.get("notes") else ""))
+        elif e["event"] == "reward_decision":
+            opts = ", ".join(f"{o['name']} {o['value']:+.2f}" for o in sorted(e.get("options", []), key=lambda o: -o["value"]))
+            L.append(f"    values ({e.get('seconds')}s, HP {e.get('hp')}): {opts} -> {e.get('choice')}")
+        elif e["event"] in ("reward_taken", "reward_failed"):
+            L.append(f"    {e['event']}: {e.get('choice')} {e.get('reason', '')}"
+                     + (" (unverified)" if e.get("unverified") else ""))
+        elif e["event"] == "skip":
+            L.append(f"    SKIP: {e.get('reason', '')}")
+        elif e["event"] == "kit":
+            L.append(f"  KIT at {e.get('level')}: " + ", ".join(f"{t['label']} {t['damage']}/{t['cooldown']}"
+                                                              + (f"+{t['enchant']}" if t.get("enchant") else "")
+                                                              for t in e.get("kit", [])))
     notes = Counter()
     for e in events:
         if e["event"] in ("tracker_notes", "blink"):

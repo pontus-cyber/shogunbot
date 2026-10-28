@@ -25,4 +25,6 @@ Game rules with sources are in `claude/stage1-domain-model.md`.
 - `rules.py` and `model.py` are the simulator. A rule change needs a regression test that cites the run and turn that showed it.
 - Damage-first scoring: never trade HP for kills while a zero-damage move exists (`planner.WEIGHTS`).
 - Perception thresholds are measured on recorded frames. Note the frame or run in a comment when you change one.
+- Perception templates are built from recorded frames: `perception/assets/faces.npz` (tile icons) by `python -m shogunbot.perception.build_faces <folder with runs/ and collect/>`, `perception/assets/glyphs.json` (shrine font) by `perception.text.build_glyphs`. When a new tile or shrine text shows up, add its frame and labels to the builder and rebuild.
+- Frame-based tests read `runs/` and `collect/` next to the repo (or `$SHOGUNBOT_DATA`) and skip when the frames are missing.
 - Only one chat edits code at a time.

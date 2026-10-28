@@ -226,3 +226,30 @@ def auto_depth(s: State) -> int:
     """Deeper search when the board is small enough to afford it."""
     n = len(s.alive())
     return 6 if n <= 1 else 5 if n == 2 else 4
+
+
+LIVE_BUDGET_S = 3.0   # a third tile triples planning time (346 -> 827-1000 ms on logged boss states)
+
+
+def plan_live(s: State, w: dict[str, float] = WEIGHTS) -> Decision:
+    """Live planning. With the starting two tiles: plan(s, auto_depth(s)), as
+    before. With more tiles the tree grows, so the search deepens one ply at a
+    time and stops before a ply that would overrun LIVE_BUDGET_S (estimated
+    from how much the last ply grew)."""
+    import time
+    target = auto_depth(s)
+    if len(s.hero.kit) <= 2:
+        return plan(s, target, w)
+    t0 = time.time()
+    depth = min(3, target)
+    d = plan(s, depth, w)
+    prev, growth = time.time() - t0, 6.0
+    while depth < target:
+        if (time.time() - t0) + prev * growth > LIVE_BUDGET_S:
+            break
+        t1 = time.time()
+        d2 = plan(s, depth + 1, w)
+        cur = time.time() - t1
+        growth = max(2.0, cur / max(prev, 1e-3))
+        prev, depth, d = cur, depth + 1, d2
+    return d

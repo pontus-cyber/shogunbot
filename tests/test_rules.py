@@ -176,6 +176,18 @@ def test_daisuke_loads_charge_then_sword_before_firing():
         assert s2.hero.hp == 10
 
 
+def test_daisuke_fires_a_loaded_summon_after_one_hold():
+    # [runs 20261028-053637 t93-94, t116-117, t136-137, t146-147; 20261028-061420 t93-94, t115-116]
+    # a Summon bubble shows red (hold) for one phase, then yellow, and a Spike Charger appears.
+    # Before 0.15 the presets never fired a Summon, so simulated boss fights could stall forever.
+    s = mk(5, 3, -1, [("daisuke", 4, -1, 15, ["summon"])])
+    s.enemies[0].intent = "hold"
+    s2, _ = only(step(s, "wait"))
+    assert s2.enemies[0].armed and len(s2.alive()) == 1
+    s3, _ = only(step(s2, "wait"))
+    assert any(e.kind == "charger" for e in s3.alive()) and not s3.enemies[0].armed
+
+
 def test_enemy_holds_the_phase_after_loading():
     # R1 in the presets: loaded this phase -> cannot fire next phase
     s = mk(5, 1, 1, [("ashigaru", 2, -1, 3, [])])

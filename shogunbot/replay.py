@@ -48,12 +48,14 @@ def replay(folder: str | Path, verbose: bool = True) -> dict:
     recs = [json.loads(l) for l in open(folder / "actions.jsonl", encoding="utf-8")]
     percs = {}
 
+    tr = Tracker()
+
     def P(i):
         if i not in percs:
-            percs[i] = perceive(np.array(Image.open(folder / recs[i]["frame"]).convert("RGB")))
+            percs[i] = perceive(np.array(Image.open(folder / recs[i]["frame"]).convert("RGB")),
+                                [t.tile for t in tr.kit])
         return percs[i]
 
-    tr = Tracker()
     n = ok_any = ok_top = skipped = 0
     rows = []
     for i in range(len(recs) - 1):

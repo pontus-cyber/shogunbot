@@ -401,6 +401,10 @@ def _daisuke_options(s, e, d, dist, facing_hero, move_or_wait):
     # [web] distance-based combo choice; probabilities are placeholders (HYP)
     if e.armed and e.primed and e.queue != ["charge"]:
         return [(1.0, ("fire",))]
+    if e.armed and e.queue[0] == "summon" and e.wind >= 1:
+        # a loaded Summon holds one phase (red), then fires (yellow), facing or not
+        # [runs 20261028-053637 t93-94, t116-117, t136-137, t146-147; 20261028-061420 t93-94, t115-116]
+        return [(1.0, ("fire",))]
     if not facing_hero:
         return [(1.0, ("turn",))]
     if e.armed:

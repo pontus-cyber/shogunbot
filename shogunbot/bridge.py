@@ -1,19 +1,75 @@
 """Perception -> model State, plus the memory the screen does not show.
 
-The screen shows positions, HP, facing, queues, telegraphs, which hand tiles
-are ready, and swap ticks. It does not show how far a recharging tile has
-come, so the Tracker carries hero tile charge between turns using the same
-rules the simulator applies, and reconciles it with the ready flags it sees.
+The screen shows positions, HP, facing, queues, telegraphs, the hand tiles
+with their charge (grey vs red cooldown marks), and swap ticks. The Tracker
+keeps the hero's kit (which tiles, with what upgrades), the order of the
+hero's queue, and charge for tiles it cannot see, and reconciles them with
+each read.
 """
 
 from __future__ import annotations
 
 from .catalogue import CAT
-from .model import DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, Enemy, Hero, Kit, State
+from .model import DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, Enemy, Hero, Kit, KitTile, State
 from .rules import apply_hero, Events
 
 DAISUKE_HP = CAT.enemy("daisuke").hp
 DAISUKE_TILES = CAT.enemy("daisuke").tiles
+
+
+def h_queue(p) -> list:
+    return list((p.hero or {}).get("queue", []))
+
+
+def match_faces(kit: Kit, faces: list[dict], charge: dict | None = None) -> dict[str, dict]:
+    """Assign hand faces to kit labels by tile id. With two copies of a tile,
+    the face whose charge is closest to the tracked one goes to each label."""
+    free = [f for f in faces if f.get("tile")]
+    out = {}
+    for kt in kit:
+        cands = [f for f in free if f["tile"] == kt.tile]
+        if not cands:
+            continue
+        want = (charge or {}).get(kt.label, kt.cooldown)
+        f = min(cands, key=lambda f: (f.get("cooldown") != kt.cooldown, abs(f.get("charged", 0) - want)))
+        out[kt.label] = f
+        free.remove(f)
+    return out
+
+
+def kit_from_faces(kit: Kit, faces: list[dict], notes: list | None = None) -> Kit:
+    """The kit with stats confirmed or corrected by a full hand read (reward
+    screens and level starts show every tile). Tiles the read finds that the
+    kit lacks are added; kit tiles the read misses are kept."""
+    notes = notes if notes is not None else []
+    tiles = list(kit.tiles)
+    matched = match_faces(kit, faces)
+    for i, kt in enumerate(tiles):
+        f = matched.get(kt.label)
+        if f is None:
+            continue
+        dmg = f["damage"] if f.get("damage") is not None and f.get("damage_conf", 0) >= 0.75 else kt.damage
+        cd = f.get("cooldown", kt.cooldown)
+        levels = f.get("levels") or kt.levels
+        used = f.get("used", kt.used) if f.get("levels") else kt.used
+        if (dmg, cd, levels, used) != (kt.damage, kt.cooldown, kt.levels, kt.used):
+            notes.append(f"{kt.label}: read {dmg}/{cd} L{used}/{levels}, kit had "
+                         f"{kt.damage}/{kt.cooldown} L{kt.used}/{kt.levels}")
+            tiles[i] = KitTile(kt.label, kt.tile, dmg, cd, kt.enchant, levels, used)
+    new = Kit(tiles)
+    seen = set(id(f) for f in matched.values())
+    extra = [f for f in faces if f.get("tile") and id(f) not in seen and f["tile"] in CAT.tiles]
+    if len(faces) <= len(kit):
+        # as many faces as kit tiles: an unmatched face is a misread, not a new tile
+        for f in extra:
+            notes.append(f"hand face read as {f['tile']} matches no kit tile; kit kept")
+        return new
+    for f in extra[:len(faces) - len(kit)]:
+        t = f["tile"]
+        new = new.add(t, damage=f.get("damage") if f.get("damage") is not None else None,
+                      cooldown=f.get("cooldown"), levels=f.get("levels") or 3, used=f.get("used") or 0)
+        notes.append(f"hand shows {t} the kit did not have; added")
+    return new
 
 
 class Tracker:
@@ -21,8 +77,15 @@ class Tracker:
         self.kit = kit
         self.reset()
 
+    def set_kit(self, kit: Kit) -> None:
+        """A reward changed the hero's tiles; new tiles start charged."""
+        self.kit = kit
+        self.charge = {t.label: max(t.cooldown, 0) for t in kit}
+        self.queue_track = []
+
     def reset(self) -> None:
         self.charge = {t.label: t.cooldown for t in self.kit}
+        self.queue_track: list[str] = []   # labels the bot queued, bottom first
         self.facing = 1
         self.facing_known = False
         self.facing_disagree = 0
@@ -47,8 +110,16 @@ class Tracker:
         else:
             level = "bamboo-1" if cells == 5 else "bamboo-2" if cells == 7 else f"cells-{cells}"
         if level != self.level:
-            # new level: every tile starts fully recharged [wiki]
+            # new level: the hand shows every tile, so confirm the kit (a reward may
+            # have changed it); every tile starts fully recharged [wiki]
+            faces = [f for f in p.hand if f.get("tile")]
+            if faces and not h_queue(p):
+                before = self.kit
+                self.kit = kit_from_faces(self.kit, faces, self.notes)
+                if self.kit != before:
+                    self.notes.append(f"kit at level start: {self.kit}")
             self.charge = {t.label: t.cooldown for t in self.kit}
+            self.queue_track = []
             self.level = level
             self.facing_known = False
             self.prev = []
@@ -57,21 +128,28 @@ class Tracker:
         facing = self._hero_facing(h, p.confidence.get("hero_facing", 0.0))
 
         kit = self.kit
-        queue = [t for t in h["queue"] if t in kit]
+        queue = self._queue(h, p.hand)
         charge = dict(self.charge)
-        seen = {t["tile"]: t["ready"] for t in p.hand if t["tile"] in kit}
+        faces = match_faces(kit, p.hand, charge)
         for kt in kit:
             tile, cd = kt.label, kt.cooldown
             if tile in queue:
                 continue
-            if tile in seen:
-                if seen[tile]:
-                    if charge[tile] < cd:
-                        self.notes.append(f"{tile} ready earlier than tracked ({charge[tile]}/{cd})")
-                    charge[tile] = cd
-                elif charge[tile] >= cd:
-                    self.notes.append(f"{tile} shown recharging but tracked full; set {cd - 1}")
-                    charge[tile] = cd - 1
+            f = faces.get(tile)
+            if f is None:
+                continue
+            if "charged" in f and f.get("cooldown") == cd:
+                # the marks show the charge itself: grey = charged [run 20261028-061420 f0014-f0020]
+                if f["charged"] != charge.get(tile):
+                    self.notes.append(f"{tile} charge read {f['charged']}/{cd}, tracked {charge.get(tile)}")
+                    charge[tile] = f["charged"]
+            elif f["ready"]:
+                if charge[tile] < cd:
+                    self.notes.append(f"{tile} ready earlier than tracked ({charge[tile]}/{cd})")
+                charge[tile] = cd
+            elif charge[tile] >= cd:
+                self.notes.append(f"{tile} shown recharging but tracked full; set {cd - 1}")
+                charge[tile] = cd - 1
         self.charge = charge
 
         hp = h["hp"] if h["hp_max"] else 0
@@ -125,6 +203,39 @@ class Tracker:
         s = State(cells, hero, enemies, level=level,
                   wave=1, waves_total=0 if level == "boss" else 99)
         return s
+
+    # ------------------------------------------------------------------ queue
+    def _queue(self, h: dict, hand: list[dict]) -> list[str]:
+        """The hero's queue, bottom first, as kit labels.
+
+        Queued tiles leave the hand [run 20261028-061420 f0025], so the kit
+        tiles missing from the hand are the queued ones; the number of bubbles
+        over the hero confirms the count. Their order comes from the bubble
+        icons where those name kit tiles, else from what the bot queued."""
+        kit = self.kit
+        bubbles = list(h.get("queue", []))
+        in_hand = match_faces(kit, hand, self.charge)
+        missing = [lb for lb in kit.labels if lb not in in_hand]
+        if hand and len(missing) == len(bubbles):
+            order, left = [], list(missing)
+            for name in bubbles:
+                lb = next((x for x in left if kit[x].tile == name), None)
+                if lb is None:
+                    break
+                order.append(lb)
+                left.remove(lb)
+            else:
+                return order
+            tracked = [x for x in self.queue_track if x in missing]
+            rest = [x for x in missing if x not in tracked]
+            if len(bubbles) != len(set(bubbles) & set(kit.labels)):
+                self.notes.append(f"queue bubbles read {bubbles}; queue taken from the hand: {tracked + rest}")
+            return tracked + rest
+        # hand unreadable (an animation) or counts disagree: the bubble icons
+        q = [t for t in bubbles if t in kit]
+        if hand and len(missing) != len(bubbles):
+            self.notes.append(f"{len(bubbles)} queue bubbles but {len(missing)} kit tiles off the hand")
+        return q
 
     # ------------------------------------------------------------------ facing
     def _hero_facing(self, h: dict, conf: float) -> int:
@@ -197,6 +308,7 @@ class Tracker:
                 self.shield = False  # the likeliest outcome used it up
         s2 = apply_hero(s, action, Events())
         self.charge = dict(s2.hero.charge)
+        self.queue_track = list(s2.hero.queue)
         if action == "turn":
             self.facing = -s.hero.facing
         if s2.hero.x != s.hero.x and s.enemy_at(s2.hero.x) is not None:

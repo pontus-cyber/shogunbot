@@ -11,9 +11,11 @@ Screens:
   camp    -> walk right, click GO             (autostart)
   map     -> click the first node             (autostart)
   combat  -> plan one action and send it
-  reward  -> click SKIP (tile rewards, shrines, the free-play shrine)
+  reward  -> tile choice: value both tiles and skipping in the simulator, take the best;
+             shrine: read the upgrade, value it on each tile and skipping, take the best;
+             anything unreadable -> SKIP (rewards.py, perception/reward_screen.py)
   unknown -> wait (banners, transitions); a frame is logged if it lasts
-The run ends on: boss beaten (first reward/map screen after the boss fight),
+The run ends on: boss beaten (the reward after the boss fight is taken first),
 hero HP 0 or a death screen, or a screen that stays unknown too long.
 """
 
@@ -27,17 +29,18 @@ import time
 
 import numpy as np
 
-from .bridge import Tracker
+from . import rewards
+from .bridge import Tracker, kit_from_faces, match_faces
 from .catalogue import CAT
 from .model import DEFAULT_KIT, HERO_MAX_HP
-from .perception import screens
-from .perception.perceive import merge_blink, perceive
-from .planner import WEIGHTS, auto_depth, plan
+from .perception import reward_screen, screens
+from .perception.perceive import BASE_POOL, merge_blink, perceive
+from .planner import WEIGHTS, plan, plan_live
 from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS
 from .runlog import RunLogger
 from .winio import GameWindow
 
-VERSION = "0.14"
+VERSION = "0.15"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -138,13 +141,16 @@ class Bot:
                 return True
         return False
 
-    def do(self, action: str, p, frame: np.ndarray) -> bool:
+    def do(self, action: str, p, frame: np.ndarray, kit=DEFAULT_KIT) -> bool:
         """Send one hero action. Returns True if the screen reacted."""
         if action in ACTION_KEY:
             self.key(ACTION_KEY[action], frame, bot_action=action)
         elif action.startswith("queue:"):
-            tile = action.split(":", 1)[1]
-            slot = next((h for h in p.hand if h["tile"] == tile), None)
+            label = action.split(":", 1)[1]
+            tile = kit[label].tile if label in kit else label
+            faces = [h for h in p.hand if h["tile"] == tile]
+            # a second copy of a tile may still be recharging: click a ready one
+            slot = next((h for h in faces if h.get("ready")), faces[0] if faces else None)
             if slot is None:
                 self.log.event("act_failed", action=action, reason="tile not found in hand",
                                hand=p.hand)
@@ -154,6 +160,113 @@ class Bot:
             self.log.event("act_failed", action=action, reason="unknown action")
             return False
         return self._wait_change(frame)
+
+    # ------------------------------------------------------------------ rewards
+    def _read_reward(self, tr):
+        frame = self.gw.grab_stable(settle_s=0.25, timeout_s=3.0)
+        return frame, reward_screen.read(frame, tuple(set(t.tile for t in tr.kit) | BASE_POOL))
+
+    def _reward(self, frame, tr, level: str, hp: int) -> str:
+        """Take a free reward when the planner values it above skipping.
+        Returns 'taken', 'skipped' or 'failed' (fell back to SKIP)."""
+        time.sleep(0.8)                        # let the screen finish sliding in
+        frame, rs = self._read_reward(tr)
+        self.reward_n += 1
+        tag = f"reward_{self.reward_n}_{rs.kind}"
+        self.log.save_frame(frame, tag)
+        notes: list = []
+        if rs.hand:
+            tr.kit = kit_from_faces(tr.kit, rs.hand, notes)
+        # RunLogger.event's first parameter is called 'kind': the layout goes in as 'layout'
+        self.log.event("reward_screen", level=level, hp=hp, kit=tr.kit.to_list(), notes=notes, frame=tag,
+                       layout=rs.kind, **{k: v for k, v in rs.to_dict().items() if k not in ("hand", "kind")},
+                       hand=[{k: h.get(k) for k in ("tile", "damage", "cooldown", "levels", "used", "conf")}
+                             for h in rs.hand])
+        if rs.kind == "tile_choice":
+            opts = rewards.tile_choice_options(tr.kit, rs.offers)
+        elif rs.kind == "shrine" and rs.upgrade:
+            opts = rewards.upgrade_options(tr.kit, rs.upgrade)
+        else:
+            why = "upgrade text not read" if rs.kind == "shrine" else f"layout {rs.kind}"
+            self.say(f"reward ({rs.kind}): {why}; SKIP")
+            return self._skip(frame, rs, why)
+        if len(opts) == 1:
+            return self._skip(frame, rs, "no option the simulator can play")
+        self.say(f"reward ({rs.kind}{': ' + rs.upgrade if rs.upgrade else ''}): valuing {len(opts)} options "
+                 f"on {len(rewards.SEEDS)} simulated runs ...")
+        best, opts, secs = rewards.decide(opts, level, hp)
+        self.log.event("reward_decision", layout=rs.kind, upgrade=rs.upgrade, level=level, hp=hp, seconds=secs,
+                       choice=best.name, options=[{"name": o.name, "value": o.value, "wins": o.wins}
+                                                  for o in opts])
+        self.say("   " + ", ".join(f"{o.name} {o.value:+.2f}" for o in sorted(opts, key=lambda o: -o.value))
+                 + f"  ({secs:.0f}s) -> {best.name}")
+        if best.name == "skip":
+            return self._skip(frame, rs, "skip valued highest")
+        if rs.kind == "tile_choice":
+            ok = self._take_tile(frame, rs, best, tr)
+        else:
+            ok = self._take_upgrade(frame, rs, best, tr)
+        if ok:
+            tr.set_kit(best.kit)
+            self.log.event("reward_taken", choice=best.name, kit=best.kit.to_list())
+            self.say(f"   took {best.name}; kit {best.kit}")
+            return "taken"
+        frame, rs2 = self._read_reward(tr)
+        if rs2.kind == "unknown" and rs2.skip is None:
+            # the screen moved on although the check missed it: assume it was taken
+            tr.set_kit(best.kit)
+            self.log.event("reward_taken", choice=best.name, kit=best.kit.to_list(), unverified=True)
+            return "taken"
+        self._skip(frame, rs2, f"{best.name} did not register")
+        return "failed"
+
+    def _skip(self, frame, rs, why: str) -> str:
+        pos = rs.skip or screens.find_skip(frame)
+        self.log.event("skip", reason=why, pos=pos)
+        if pos is not None:
+            self.click(*pos, frame, screen="reward")
+            time.sleep(1.0)
+        return "skipped"
+
+    def _gone(self, before_kind: str, tr) -> bool:
+        """True once the reward screen has moved on."""
+        for _ in range(6):
+            time.sleep(0.5)
+            _, rs = self._read_reward(tr)
+            if rs.kind != before_kind or rs.skip is None:
+                return True
+        return False
+
+    def _take_tile(self, frame, rs, best, tr) -> bool:
+        offer = rs.offers[best.detail["offer"]]
+        for attempt in (1, 2):
+            self.click(offer["fx"], offer["fy"], frame, screen="reward", reward=best.name, attempt=attempt)
+            if self._gone("tile_choice", tr):
+                return True
+            frame = self.gw.grab()
+        return False
+
+    def _take_upgrade(self, frame, rs, best, tr) -> bool:
+        label = best.detail["label"]
+        face = match_faces(tr.kit, rs.hand).get(label)
+        if face is None:
+            self.log.event("reward_failed", choice=best.name, reason="tile not found in hand")
+            return False
+        for attempt in (1, 2):
+            self.click(face["fx"], face["fy"], frame, screen="reward", reward=best.name, attempt=attempt)
+            time.sleep(0.8)
+            frame, rs2 = self._read_reward(tr)
+            if rs2.upgrade_lit:
+                break
+        else:
+            self.log.event("reward_failed", choice=best.name, reason="UPGRADE did not light up")
+            return False
+        for attempt in (1, 2):
+            self.click(*reward_screen.UPGRADE_BUTTON, frame, screen="reward", reward="UPGRADE", attempt=attempt)
+            if self._gone("shrine", tr):
+                return True
+            frame = self.gw.grab()
+        return False
 
     # ------------------------------------------------------------------ items
     def _pre_plan_item(self, p, s, tries: dict):
@@ -226,6 +339,7 @@ class Bot:
         self.rec.start(log.run_dir / "frames")
         self.say(f"run {run_id} started; recording to runs/{run_id}/frames; hold F8 to stop")
         tr = Tracker()
+        self.reward_n = 0
         turn = 0
         level = None
         seen_boss = False
@@ -252,15 +366,33 @@ class Bot:
                     break
                 frame = gw.grab_stable(settle_s=0.2, timeout_s=3.0)
                 t0 = time.time()
-                p = perceive(frame)
+                p = perceive(frame, [t.tile for t in tr.kit])
                 perceive_ms = (time.time() - t0) * 1000
                 scr = p.screen
 
                 if scr != "unknown":
                     unknown_since, unknown_saved = None, False
 
+                # ---------------- rewards (M2: taken when the planner values them above skipping)
+                if scr == "reward":
+                    log.save_frame(frame, "win" if seen_boss else f"reward_seen_{self.reward_n + 1}")
+                    try:
+                        self._reward(frame, tr, level or "bamboo-1", last_hp)
+                    except Exception as e:   # a reward must never end the run: fall back to SKIP
+                        log.exception("reward", e, frame=frame)
+                        self.say(f"   reward handling failed ({e!r}); SKIP")
+                        frame = gw.grab()
+                        pos = screens.find_skip(frame)
+                        if pos is not None:
+                            self.click(*pos, frame, screen="reward")
+                            time.sleep(1.0)
+                    if seen_boss:
+                        result = "win"   # the reward after the boss fight ends Stage 1
+                        break
+                    continue
+
                 # ---------------- end conditions
-                if seen_boss and scr in ("reward", "map"):
+                if seen_boss and scr == "map":
                     result = "win"
                     log.save_frame(frame, "win")
                     break
@@ -268,15 +400,6 @@ class Bot:
                     result = "death"
                     log.save_frame(frame, "death")
                     break
-
-                # ---------------- menus
-                if scr == "reward":
-                    pos = screens.find_skip(frame)
-                    self.say("reward/shrine: SKIP")
-                    log.event("skip", level=level, pos=pos)
-                    self.click(*pos, frame, screen="reward")
-                    time.sleep(1.0)
-                    continue
                 if scr in ("title", "camp", "map", "black"):
                     if not self.autostart or scr == "black":
                         time.sleep(0.5)
@@ -358,6 +481,7 @@ class Bot:
                     wave = 0
                     prev_alive = 0
                     log.level_start(level, s.hero.hp, LEVEL_WAVES.get(level, 0))
+                    log.event("kit", level=level, kit=tr.kit.to_list())
                     self.say(f"level {level}, HP {s.hero.hp}")
                 if level == "boss":
                     seen_boss = True
@@ -408,7 +532,7 @@ class Bot:
 
                 t1 = time.time()
                 try:
-                    d = plan(s, auto_depth(s))
+                    d = plan_live(s)
                 except Exception as e:  # a bad read must not end the run
                     log.exception("plan", e, frame=frame)
                     self.say(f"   planner error ({e!r}); re-reading the screen")
@@ -453,7 +577,7 @@ class Bot:
                     log.event("tracker_notes", turn=turn, notes=tr.notes)
                 self.say(f"t{turn:03d} {level} HP{s.hero.hp} {s.render():<28} -> {d.action:<12} "
                          f"(v={d.value:.0f}, d{d.depth}, {plan_ms:.0f}ms)")
-                reacted = self.do(d.action, p, frame)
+                reacted = self.do(d.action, p, frame, tr.kit)
                 if not reacted:
                     # [run 20261027-180145] small changes (an enemy queuing) fell under the
                     # threshold; retrying sent the same key again and cost real turns.

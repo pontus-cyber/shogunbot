@@ -73,7 +73,9 @@ def classify_sprite(crop: np.ndarray) -> tuple[str, int, float]:
     return str(kind), facing, min(conf_kind, conf_face * 4)
 
 
-HERO_KIT = tuple(t.tile for t in DEFAULT_KIT)  # tiles the hero owns (default kit, from the catalogue)
+HERO_KIT = tuple(t.tile for t in DEFAULT_KIT)  # tiles the hero starts with (catalogue); the bot passes its live kit
+# hand faces are matched among the kit and the reward pool, so a newly taken tile reads as itself
+BASE_POOL = frozenset(t.id for t in CAT.base_pool())
 # Stage 1 enemies told apart by HP pips and by the tile in their bubble (catalogue)
 REGION = "bamboo_grove"
 KIND_BY_HP = CAT.kinds_by_hp(REGION)        # {3: ashigaru, 2: tachi, 1: charger}
@@ -311,26 +313,13 @@ def merge_blink(p: "Perception", frames: list) -> list[str]:
     return notes
 
 
-def read_hand(rgb: np.ndarray) -> list[dict]:
-    """Tiles in the hand panel, left to right: {tile, ready, cx, fx, fy}."""
-    out = []
-    for cx in range(780, 1141, 60):
-        box = rgb[HAND_Y0:HAND_Y1, cx - 45:cx + 45]
-        hsv = cv2.cvtColor(box, cv2.COLOR_RGB2HSV)
-        sat = hsv[..., 1].mean()
-        lum = box.astype(int).sum(axis=2).mean() / 3
-        if sat > 70 or lum > 120:   # wood panel or empty
-            continue
-        if out and cx - out[-1]["cx"] < 100:
-            continue
-        interior = rgb[HAND_Y0 + 2:HAND_Y1 - 2, cx - 48:cx + 48]
-        tile, conf = classify_icon(interior, HERO_KIT)
-        # ready tiles draw the damage digit in bright white; recharging tiles are dimmed
-        digit = rgb[915:975, cx - 45:cx]
-        white = int((digit.min(axis=2) > 170).sum())
-        out.append({"tile": tile, "ready": white > 300, "cx": cx,
-                    "fx": cx / 1920, "fy": 0.885, "conf": round(conf, 2)})
-    return out
+def read_hand(rgb: np.ndarray, kit_tiles=None) -> list[dict]:
+    """Tiles in the hand panel, left to right, read from their faces
+    (perception/tiles.py): {tile, ready, damage, cooldown, charged, cx, fx, fy, conf}.
+    `charged` counts the grey cooldown marks, so it is the tile's current
+    charge; `kit_tiles` restricts the icon match to the hero's own tiles."""
+    from .reward_screen import read_hand as read_faces
+    return read_faces(rgb, tuple(set(kit_tiles or HERO_KIT) | BASE_POOL))
 
 
 # ---------------------------------------------------------------- screen
@@ -384,7 +373,8 @@ class Perception:
                 ("screen", "cells", "hero", "enemies", "hand", "items", "boss_frac", "wave_alert", "confidence")}
 
 
-def perceive(rgb: np.ndarray) -> Perception:
+def perceive(rgb: np.ndarray, kit_tiles=None) -> Perception:
+    """kit_tiles: the hero's tile ids (catalogue), for reading the hand."""
     rgb = normalize(rgb)
     cs = find_cells(rgb)
     screen = screen_type(rgb, cs)
@@ -452,7 +442,7 @@ def perceive(rgb: np.ndarray) -> Perception:
             entry["unit"] = kind
         cell_list.append(entry)
     p.cells = cell_list
-    p.hand = read_hand(rgb)
+    p.hand = read_hand(rgb, kit_tiles)
     p.items = read_consumables(rgb)
     if screen == "boss":
         p.boss_frac = boss_fraction(rgb)
