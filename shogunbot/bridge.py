@@ -13,11 +13,11 @@ from itertools import permutations
 
 from . import behaviour
 from .catalogue import CAT
-from .model import DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, Enemy, Hero, Kit, KitTile, State
+from .model import BOSS_KINDS, DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, Enemy, Hero, Kit, KitTile, State
 from .rules import apply_hero, Events
 
-DAISUKE_HP = CAT.enemy("daisuke").hp
-DAISUKE_TILES = CAT.enemy("daisuke").tiles
+BOSS_HP = {k: CAT.enemy(k).hp for k in BOSS_KINDS}         # the bar's full width [wiki]: Daisuke 15, Rei 13
+BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
 # hero tiles whose queue bubble shows another tile's art: a queued Katana has the enemy
 # Sword's icon [run 20261028-092419 t117-t150: read as Sword or Spear, the bot thought
 # Katana was still in the hand and tried to queue it 47 times]
@@ -258,18 +258,20 @@ class Tracker:
             kind = e["kind"] if e["kind"] in ENEMY_KINDS else "ashigaru"
             if kind != e["kind"]:
                 self.notes.append(f"enemy at {e['x']} read as {e['kind']}; assumed ashigaru")
-            if kind == "daisuke":
-                hp_e = max(1, round((p.boss_frac or 1.0) * DAISUKE_HP))
+            if kind in BOSS_KINDS:
+                hp_e = max(1, round((p.boss_frac or 1.0) * BOSS_HP[kind]))
             else:
                 hp_e = e["hp"] or ENEMY_KINDS[kind][0]
             intent = e.get("intent") or "hold"
             queue = list(e["queue"])
-            if kind == "daisuke":
-                # his tiles are Sword, Swirl, Charge, Summon; other reads are icon misses
-                # [run 20261027-182237 crashed on a 'spear' read]
-                fixed = [t if t in DAISUKE_TILES else "sword" for t in queue]
+            if kind in BOSS_KINDS:
+                # a boss loads only his own tiles (Daisuke: Sword, Swirl, Charge, Summon); other
+                # reads are icon misses, set to his first tile [run 20261027-182237 crashed on a
+                # 'spear' read]
+                own = BOSS_TILES[kind]
+                fixed = [t if t in own else own[0] for t in queue]
                 if fixed != queue:
-                    self.notes.append(f"daisuke queue read {queue}; set to {fixed}")
+                    self.notes.append(f"{kind} queue read {queue}; set to {fixed}")
                 queue = fixed
             elif queue and any(t != ENEMY_KINDS[kind][1] for t in queue):
                 # regular enemies only carry their own tile; an odd read is an animation overlay
@@ -286,17 +288,18 @@ class Tracker:
                 en.frozen, en.intent = self.freeze_left, None
             en.cursed = self.cursed
             enemies.append(en)
-        bosses = [en for en in enemies if en.kind == "daisuke"]
+        bosses = [en for en in enemies if en.kind in BOSS_KINDS]
         if len(bosses) > 1:
             # one boss only: keep the read nearest his last known cell, the rest are
-            # summoned Chargers whose pips were hidden [run 20261028-053637]
-            last = next((q[1] for q in self.prev if q[0] == "daisuke"), None)
+            # summoned units whose pips were hidden [run 20261028-053637: Chargers]
+            last = next((q[1] for q in self.prev if q[0] in BOSS_KINDS), None)
             keep = min(bosses, key=lambda en: abs(en.x - last)) if last is not None else max(bosses, key=lambda en: len(en.queue))
+            unit = CAT.enemy(keep.kind).summons or "charger"
             for en in bosses:
                 if en is not keep:
-                    en.kind, en.hp = "charger", 1
-                    en.queue = [t for t in en.queue if t == "charge"][:1]
-            self.notes.append(f"{len(bosses)} Daisuke reads; kept cell {keep.x}")
+                    en.kind, en.hp = unit, ENEMY_KINDS[unit][0]
+                    en.queue = [t for t in en.queue if t == ENEMY_KINDS[unit][1]][:1]
+            self.notes.append(f"{len(bosses)} {keep.kind} reads; kept cell {keep.x}")
         self.fresh = [(en.x, en.kind, en.facing) for en in self._unmatched(enemies)]
         self.prev = [(en.kind, en.x, en.facing, en.intent) for en in enemies]
         self.swapped_uid_x = None
@@ -399,7 +402,8 @@ class Tracker:
         telegraph shows it [0.20.1, user review of the 0.20 series].
         """
         toward = 1 if hero_x > e["x"] else -1
-        directional = kind in ("ashigaru", "charger") or (kind == "daisuke" and queue and queue[0] in ("sword", "charge"))
+        directional = kind in ("ashigaru", "charger") or (
+            kind in BOSS_KINDS and queue and queue[0] in ("sword", "charge", "dragon_punch"))
         if directional and (queue or intent == "fire") and self.swapped_uid_x != e["x"]:
             return toward
         if intent == "turn":
@@ -442,10 +446,10 @@ class Tracker:
     def _could_be(q: tuple, x: int) -> bool:
         """Could last turn's unit q = (kind, x, facing, intent) be the one now at x?
         A unit changes cell only by a telegraphed one-cell move, a Charger's charge
-        along its facing, or Daisuke's dash; the hero's swap is applied to self.prev
+        along its facing, or a boss's dash; the hero's swap is applied to self.prev
         in advance()."""
         kind, px, f, intent = q
-        if px == x or kind == "daisuke":
+        if px == x or kind in BOSS_KINDS:
             return True
         step = x - px
         if abs(step) == 1 and intent == ("move-right" if step > 0 else "move-left"):

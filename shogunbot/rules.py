@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from . import behaviour
 from .catalogue import CAT
 from .model import (
-    DEFAULT_KIT, ENEMY_KINDS, ENEMY_TILE_COOLDOWN, ENEMY_TILE_DAMAGE, QUEUE_MAX, SWAP_COOLDOWN,
+    BOSS_KINDS, DEFAULT_KIT, ENEMY_KINDS, ENEMY_TILE_COOLDOWN, ENEMY_TILE_DAMAGE, QUEUE_MAX, SWAP_COOLDOWN,
     Enemy, Hero, State,
 )
 
@@ -150,6 +150,30 @@ def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events, cannot_
         ev.kills.append((e.kind, e.uid, source))
 
 
+def _push(s: State, u, d: int, ev: Events, collision: int, src: str, by: Enemy | None,
+          shielded: bool = False) -> None:
+    """Dragon Punch: u slides along d as far as it can [wiki: Tiles]. A unit in the way stops it
+    and both take `collision` damage; the edge of the board stops it without damage [bot: Rei,
+    runs 20261029-100218 t68/t79/t143 and -103242 t91 (a unit), -101549 t91 (the wall)]. When a
+    shield took the punch it also takes the collision, but the hero still slides [bot: run
+    20261029-072323 t69]."""
+    if u is None or u.hp <= 0:
+        return
+    nx = u.x + d
+    while s.in_bounds(nx) and s.unit_at(nx) is None:
+        u.x = nx
+        nx += d
+    w = s.unit_at(nx) if s.in_bounds(nx) else None
+    if w is None or collision <= 0:
+        return
+    for v in (u, w):
+        if v is s.hero:
+            if not (v is u and shielded) and by is not None:
+                _hurt_hero(s.hero, collision, by, ev)
+        else:
+            _damage_enemy(s, v, collision, src + "+collision", ev)
+
+
 def _hero_hit(s: State, e: Enemy, kt, spec: dict, ev: Events) -> bool:
     """One hero tile hitting one enemy, with the tile's enchantment.
     Returns True on an exact kill (Perfect Strike)."""
@@ -189,6 +213,9 @@ def _hero_attack(s: State, kt, ev: Events) -> bool:
                 e = s.enemy_at(h.x + h.facing * off)
                 if e:
                     recharge |= _hero_hit(s, e, kt, spec, ev)
+                    if spec.get("push"):
+                        _push(s, e, h.facing * (1 if off > 0 else -1), ev, spec.get("collision", 1),
+                              "hero:" + kt.tile, None)
         elif k in ("first", "furthest"):
             u = (_first_unit_ahead(s, h.x, d, rng=spec.get("range")) if k == "first"
                  else _furthest_unit_ahead(s, h.x, d))
@@ -368,6 +395,8 @@ def enemy_options(s: State, e: Enemy, presets: bool = False) -> list[tuple[float
 
     if e.kind == "daisuke":
         return _daisuke_options(s, e, d, dist, facing_hero, move_or_wait)
+    if e.kind in BOSS_KINDS:
+        return _boss_options(s, e, d, dist, facing_hero, move_or_wait)
 
     if e.armed and e.primed:
         return [(1.0, ("fire",))]  # yellow at the start of the turn (R2)
@@ -417,24 +446,67 @@ def _intent_options(s: State, e: Enemy, move_or_wait):
     if it in ("move-left", "move-right"):
         return [(1.0, move_or_wait(-1 if it == "move-left" else 1))]
     if it == "queue":
-        if e.kind == "daisuke":
-            # the new tile's type is not telegraphed: what he loaded in the logs at this
-            # distance with this queue (behaviour.json), else his preset queue options
-            m = behaviour.model() if BEHAVIOUR == "learned" else None
-            learned = m.boss_tile(abs(e.x - s.hero.x), e.queue) if m else None
-            if learned:
-                return [(p, ("queue", t)) for p, t in learned]
-            dopts = [(p, a) for p, a in _daisuke_options(s, e, _toward(e, s.hero.x), abs(e.x - s.hero.x),
-                                                          e.facing == _toward(e, s.hero.x), move_or_wait)
-                     if a[0] == "queue"]
-            if not dopts:
-                dopts = [(0.4, ("queue", "sword")), (0.4, ("queue", "swirl")), (0.2, ("queue", "summon"))]
-            tot = sum(p for p, _ in dopts)
-            return [(p / tot, a) for p, a in dopts]
+        if e.kind in BOSS_KINDS:
+            return _boss_queue(s, e, move_or_wait)
         return [(1.0, ("queue", ENEMY_KINDS[e.kind][1]))]
     if it in ("hold", "fire"):
         return [(1.0, ("wait",))]
     return None
+
+
+def _boss_queue(s: State, e: Enemy, move_or_wait) -> list[tuple[float, tuple]]:
+    """What a boss loads on a 'queue' telegraph (the bubble shows it only a phase later). The
+    second half of a combo always follows the first (catalogue 'combos': Daisuke's Charge then
+    Sword, 29 of 29 logged; Rei's Charge then Dragon Punch 10 of 10, Back Charge then Summon 2
+    of 2); otherwise what he loaded in the logs at this distance with this queue (behaviour.json),
+    else the boss's catalogue 'loads' by distance (Rei), else Daisuke's presets."""
+    b = CAT.enemy(e.kind).behaviour
+    combos = b.get("combos", {})
+    if len(e.queue) == 1 and e.queue[0] in combos:
+        return [(1.0, ("queue", combos[e.queue[0]]))]
+    dist = abs(e.x - s.hero.x)
+    m = behaviour.model() if BEHAVIOUR == "learned" else None
+    learned = m.boss_tile(abs(e.x - s.hero.x), e.queue, e.kind) if m else None
+    if learned:
+        return [(p, ("queue", t)) for p, t in learned]
+    loads = b.get("loads", {}).get(str(min(dist, 3))) if not e.queue else None
+    if loads:
+        tot = sum(loads.values())
+        return [(n / tot, ("queue", t)) for t, n in sorted(loads.items())]
+    if e.kind != "daisuke":
+        return [(1.0, ("queue", ENEMY_KINDS[e.kind][1]))]
+    dopts = [(p, a) for p, a in _daisuke_options(s, e, _toward(e, s.hero.x), dist,
+                                                  e.facing == _toward(e, s.hero.x), move_or_wait)
+             if a[0] == "queue"]
+    if not dopts:
+        dopts = [(0.4, ("queue", "sword")), (0.4, ("queue", "swirl")), (0.2, ("queue", "summon"))]
+    tot = sum(p for p, _ in dopts)
+    return [(p / tot, a) for p, a in dopts]
+
+
+def _boss_options(s, e, d, dist, facing_hero, move_or_wait):
+    """A boss without a telegraph, from the catalogue (Rei) [bot: Rei's five fights, runs
+    20261029-072323 ... -103242]: a summon or a finished combo fires one phase after loading
+    (R1); a combo's first tile is followed by its second; a single tile with the hero in its
+    footprint fires (R2), otherwise she walks toward him (a loaded Dragon Punch was walked up and
+    fired when adjacent, run 100218 t88-t91); unloaded, she turns to the hero or loads."""
+    combos = CAT.enemy(e.kind).behaviour.get("combos", {})
+    if e.armed:
+        q = e.queue
+        if len(q) == 1 and q[0] in combos:
+            return [(1.0, ("queue", combos[q[0]]))] if e.wind >= 1 else [(1.0, ("wait",))]
+        if e.wind >= 1 and (len(q) > 1 or CAT.tile(q[0]).kind == "summon"):
+            return [(1.0, ("fire",))]
+        if e.primed:
+            return [(1.0, ("fire",))]
+        if not facing_hero:
+            return [(1.0, ("turn",))]
+        if _hits_hero(s, e, q[0]):
+            return [(1.0, ("wait",))]     # the hero walked in: red now, yellow next phase
+        return [(1.0, move_or_wait(d))]
+    if not facing_hero:
+        return [(1.0, ("turn",))]
+    return _boss_queue(s, e, move_or_wait)
 
 
 def _daisuke_options(s, e, d, dist, facing_hero, move_or_wait):
@@ -495,24 +567,39 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
         spec = CAT.tile(tile).attack
         k = spec["kind"]
         if k == "cells":
-            # friendly fire: Twin Tachi and Daisuke's Swirl hit allies too [wiki]
+            # friendly fire: Twin Tachi and Daisuke's Swirl hit allies too [wiki]; Rei punches
+            # her own Twin Tachi into the hero [wiki] [bot: run 20261029-103242 t91]
             for off in spec["offsets"]:
-                _enemy_hit(s, e, s.unit_at(e.x + e.facing * off), dmg, tile, ev)
+                u = s.unit_at(e.x + e.facing * off)
+                shielded = u is h and h.shield
+                _enemy_hit(s, e, u, dmg, tile, ev)
+                if spec.get("push") and u is not None:
+                    _push(s, u, e.facing * (1 if off > 0 else -1), ev, spec.get("collision", 1),
+                          f"{e.kind}:{tile}", e, shielded)
         elif k in ("first", "furthest"):
             fn = _first_unit_ahead if k == "first" else _furthest_unit_ahead
             _enemy_hit(s, e, fn(s, e.x, e.facing * spec.get("dir", 1)), dmg, tile, ev)
         elif k == "dash_strike":
-            u = _first_unit_ahead(s, e.x, e.facing * spec.get("dir", 1), skip_uid=e.uid)
+            dd = e.facing * spec.get("dir", 1)
+            u = _first_unit_ahead(s, e.x, dd, skip_uid=e.uid)
             if u is not None:
-                e.x = u.x - e.facing * spec.get("dir", 1)
+                e.x = u.x - dd
                 _enemy_hit(s, e, u, dmg, tile, ev)
+            elif spec.get("no_target") == "edge":
+                # nothing ahead: the dash ends at the wall. A boss that the hero swapped past fires
+                # his Charge away from him and ends at the wall, 25 of 25 logged times [bot: Daisuke
+                # and Rei, runs 20261028-044407 t94 ... 20261029-100218 t135]
+                e.x = s.cells - 1 if dd > 0 else 0
         elif k == "summon":
-            empties = [x for x in range(s.cells) if s.unit_at(x) is None]
-            if empties:
-                # HYP: random cell; planner assumes the cell farthest from the hero
+            # the summoner's unit (Daisuke: Spike Chargers, Rei: Twin Tachi) [wiki]; HYP: random
+            # cells, the planner assumes those farthest from the hero
+            kind = CAT.enemy(e.kind).summons or spec.get("unit", "charger")
+            for _ in range(spec.get("count", 1)):
+                empties = [x for x in range(s.cells) if s.unit_at(x) is None]
+                if not empties:
+                    break
                 x = max(empties, key=lambda c: abs(c - h.x))
                 uid = max([u.uid for u in s.enemies] + [0]) + 1
-                kind = spec.get("unit", "charger")
                 s.enemies.append(Enemy(kind, x, 1 if h.x > x else -1, ENEMY_KINDS[kind][0], [], uid))
     e.cd = max((ENEMY_TILE_COOLDOWN.get(t, 0) for t in e.queue), default=0)
     e.queue = []

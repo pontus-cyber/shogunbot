@@ -45,10 +45,19 @@ def _version(v: str) -> tuple:
 
 
 # Left out of the behaviour model [2026-10-29]: Day 2 runs have elite enemies (a Quick one fires
-# right after loading, breaking R1), and the boss of run 20261029-072323 was Rei the Ruthless,
-# whom the bot reads as Daisuke, so his moves would be learned as Daisuke's.
+# right after loading, breaking R1).
 SKIP_RUNS = {"20261029-045856": "Day 2: elite enemies [camp f0003-f0008]"}
-SKIP_LEVELS = {("20261029-072323", "boss"): "Rei the Ruthless, read as Daisuke [t0067_before]"}
+SKIP_LEVELS: dict = {}
+# Bots before 0.27 read Rei the Ruthless as Daisuke and her icons as his tiles, so her fights would
+# be learned as his: a Stage 1 boss level in a 7-cell arena (hers; his has 5 [wiki]) is left out
+# for those bots [runs 20261029-072323, -095311, -100218, -101549, -103242]. From 0.27 she is logged
+# as herself.
+REI_READ_FROM = (0, 27)
+
+
+def _rei_as_daisuke(t: dict, version: str) -> bool:
+    return (_version(version) < REI_READ_FROM and t.get("level") == "boss"
+            and (t.get("state") or {}).get("cells") == 7)
 
 
 def load_runs(root: str | Path, min_version: tuple = MIN_VERSION) -> list[Run]:
@@ -61,10 +70,10 @@ def load_runs(root: str | Path, min_version: tuple = MIN_VERSION) -> list[Run]:
             continue
         meta = json.loads((d / "meta.json").read_text()) if (d / "meta.json").exists() else {}
         turns = [json.loads(l) for l in tf.open(encoding="utf-8") if l.strip()]
-        turns = [t for t in turns if (d.name, t.get("level")) not in SKIP_LEVELS]
+        version = str(meta.get("bot_version", "?"))
+        turns = [t for t in turns if (d.name, t.get("level")) not in SKIP_LEVELS and not _rei_as_daisuke(t, version)]
         ef = d / "events.jsonl"
         events = [json.loads(l) for l in ef.open(encoding="utf-8") if l.strip()] if ef.exists() else []
-        version = str(meta.get("bot_version", "?"))
         if turns and _version(version) >= min_version:
             out.append(Run(d.name, version, turns, events))
     return out

@@ -67,7 +67,7 @@ def frame_waves(folder: str | Path) -> dict:
     from .bridge import Tracker
     from .perception.perceive import perceive
     from .replay import to_action
-    from .rules import legal_hero_actions
+    from .rules import Events, apply_hero, legal_hero_actions
     from .waves import Waves
 
     folder = Path(folder)
@@ -75,6 +75,7 @@ def frame_waves(folder: str | Path) -> dict:
     tr, wv = Tracker(), Waves()
     level, seen_boss, turn = None, False, 0
     waves, turns = [], []
+    after = None              # the last state after the hero's action, before the enemies' (HP check)
     for rec in recs:
         f = folder / rec["frame"]
         if not f.exists():
@@ -101,6 +102,10 @@ def frame_waves(folder: str | Path) -> dict:
                 for name, fields in wv.update(p.wave, s.alive(), tr.fresh, turn):
                     if name == "wave_spawn":
                         spawned = True
+                        more = _replaced(s, after, fields["spawned"])
+                        if more:
+                            fields = dict(fields, spawned=fields["spawned"] + more,
+                                          survivors=max(0, len(s.alive()) - len(fields["spawned"]) - len(more)))
                         waves.append(dict(fields, level=level, cells=s.cells, hero_x=s.hero.x, frame=rec["frame"],
                                           alive_now=[(e.x, e.kind, e.facing) for e in s.alive()]))
             else:
@@ -111,8 +116,28 @@ def frame_waves(folder: str | Path) -> dict:
         act = rec.get("bot_action") or to_action(rec, p)
         if act and act in legal_hero_actions(s):
             tr.acted(s, act)
+            after = apply_hero(s, act, Events())
             turn += 1
     return {"folder": str(folder), "waves": waves, "turns": turns}
+
+
+def _replaced(s, after, spawned: list) -> list[dict]:
+    """New units the tracker took for old ones: same kind on a cell where the old unit was left
+    with less HP by the hero's action (HP never rises), or where no unit of the kind was left
+    within a cell. Run 20261029-100218 f0059: the Swirl left the Ashigaru on cell 1 at 1 HP or
+    less and wave 4 put a full Ashigaru there; it was counted as a one-unit wave [0.27]."""
+    if after is None:
+        return []
+    xs = {u["x"] for u in spawned}
+    out = []
+    for e in s.alive():
+        if e.x in xs:
+            continue
+        near = [o for o in after.enemies if o.kind == e.kind and abs(o.x - e.x) <= 1 and o.hp > 0]
+        same = next((o for o in near if o.x == e.x), None)
+        if (same is not None and e.hp > same.hp) or not near:
+            out.append({"x": e.x, "kind": e.kind, "facing": e.facing})
+    return out
 
 
 def _one(folder):

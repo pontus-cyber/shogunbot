@@ -39,7 +39,7 @@ import time
 from dataclasses import dataclass
 
 from .catalogue import CAT
-from .model import DEFAULT_KIT, ENEMY_KINDS, HERO_MAX_HP, Enemy, Hero, Kit, State
+from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_KINDS, HERO_MAX_HP, Enemy, Hero, Kit, State
 from .planner import STALL_TURNS, WEIGHTS, auto_depth, plan, progress_key, stall_weights
 from . import behaviour, levelgen, rules
 from .rules import ENEMY_TILE_DAMAGE, _hits_hero, enemy_options, step
@@ -83,8 +83,8 @@ def telegraph(s: State, rng: random.Random) -> None:
             e.intent = "move-right" if act[1] > 0 else "move-left"
         else:
             e.intent = _INTENT.get(act[0])
-        if e.kind == "daisuke" and act[0] == "queue":
-            e.intent = "queue"   # his tile type is not telegraphed; step draws it again
+        if e.kind in BOSS_KINDS and act[0] == "queue":
+            e.intent = "queue"   # a boss's tile type is not telegraphed; step draws it again
     for e in s.alive():
         e.primed = False
 

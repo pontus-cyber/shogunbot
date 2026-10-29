@@ -21,7 +21,8 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
-from .model import ENEMY_KINDS, ENEMY_TILE_DAMAGE, State
+from .catalogue import CAT
+from .model import BOSS_KINDS, ENEMY_KINDS, ENEMY_TILE_DAMAGE, State
 
 CLASSES = ("fire", "queue", "turn", "toward", "away", "hold")
 FEATURES = ("kind", "face", "armed", "in_fp", "blocked", "dist", "last", "fage")
@@ -101,7 +102,7 @@ def match(prev: list, cur: list) -> dict[int, int]:
             if i in used or p[0] != kind:
                 continue
             px, it = p[1], p[2]
-            if abs(x - px) > 2 and kind != "daisuke":
+            if abs(x - px) > 2 and kind not in BOSS_KINDS:
                 continue
             exp = px + {"move-left": -1, "move-right": 1}.get(it, 0)
             c = abs(x - exp) + 0.5 * abs(x - px)
@@ -127,7 +128,8 @@ class Model:
     def __init__(self, counts: list[dict], meta: dict | None = None, boss_tiles: dict | None = None):
         self.counts = counts            # per level: {key: {class: n}}
         self.meta = meta or {}
-        self.boss_tiles = boss_tiles or {}   # Daisuke: {"dist|loaded": {tile: n}}, what a 'queue' telegraph loaded
+        # per boss: {kind: {"dist|loaded": {tile: n}}}, what a 'queue' telegraph loaded
+        self.boss_tiles = boss_tiles or {}
 
     @staticmethod
     def fit(rows: list[dict], meta: dict | None = None) -> "Model":
@@ -141,18 +143,19 @@ class Model:
                 c = counts[i].setdefault(key(r, lv), {})
                 c[y] = c.get(y, 0) + 1
             nq = r.get("next_queue")
-            if r["kind"] == "daisuke" and r.get("intent") == "queue" and nq and nq[:len(r["queue"])] == r["queue"]:
+            if r["kind"] in BOSS_KINDS and r.get("intent") == "queue" and nq and nq[:len(r["queue"])] == r["queue"]:
                 added = "+".join(nq[len(r["queue"]):])
                 if added:
-                    c = boss.setdefault(f"{r['dist']}|{'+'.join(r['queue']) or '-'}", {})
+                    c = boss.setdefault(r["kind"], {}).setdefault(f"{r['dist']}|{'+'.join(r['queue']) or '-'}", {})
                     c[added] = c.get(added, 0) + 1
         return Model(counts, meta, boss)
 
-    def boss_tile(self, dist: int, loaded: list) -> list[tuple[float, str]] | None:
-        """What Daisuke loads on a 'queue' telegraph (the bubble does not show it)."""
+    def boss_tile(self, dist: int, loaded: list, kind: str = "daisuke") -> list[tuple[float, str]] | None:
+        """What a boss loads on a 'queue' telegraph (the bubble does not show it)."""
         lk = "+".join(loaded) or "-"
+        tiles = self.boss_tiles.get(kind, {})
         pooled = {}
-        for k, c in self.boss_tiles.items():
+        for k, c in tiles.items():
             if k.split("|", 1)[1] == lk:
                 for t, n in c.items():
                     pooled[t] = pooled.get(t, 0) + n
@@ -160,7 +163,7 @@ class Model:
             return None
         tot_p = sum(pooled.values())
         base = {t: n / tot_p for t, n in pooled.items()}
-        c = self.boss_tiles.get(f"{min(dist, 3)}|{lk}", {})
+        c = tiles.get(f"{min(dist, 3)}|{lk}", {})
         n = sum(c.values())
         p = {t: (c.get(t, 0) + ALPHA * base[t]) / (n + ALPHA) for t in base}
         keep = {t: v for t, v in p.items() if v >= MIN_P} or p
@@ -184,7 +187,10 @@ class Model:
     @staticmethod
     def from_json(d: dict) -> "Model":
         assert [tuple(l) for l in d["levels"]] == list(LEVELS), "behaviour.json was built for other levels"
-        return Model(d["counts"], d.get("_meta"), d.get("boss_tiles"))
+        bt = d.get("boss_tiles") or {}
+        if bt and all("|" in k for k in bt):
+            bt = {"daisuke": bt}         # built before 0.27: Daisuke's only
+        return Model(d["counts"], d.get("_meta"), bt)
 
 
 @lru_cache(maxsize=1)
@@ -204,24 +210,31 @@ def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | No
     f = features(s, e, getattr(e, "last", None), getattr(e, "fage", None))
     loaded_earlier = bool(e.queue) and e.wind >= 1 and f["last"] != "queue"
     # rules confirmed in play come first; the model fills in everything else
-    if loaded_earlier and e.kind == "daisuke" and e.queue[0] == "summon":
-        return [(1.0, "fire")]                # a loaded Summon holds one phase, then fires [rules.py, 6 of 6 cases]
-    if loaded_earlier and f["in_fp"] and ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0 \
-            and not (e.kind == "daisuke" and e.queue == ["charge"]):
+    boss = e.kind in BOSS_KINDS
+    combos = CAT.enemy(e.kind).behaviour.get("combos", {}) if boss else {}
+    half = boss and len(e.queue) == 1 and e.queue[0] in combos    # Charge alone is half his combo
+    if loaded_earlier and boss and CAT.tile(e.queue[0]).kind == "summon":
+        return [(1.0, "fire")]                # a loaded Summon holds one phase, then fires [rules.py, 6 of 6
+                                              # cases; Rei's bells 10 of 10, runs 20261029-072323 ... -103242]
+    if loaded_earlier and boss and len(e.queue) > 1 and e.kind != "daisuke":
+        return [(1.0, "fire")]                # Rei fires a finished combo one phase after it (12 of 12)
+    if loaded_earlier and half and e.kind != "daisuke":
+        return [(1.0, "queue")]               # ... and loads its second half after the wind-up phase (12 of 12)
+    if loaded_earlier and f["in_fp"] and ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0 and not half:
         return [(1.0, "fire")]                # R2: loaded, hero in the footprint at the start of the turn
     p = m.predict(f)
     toward = 1 if s.hero.x > e.x else -1
     # what the rules allow [domain model R1 and section 7]
     if not e.queue:
         p["fire"] = 0.0
-    elif e.kind != "daisuke":
+    elif not boss:
         p["queue"] = 0.0                      # one tile per regular enemy
     if e.queue and (f["last"] == "queue" or e.wind < 1):
         p["fire"] = 0.0                       # R1: never fires the phase right after loading
     if e.kind != "daisuke" and not f["in_fp"]:
         p["fire"] = 0.0                       # regular enemies fire only at the hero: 1 of 424 telegraphs
                                               # outside the footprint, a misread [runs 0.8+, mine.py]
-    if e.kind == "daisuke" and e.queue == ["charge"]:
+    if half:
         p["fire"] = 0.0                       # Charge is half his combo: Sword follows before he fires
                                               # [run 20261028-053637 turns 120-123, 130-133]
     for cls, d in (("toward", toward), ("away", -toward)):

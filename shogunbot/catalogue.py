@@ -90,6 +90,10 @@ class EnemyKind:
     sim: bool
     summons: str | None = None
     text: str = ""
+    arena_cells: int | None = None      # a boss's arena width [wiki]
+    boss_cell: int | None = None        # where the boss and the hero start in it [wiki]
+    hero_cell: int | None = None
+    behaviour: dict = field(default_factory=dict, compare=False, hash=False)   # a boss's opening, combos, loads
 
     @property
     def tile(self) -> str | None:
@@ -166,7 +170,9 @@ class Catalogue:
                 id=d["id"], name=d["name"], hp=d.get("hp"), hp_day5=d.get("hp_day5"),
                 traits=tuple(d.get("traits", [])), region=d.get("region"), tiles=tuple(d.get("tiles", [])),
                 tag=d.get("tag", "?"), standard=bool(d.get("standard")), boss=bool(d.get("boss")),
-                sim=bool(d.get("sim")), summons=d.get("summons"), text=d.get("text", ""))
+                sim=bool(d.get("sim")), summons=d.get("summons"), text=d.get("text", ""),
+                arena_cells=(d.get("arena") or {}).get("cells"), boss_cell=(d.get("arena") or {}).get("boss_cell"),
+                hero_cell=(d.get("arena") or {}).get("hero_cell"), behaviour=d.get("behaviour") or {})
 
         c = load("consumables.json")
         self.consumable_rules = c["rules"]
@@ -229,6 +235,15 @@ class Catalogue:
     def region_enemies(self, region: str) -> list[EnemyKind]:
         """Standard enemies introduced in this region (bosses excluded)."""
         return [self.enemies[i] for i in self.regions[region]["enemies"]]
+
+    def bosses(self, region: str) -> list[EnemyKind]:
+        """The region's bosses: its first boss, then the alternates [wiki: Regions]."""
+        return [self.enemies[i] for i in self.regions[region].get("boss") or []]
+
+    def boss_by_arena(self, region: str, cells: int) -> str | None:
+        """The simulated boss of this region whose arena has this width (Daisuke 5 cells, Rei 7
+        [wiki]), else None."""
+        return next((b.id for b in self.bosses(region) if b.sim and b.arena_cells == cells), None)
 
     def kinds_by_hp(self, region: str) -> dict[int, str]:
         """HP -> enemy id for a region's standard enemies (perception reads HP pips)."""

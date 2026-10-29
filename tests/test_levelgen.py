@@ -68,3 +68,19 @@ def test_frame_waves_reads_a_recording():
     assert [w["wave"] for w in b1] == [1, 2, 3, 4]
     assert {w["total"] for w in b1} == {4} and {w["source"] for w in b1} == {"hud"}
     assert [len(w["spawned"]) for w in b1][:2] == [1, 1]
+
+
+def test_a_unit_on_the_cell_of_one_just_hit_counts_as_new():
+    # run 20261029-100218 f0058-f0059: the Swirl left the Ashigaru on cell 1 at 1 HP (or killed it)
+    # and wave 4 put a full Ashigaru there and one on cell 4; 0.26 counted a one-unit wave, which
+    # Bamboo Grove II never has [0.27]
+    from shogunbot.model import Enemy, Hero, Kit, State
+    hero = Hero(2, 1, hp=10, kit=Kit.of("swirl", "arrow"))
+    after = State(7, hero, [Enemy("ashigaru", 1, 1, 1, [], uid=1)])
+    now = State(7, hero, [Enemy("ashigaru", 1, 1, 3, [], uid=1), Enemy("ashigaru", 4, -1, 3, [], uid=2)])
+    assert L._replaced(now, after, [{"x": 4, "kind": "ashigaru", "facing": -1}]) == [
+        {"x": 1, "kind": "ashigaru", "facing": 1}]
+    # a unit that kept its HP, or stepped over from the next cell, is the old one
+    after2 = State(7, hero, [Enemy("ashigaru", 1, 1, 3, [], uid=1), Enemy("tachi", 5, -1, 2, [], uid=3)])
+    now2 = State(7, hero, [Enemy("ashigaru", 1, 1, 3, [], uid=1), Enemy("tachi", 4, -1, 2, [], uid=3)])
+    assert L._replaced(now2, after2, []) == []

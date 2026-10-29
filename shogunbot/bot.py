@@ -42,7 +42,7 @@ import numpy as np
 from . import rewards
 from .bridge import Tracker, kit_from_faces, level_name, match_faces
 from .catalogue import CAT
-from .model import DEFAULT_KIT, ENEMY_TILE_DAMAGE, HERO_MAX_HP
+from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HERO_MAX_HP
 from .perception import map_screen, reward_screen, screens, shop_screen
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
 from .planner import STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_weights
@@ -52,7 +52,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.26"
+VERSION = "0.27"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -509,7 +509,7 @@ class Bot:
         if "skull_card" in have and tries.get("skull_card", 0) < 2:
             # Mass Poison: every enemy, 1 damage per turn for 3 turns [catalogue]
             value = sum(min(e.hp, POISON_TICK * POISON_TURNS) for e in s.alive())
-            if value >= POISON_MIN_VALUE or any(e.kind == "daisuke" for e in s.alive()):
+            if value >= POISON_MIN_VALUE or any(e.kind in BOSS_KINDS for e in s.alive()):
                 return "skull_card", f"poison worth {value} damage"
         return None
 
@@ -581,7 +581,7 @@ class Bot:
     def _attack_hits_boss(s) -> bool:
         from .rules import step
         out = max(step(s, "attack"), key=lambda t: t[0])[2]
-        return any(k == "daisuke" and dmg > 0 for k, _, dmg, _ in out.enemy_damage)
+        return any(k in BOSS_KINDS and dmg > 0 for k, _, dmg, _ in out.enemy_damage)
 
     @staticmethod
     def _mirror_saves(s) -> bool:
@@ -601,7 +601,7 @@ class Bot:
             for e in m.enemies:
                 e.cursed = cursed
             out = max(step(m, "attack"), key=lambda t: t[0])[2]
-            return len(out.kills), sum(d for k, _, d, _ in out.enemy_damage if k == "daisuke")
+            return len(out.kills), sum(d for k, _, d, _ in out.enemy_damage if k in BOSS_KINDS)
         k0, b0 = result(False)
         k1, b1 = result(True)
         return k1 > k0 or b1 >= b0 + 2

@@ -522,6 +522,14 @@ class Perception:
                  "confidence")}
 
 
+def boss_kind(regions: tuple[str, ...], cells: int) -> str:
+    """The boss of the route's current region (its last) whose arena is this wide: Daisuke on 5
+    cells, Rei the Ruthless on 7 [wiki]. 0.26 read Rei as Daisuke, and her Dragon Punch, which
+    pushes the hero, as his Sword [third series: 4 of 5 bosses were Rei, every HP lost was hers].
+    A boss the simulator lacks (Iwao) is planned as Daisuke, the stand-in, as before."""
+    return CAT.boss_by_arena(regions[-1] if regions else REGION, cells) or "daisuke"
+
+
 def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER, day: int | None = None) -> Perception:
     """kit_tiles: the hero's tile ids (catalogue), for reading the hand. regions: the regions of the
     run's route so far (whose enemies can appear). day: the day the run is on, when known (Day 1
@@ -571,14 +579,15 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 elif tiles and tiles[0]["colour"] == "yellow":
                     intent = "fire"
                 # HP pips, the bubble's tile and the elite emblem decide the kind, the sprite only
-                # among the kinds the pips allow (decide_kind). Daisuke is the only unit without
-                # HP pips (his HP is the boss bar); pips win over his sprite: a summoned Charger in
-                # the boss arena was read as a second Daisuke [run 20261028-053637, turns 101-161]
+                # among the kinds the pips allow (decide_kind). A boss is the only unit without
+                # HP pips (its HP is the boss bar); pips win over its sprite: a summoned Charger in
+                # the boss arena was read as a second Daisuke [run 20261028-053637, turns 101-161].
+                # Which boss: the arena of the route's current region (boss_kind)
                 by_tile = by_tile_kind.get(tiles[0]["tile"]) if tiles else None
                 elite = day != 1 and elite_pixels(rgb, cx) >= ELITE_PX     # Day 1 has no elites
                 alt = None
                 if screen == "boss" and (g + r) == 0:
-                    kind = "daisuke"
+                    kind = boss_kind(regions, len(cs))
                 else:
                     by_pips, alt = decide_kind(g + r, by_tile, kind if kc >= SPRITE_KIND_CONF else None, elite,
                                                base_hp, elites=day != 1)

@@ -18,7 +18,7 @@ import numpy as np
 from PIL import Image
 
 from .bridge import Tracker
-from .model import ENEMY_KINDS
+from .model import BOSS_KINDS, ENEMY_KINDS
 from .perception.perceive import perceive
 from .rules import step, legal_hero_actions
 
@@ -95,12 +95,12 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
         if q.screen not in ("combat", "boss") or q.hero is None:
             continue
         obs_sig = {"hero": (q.hero["x"], q.hero["hp"]),
-                   "enemies": sorted((e["x"], e["kind"], e["hp"] if e["kind"] != "daisuke" else None)
+                   "enemies": sorted((e["x"], e["kind"], e["hp"] if e["kind"] not in BOSS_KINDS else None)
                                      for e in q.enemies)}
         preds = []
         for prob, s2, ev in outs:
             sg = _sig(s2)
-            sg["enemies"] = sorted((x, k, h if k != "daisuke" else None) for x, k, h in sg["enemies"])
+            sg["enemies"] = sorted((x, k, h if k not in BOSS_KINDS else None) for x, k, h in sg["enemies"])
             preds.append((prob, sg))
         n += 1
         def seen(x, k, h):

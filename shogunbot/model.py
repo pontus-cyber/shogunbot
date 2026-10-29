@@ -132,6 +132,8 @@ _ENEMY_TILES = sorted({t for e in CAT.enemies.values() if e.sim for t in e.tiles
 ENEMY_TILE_DAMAGE: dict[str, int] = {t: CAT.tile(t).damage or 0 for t in _ENEMY_TILES}
 ENEMY_TILE_COOLDOWN: dict[str, int] = {t: CAT.tile(t).cooldown or 0 for t in _ENEMY_TILES}
 ENEMY_TAG: dict[str, str] = {e.id: e.tag for e in CAT.enemies.values()}
+# simulated bosses (no HP pips: HP from the boss bar) [catalogue]: Daisuke, and Rei since 0.27
+BOSS_KINDS: frozenset[str] = frozenset(e.id for e in CAT.enemies.values() if e.boss and e.sim)
 
 
 @dataclass
