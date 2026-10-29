@@ -512,6 +512,9 @@ class Tracker:
         if action == "turn":
             self.facing = -s.hero.facing
         if s2.hero.x != s.hero.x and s.enemy_at(s2.hero.x) is not None:
-            # swap: the enemy now stands where the hero was and keeps its facing
+            # swap: the enemy now stands where the hero was and keeps its facing. The others keep their
+            # telegraphs: 0.18-0.32 cleared every unit's, so a unit telegraphing a turn kept its old facing
+            # once the hero swapped past another (run 20261029-184142 t31: the Ashigaru on cell 6 turned, the
+            # sprite read it, the tracker kept it facing right; also runs 102441 t16, 154200 t159)
             self.swapped_uid_x = s.hero.x
-            self.prev = [(k, s.hero.x if x == s2.hero.x else x, f, None) for k, x, f, _ in self.prev]
+            self.prev = [(k, s.hero.x, f, None) if x == s2.hero.x else (k, x, f, i) for k, x, f, i in self.prev]

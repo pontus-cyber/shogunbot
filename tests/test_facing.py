@@ -103,3 +103,22 @@ def test_bot_stops_waiting_after_the_limit(tmp_path, monkeypatch):
     b = make_bot(tmp_path, _Seq([flames]))
     f, p = b._wait_spawns(flames, perceive(flames), Tracker(), 8)
     assert all(e["spawning"] for e in p.enemies)    # still flames: the bot goes on with what it has
+
+
+def test_a_turn_telegraph_survives_a_swap_past_another_unit():
+    # run 20261029-184142 t31: the Ashigaru on cell 6 telegraphed a turn while the hero swapped with the Charger
+    # on cell 4; it turned (its sprite reads facing left on t0031_after), but the swap cleared every unit's
+    # telegraph, so the tracker kept it facing right and both t31 and t32 counted a facing miss [user review,
+    # note 3]. Only the swapped unit's telegraph is cleared now
+    from shogunbot.model import Kit
+    from shogunbot.perception.perceive import normalize, perceive
+    R = "runs/20261029-184142/frames/"
+    kit = Kit.of("swirl", "arrow", "spear")
+    tr = Tracker(kit)
+    tr.route = ["bamboo_grove"]
+    see = lambda f: perceive(normalize(frame(R + f)), [t.tile for t in kit], regions=("bamboo_grove",), day=1)
+    s = tr.state(see("t0031_before.png"))
+    assert [(e.kind, e.x, e.facing, e.intent) for e in s.enemies] == [("charger", 4, 1, "turn"), ("ashigaru", 6, 1, "turn")]
+    tr.acted(s, "right")                                      # the swap with the Charger
+    s2 = tr.state(see("t0031_after.png"))
+    assert [(e.kind, e.x, e.facing) for e in s2.enemies] == [("charger", 3, -1), ("ashigaru", 6, -1)]
