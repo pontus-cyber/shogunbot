@@ -5,6 +5,8 @@ collect/20261028-121900-giveup (captured while the path was tested by hand) and 
 bot's own runs; tests are skipped when the frames are missing.
 """
 
+import json
+
 import pytest
 
 from test_bot_flow import FakeGW, Rec, frame, make_bot
@@ -152,3 +154,66 @@ def test_one_logger_starts_every_run_of_a_series_from_zero(tmp_path):
     s2 = log.end_run("death")
     assert second != first and (s1["turns"], s2["turns"]) == (25, 0)
     assert s2["levels"] == [] and s2["minutes"] < 1
+
+
+# ---- 0.23: the camp's day selector [user 2026-10-29: Day 1 until the elite traits are simulated]
+DAY2 = "runs/20261029-045856/frames/"
+DAY_LEFT_BOX = (805, 215, 875, 290)
+GO_BOX = (1185, 640, 1400, 720)
+
+
+def _day1(day2):
+    """A synthetic Day 1 camp from the recorded Day 2 one (no Day 1 frame exists yet): the left
+    arrow dark, the right one lit, no red elite rule."""
+    import numpy as np
+    a = day2.copy()
+    left, right = a[205:300, 800:880], a[205:300, 1045:1130]
+
+    def near(reg, rgb, tol):
+        return (np.abs(reg.astype(int) - rgb) < tol).all(axis=2)
+    lit_l, body_l = near(left, (188, 143, 106), 18), near(left, (119, 69, 59), 6)
+    dim_r, body_r = near(right, (118, 68, 58), 6), near(right, (75, 39, 45), 6)
+    left[lit_l], left[body_l] = (118, 68, 58), (75, 39, 45)
+    right[dim_r], right[body_r] = (188, 143, 106), (119, 69, 59)
+    rules = a[230:285, 150:690]
+    rules[(rules[..., 0] > 150) & (rules[..., 1] < 110)] = (40, 20, 25)
+    return a
+
+
+def test_day_selector_reads_the_recorded_day2_camp():
+    from shogunbot.perception import screens as S
+    sel = S.day_selector(frame(DAY2 + "f0007_CLICK.png"))
+    assert (sel["left"], sel["right"], sel["elite"]) == (True, False, True)
+    assert S.day_selector(frame(DAY2 + "f0001_D.png")) is None          # hero not at GO yet
+    one = S.day_selector(_day1(frame(DAY2 + "f0007_CLICK.png")))
+    assert (one["left"], one["right"], one["elite"]) == (False, True, False)
+
+
+def test_camp_steps_down_to_day1_before_go(tmp_path, monkeypatch):
+    from shogunbot import bot as B
+    day2 = frame(DAY2 + "f0007_CLICK.png")
+    gw = _GW([(day2, [DAY_LEFT_BOX]), (_day1(day2), [GO_BOX]), (frame(DAY2 + "f0009_CLICK.png"), [])])
+    b = make_bot(tmp_path, gw)
+    b.rec, b.restart_after = _Rec(), False
+    calls = {"n": 0}
+
+    def stop():
+        calls["n"] += 1
+        return calls["n"] > 12
+    monkeypatch.setattr(B, "_stop_requested", stop)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    b.run()
+    assert gw.clicks[0] == (841, 252)                     # the day arrow first
+    assert (1315, 677) in gw.clicks and gw.i == 2          # then GO, onto the map
+    ev = [json.loads(l) for l in open(b.log.run_dir / "events.jsonl", encoding="utf-8")]
+    assert any(e["event"] == "day_select" and e["clicks"] == 1 for e in ev)
+
+
+def test_camp_stops_when_the_day_selector_does_not_react(tmp_path, monkeypatch):
+    from shogunbot import bot as B
+    gw = _GW([(frame(DAY2 + "f0007_CLICK.png"), [])])     # clicks change nothing
+    b = make_bot(tmp_path, gw)
+    b.rec, b.restart_after = _Rec(), False
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    assert b.run() == "stuck"
+    assert gw.clicks == [(841, 252)] * B.DAY_CLICKS_MAX     # never GO on Day 2

@@ -48,7 +48,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.23"
+VERSION = "0.23.1"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -71,6 +71,9 @@ HP_CONFIRM_S = 0.35       # a second look before an HP drop counts [run 20261028
 SPAWN_WAIT_S = 2.5        # wait at most this long for spawn flames to clear before reading facing
 SPAWN_POLL_S = 0.25
 CONSOLE_FEED_S = 5.0      # during a reward valuation, a progress line in the console this often
+LOWEST_DAY = True         # at the camp, step the day selector down to Day 1 [user 2026-10-29: until the
+                          # elite traits of Day 2 are simulated]
+DAY_CLICKS_MAX = 4        # left-arrow clicks before the run stops as 'stuck' (the selector did not react)
 
 
 def _stop_requested() -> bool:
@@ -634,6 +637,7 @@ class Bot:
         unknown_since = None
         unknown_saved = False
         camp_steps = 0
+        day_clicks, day_done = 0, not LOWEST_DAY
         map_tries = 0
         zero_hp = 0
         last_key, last_action = None, None
@@ -723,6 +727,28 @@ class Bot:
                         self.click(*screens.TITLE_NEW_RUN, frame, screen="title")
                         time.sleep(2.0)
                     elif scr == "camp":
+                        sel = None if day_done else screens.day_selector(normalize(frame))
+                        if sel is not None and sel["left"] and sel["elite"]:
+                            # an earlier day exists and this one has elites: step down before GO
+                            # [user 2026-10-29]. Day 1 is the first day with the left arrow dark or
+                            # without the red elite rule
+                            if day_clicks >= DAY_CLICKS_MAX:
+                                self.say("camp: the day selector does not go down to Day 1; stopping")
+                                log.event("menu", screen="camp", day="not selected", **sel)
+                                log.save_frame(frame, "camp_day_not_selected")
+                                result = "stuck"
+                                break
+                            self.say("camp: one day earlier")
+                            log.event("menu", screen="camp", day="left", **sel)
+                            self.click(*screens.DAY_LEFT, frame, screen="camp", day="left")
+                            day_clicks += 1
+                            time.sleep(0.8)
+                            continue
+                        if sel is not None:
+                            day_done = True
+                            self.say("camp: Day 1" + (" (the elite rule still shows)" if sel["elite"] else ""))
+                            log.event("day_select", day=1, clicks=day_clicks, **sel)
+                            log.save_frame(frame, "camp_day1")
                         go = screens.find_go(frame)
                         if go and camp_steps >= 2:
                             self.say("camp: GO")

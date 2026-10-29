@@ -39,6 +39,7 @@ _EVENT_TEXT = {
     "give_up": lambda d: f"giving the run up: {d.get('step')}" + (f" ({d.get('screen')})" if d.get("screen") else ""),
     "give_up_failed": lambda d: f"give-up failed: {d.get('reason')}",
     "menu": lambda d: f"menu: {d.get('screen')}" + (f" ({d.get('how')})" if d.get("how") else ""),
+    "day_select": lambda d: f"camp: Day {d.get('day')} selected ({d.get('clicks')} click(s) on the day arrow)",
     "level_end": lambda d: f"level {d.get('level')} ends at {d.get('hp_end')} HP ({d.get('outcome')})",
     "exception": lambda d: f"error in {d.get('where')}: {d.get('error')}",
     "run_end": lambda d: f"run ended: {d.get('result')}",

@@ -9,6 +9,13 @@ Measured on the user's recorded run (collect/20261027-164727, 1920x1080):
   reward  tile pick and shrine both carry a grey SKIP pill, ~288 px wide,
           rows ~720-790, x varies (1300-1672) with the layout
 
+Day selector [run 20261029-045856 f0003-f0008, the first camp after the Day 1 win]: once Day 2
+is unlocked, '< DAY n >' shows at the top while the hero stands at GO, with the day's rules to
+its left (Day 2: '- ELITE ENEMIES MAY SPAWN.' in red). It opens on the newest day. An arrow
+that can be used is a brown disc (119,69,59) with a peach chevron (188,143,106); at the end of
+the range it is dark (75,39,45) with a dim chevron (118,68,58): on Day 2 of 2 the right arrow
+was dark. None of the 133 camp frames of the other runs and recordings shows the selector.
+
 Giving up a run [user 2026-10-28; measured on captures in collect/20261028-121900-giveup]:
   pause   PAUSE MENU is the bottom of the three round HUD buttons (bottom right, disc
           x 1784-1855, y 972-1035, pause bars x 1804-1815 and 1824-1835). The map dims
@@ -36,6 +43,7 @@ MAP_TRIES = [("click node", MAP_FIRST_NODE), ("click node", MAP_FIRST_NODE),
              ("key space", "space"), ("key d", "d"), ("click label", MAP_LABEL),
              ("key enter", "enter")]
 PAUSE_BUTTON = (0.9477, 0.9269)     # centre of the PAUSE MENU disc (1820, 1001)
+DAY_LEFT = (841 / 1920, 252 / 1080)  # the day selector's left arrow (one day earlier)
 MENU_X = 957 / 1920                 # menu rows are centred here
 
 
@@ -71,6 +79,29 @@ def find_skip(rgb: np.ndarray) -> tuple[float, float] | None:
             cy = 650 + int(np.median(ys)) if len(ys) else y0 + 10
             return (cx / w, cy / h)
     return None
+
+
+def day_selector(rgb: np.ndarray) -> dict | None:
+    """The camp's day selector, or None when it is not on screen (1080p frame; normalize first).
+    left / right: that arrow can be used (lit chevron); elite: the red rules text is shown.
+    On Day 2 of 2 [run 20261029-045856]: 1,812 white label px, 352 lit px in the left
+    chevron, none in the right, 3,064 red px of rules text."""
+    a = rgb.astype(np.int16)
+    label = a[225:280, 880:1060]
+    white = int((label.min(axis=2) > 190).sum())
+    if white < 600:
+        return None
+
+    def lit(x0: int, x1: int) -> int:
+        reg = a[215:290, x0:x1]
+        return int(((np.abs(reg[..., 0] - 188) < 18) & (np.abs(reg[..., 1] - 143) < 18)
+                    & (np.abs(reg[..., 2] - 106) < 18)).sum())
+
+    rules = a[230:285, 150:690]
+    red = int(((rules[..., 0] > 150) & (rules[..., 1] < 110) & (rules[..., 2] < 100)).sum())
+    left, right = lit(805, 875), lit(1050, 1125)
+    return {"left": left >= 60, "right": right >= 60, "elite": red >= 800,
+            "px": {"label": white, "left": left, "right": right, "red": red}}
 
 
 def find_go(rgb: np.ndarray) -> tuple[float, float] | None:
