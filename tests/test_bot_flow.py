@@ -64,6 +64,9 @@ class FakeGW:
     def move_mouse_away(self):
         pass
 
+    def hover(self, fx, fy):
+        pass
+
     def key(self, name):
         pass
 

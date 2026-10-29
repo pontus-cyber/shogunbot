@@ -196,6 +196,16 @@ class GameWindow:
         # release seen at another position cancels the click [obs 2026-10-27]
         time.sleep(0.4)
 
+    def hover(self, fx: float, fy: float) -> None:
+        """Move the cursor to a fraction (0-1) of the client area and leave it there, so the game shows
+        that spot's tooltip (a counter slot in the shop)."""
+        self._ensure_focus()
+        x, y, w, h = self.rect()
+        sx, sy = x + int(fx * w), y + int(fy * h)
+        sendinput.send(sendinput.mouse_move_input(sx - 3, sy))
+        time.sleep(0.12)
+        sendinput.send(sendinput.mouse_move_input(sx, sy))
+
     def move_mouse_away(self) -> None:
         """Park the cursor so hover tooltips do not cover the board."""
         time.sleep(0.2)

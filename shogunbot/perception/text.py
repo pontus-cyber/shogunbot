@@ -39,6 +39,21 @@ GLYPH_SAMPLES = {
     "runs/20261028-132238/frames/reward_3_shrine.png": ["FREE-PLAY", "+3 COOLDOWN"],
     "runs/20261028-132952/frames/reward_3_shrine.png": ["PERFECT STRIKE", "+1 COOLDOWN"],
 }
+# The shop counter's tooltip (shop_screen.tooltip) names the hovered offer in its title, the same font at
+# 3 px per art pixel; these titles hold the letters the statue bubbles lack (B, H, Q, V, X) [recording 2,
+# collect/20261029-160032: the user's cursor on the counter]
+TIP_SAMPLES = {
+    "collect/20261029-160032/f0177_idle.png": "- COMBO RECHARGE -",
+    "collect/20261029-160032/f0784_idle.png": "- HEALTHY -",
+    "collect/20261029-160032/f0446_idle.png": "- QUICK RECOVERY -",
+    "collect/20261029-160032/f0459_idle.png": "- TWO-WAY MOVE -",
+    "collect/20261029-160032/f1752_idle.png": "- BLOOD EXCHANGE -",
+}
+TIP_AREA = (600, 1920, 0, 420)    # x0, x1, y0, y1: the counter's tooltip, above its slots [rec1, rec2: boxes
+                                  # at x 780-1912, y 11-221 on the 49 recorded tooltip frames]
+TIP_MIN_PX = 20000                # its dark px: 70,552-97,210 there; a box counts only with a title line
+TIP_MIN_W = 300                   # its width: 544 on every recorded tooltip (a slot's frame: 144)
+TIP_ART = 3                       # px per art pixel in its title: rows of 30 px, 33 with Q's tail
 
 
 def find_bubble(rgb: np.ndarray, region=BUBBLE_REGION, min_px: int = 25000):
@@ -111,6 +126,56 @@ def lines(rgb: np.ndarray, box) -> list[tuple[np.ndarray, bool]]:
         is_red = red[r0:r1].sum() > 0.5 * ink[r0:r1].sum()
         out.append((art, bool(is_red)))
     return out
+
+
+def dark_boxes(rgb: np.ndarray, area=TIP_AREA, min_px: int = TIP_MIN_PX, fill: float = 0.6,
+               min_w: int = TIP_MIN_W) -> list[tuple[int, int, int, int]]:
+    """(x0, y0, x1, y1) of the neutral dark tooltip boxes (about 39,38,36) in area, top first; as the
+    map's (map_screen._boxes), with OpenCV, which the PC's venv has."""
+    import cv2
+    x0, x1, y0, y1 = area
+    reg = rgb[y0:y1, x0:x1].astype(np.int16)
+    mx, mn = reg.max(axis=2), reg.min(axis=2)
+    dark = ((mx - mn < 12) & (mx > 25) & (mx < 70)).astype(np.uint8)
+    n, _, stats, _ = cv2.connectedComponentsWithStats(dark, connectivity=4)
+    out = []
+    for i in range(1, n):
+        bx, by, w, h, px = (int(v) for v in stats[i])
+        if px >= min_px and px / (h * w) >= fill and w >= min_w:
+            out.append((x0 + bx, y0 + by, x0 + bx + w, y0 + by + h))
+    return sorted(out, key=lambda b: (b[1], b[0]))
+
+
+def title_art(rgb: np.ndarray, box, art_px: int = TIP_ART) -> np.ndarray | None:
+    """The first white text line of art_px-scaled glyphs in a dark box (a tooltip's title) as a
+    10-row art matrix, or None. A Q's tail hangs one art row below the others; the 10 rows above it
+    are the glyph."""
+    x0, y0, x1, y1 = box
+    t = rgb[y0:y1, x0:x1].astype(np.int16)
+    ink = t.min(axis=2) > 170
+    for r0, r1 in _runs(ink.mean(axis=1) > 0.004):
+        if not 10 * art_px <= r1 - r0 <= 11 * art_px:
+            continue                       # the border (16 px), the description lines (20 px)
+        cols = np.nonzero(ink[r0:r1].any(axis=0))[0]
+        cols = cols[(cols > 4) & (cols < ink.shape[1] - 4)]
+        if not len(cols):
+            continue
+        c0 = int(cols.min())
+        w = (int(cols.max()) + 1 - c0 + art_px - 1) // art_px * art_px
+        blk = ink[r0:r0 + 10 * art_px, c0:c0 + w]
+        if blk.shape != (10 * art_px, w):
+            continue
+        return blk.reshape(10, art_px, w // art_px, art_px).mean(axis=(1, 3)) > 0.5
+    return None
+
+
+def read_title(rgb: np.ndarray, area=TIP_AREA) -> tuple[tuple | None, str | None]:
+    """(box, title text) of the first tooltip box in area that has a title line."""
+    for b in dark_boxes(rgb, area):
+        art = title_art(rgb, b)
+        if art is not None:
+            return b, "".join(" " if g is None else _match(g) for g in glyphs(art))
+    return None, None
 
 
 def glyphs(art: np.ndarray) -> list[np.ndarray | None]:
@@ -189,9 +254,26 @@ def match_upgrade(text_lines: list[str]) -> tuple[str | None, int, int]:
     return best, best_d, second
 
 
-def build_glyphs(samples: list[tuple[np.ndarray, list[str]]]) -> dict:
-    """Learn glyphs from (frame, known lines) pairs; writes assets/glyphs.json.
-    Glyphs learned before are kept; a sample that would relabel one is an error."""
+def _learn(table: dict, art: np.ndarray, text: str) -> None:
+    gs = glyphs(art)
+    chars = list(text)
+    if len(gs) != len(chars):
+        raise ValueError(f"{text!r}: {len(gs)} glyph slots for {len(chars)} characters")
+    for g, ch in zip(gs, chars):
+        if g is None:
+            if ch != " ":
+                raise ValueError(f"{text!r}: space where {ch!r} was expected")
+            continue
+        k = _key(g)
+        if table.get(k, ch) != ch:
+            raise ValueError(f"{text!r}: glyph already learned as {table[k]!r}, labelled {ch!r} here")
+        table[k] = ch
+
+
+def build_glyphs(samples: list[tuple[np.ndarray, list[str]]], tips: list[tuple[np.ndarray, str]] = ()) -> dict:
+    """Learn glyphs from (frame, known lines) pairs of statue bubbles and (frame, known title) pairs of
+    counter tooltips; writes assets/glyphs.json. Glyphs learned before are kept; a sample that would
+    relabel one is an error."""
     table: dict[str, str] = dict(glyph_table())
     for rgb, known in samples:
         box = find_bubble(rgb)
@@ -199,19 +281,12 @@ def build_glyphs(samples: list[tuple[np.ndarray, list[str]]]) -> dict:
         if len(got) != len(known):
             raise ValueError(f"read {len(got)} lines, expected {len(known)}: {known}")
         for (art, _), text in zip(got, known):
-            gs = glyphs(art)
-            chars = list(text)
-            if len(gs) != len(chars):
-                raise ValueError(f"{text!r}: {len(gs)} glyph slots for {len(chars)} characters")
-            for g, ch in zip(gs, chars):
-                if g is None:
-                    if ch != " ":
-                        raise ValueError(f"{text!r}: space where {ch!r} was expected")
-                    continue
-                k = _key(g)
-                if table.get(k, ch) != ch:
-                    raise ValueError(f"{text!r}: glyph already learned as {table[k]!r}, labelled {ch!r} here")
-                table[k] = ch
+            _learn(table, art, text)
+    for rgb, title in tips:
+        art = next((a for a in (title_art(rgb, b) for b in dark_boxes(rgb)) if a is not None), None)
+        if art is None:
+            raise ValueError(f"no tooltip title found for {title!r}")
+        _learn(table, art, title)
     (ASSETS / "glyphs.json").write_text(json.dumps(table, indent=0, sort_keys=True), encoding="utf-8")
     global _GLYPHS
     _GLYPHS = table
@@ -219,16 +294,18 @@ def build_glyphs(samples: list[tuple[np.ndarray, list[str]]]) -> dict:
 
 
 def build(root: Path) -> dict:
-    """Rebuild glyphs.json from GLYPH_SAMPLES, frames under `root` (holds runs/ and collect/)."""
+    """Rebuild glyphs.json from GLYPH_SAMPLES and TIP_SAMPLES, frames under `root` (holds runs/ and
+    collect/)."""
     from PIL import Image
-    samples = []
-    for rel, known in GLYPH_SAMPLES.items():
-        p = Path(root) / rel
-        if not p.exists():
-            print(f"missing {rel}: the glyphs learned from it before are kept")
-            continue
-        samples.append((np.array(Image.open(p).convert("RGB")), known))
-    return build_glyphs(samples)
+    samples, tips = [], []
+    for group, out in ((GLYPH_SAMPLES, samples), (TIP_SAMPLES, tips)):
+        for rel, known in group.items():
+            p = Path(root) / rel
+            if not p.exists():
+                print(f"missing {rel}: the glyphs learned from it before are kept")
+                continue
+            out.append((np.array(Image.open(p).convert("RGB")), known))
+    return build_glyphs(samples, tips)
 
 
 if __name__ == "__main__":

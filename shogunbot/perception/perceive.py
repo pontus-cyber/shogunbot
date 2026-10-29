@@ -49,6 +49,9 @@ SPRITE_Y0, SPRITE_Y1 = 610, 765
 SPAWN_RED_PX = 2000
 SLOT_Y0, SLOT_Y1, SLOT_PITCH = 458, 576, 120
 HP_ROWS = (799, 819)
+HP_ROW_PITCH = 20     # the hero's pip rows hold 5 each; past 10 max HP more rows follow 20 px lower: Healthy's 12
+                      # showed rows at y 792-807, 812-827 and 832-844 [rec2 f0800-f2006, 1,059 frames]
+HP_ROWS_MAX = 4       # Healthy's three levels give 16 [wiki]: a fourth row [hyp]
 HAND_Y0, HAND_Y1 = 905, 1000
 HAND_PITCH = 120
 
@@ -297,6 +300,24 @@ def swap_ticks(rgb: np.ndarray, cx: int) -> tuple[int, int]:
             prev = v
         return n
     return runs(white), runs(red)
+
+
+def hero_hp(rgb: np.ndarray, cx: int) -> tuple[int, int, int, int]:
+    """(green, red) of the hero's first pip row and (green, red) of the rows below it. The second row is
+    always read, as before; a third (and fourth) only under two full rows of 5, so a frame where the
+    board slides in, with the rows 20 px lower and the first one empty, reads as it did [rec1 f0185,
+    f0368: 5 of 5, which the HP drop check leaves out]. 0.20-0.31 read two rows, so Healthy's 11th and
+    12th pip went unseen [rec2 f0800: HP 10 of 12 read as 10 of 10]."""
+    g1, r1 = hp_squares(rgb, cx, HP_ROWS[0])
+    g, r = hp_squares(rgb, cx, HP_ROWS[1])
+    full = g1 + r1 == 5 and g + r == 5
+    for k in range(2, HP_ROWS_MAX):
+        if not full:
+            break
+        gk, rk = hp_squares(rgb, cx, HP_ROWS[0] + k * HP_ROW_PITCH)
+        g, r = g + gk, r + rk
+        full = gk + rk == 5
+    return g1, r1, g, r
 
 
 def hp_squares(rgb: np.ndarray, cx: int, row_y: int) -> tuple[int, int]:
@@ -591,8 +612,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
             stack = read_stack(rgb, cx)
             marker = plate_marker(rgb, cx)
             if c["kind"] == "hero":
-                g1, r1 = hp_squares(rgb, cx, HP_ROWS[0])
-                g2, r2 = hp_squares(rgb, cx, HP_ROWS[1])
+                g1, r1, g2, r2 = hero_hp(rgb, cx)
                 wt, rt = swap_ticks(rgb, cx)
                 pf, pc = hero_patch_facing(rgb, cx)
                 if pf:
@@ -602,7 +622,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                           "queue": [s["tile"] for s in stack if s["type"] == "tile"],
                           "swap_red": rt}
                 conf["hero_facing"] = round(kc, 2) if kind == "hero" else 0.0
-                conf["hero_hp"] = 1.0 if (g1 + g2 + r1 + r2) in (10, 5) else 0.3
+                conf["hero_hp"] = 1.0 if (g1 + g2 + r1 + r2) in (5, 10, 12, 14, 16) else 0.3
             else:
                 g, r = hp_squares(rgb, cx, HP_ROWS[0])
                 tiles = [s for s in stack if s["type"] == "tile"]

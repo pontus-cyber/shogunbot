@@ -54,7 +54,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.31"
+VERSION = "0.32"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -77,6 +77,8 @@ MAP_TRIES_MAX = 12        # map inputs that leave the map unchanged before the r
                           # [run 20261029-072042: 18 inputs on a Stage 2 map, none applied]
 START_GIVE_UPS_MAX = 2    # give-ups at a run start that still do not reach the camp: 'stuck'
 SHOP_GO_TRIES = 3         # GO clicks before the run stops as 'stuck' in a shop
+HOVER_S = 0.5             # the cursor on a counter slot this long before its tooltip is read
+HOVER_TRIES = 2           # looks per slot
 # The map between regions (M4 step 1) is played in keyboard-only mode [user 2026-10-29]: its button
 # turns it on, the up/down arrows move the mark among the reachable nodes, Enter travels there, and
 # any mouse click turns it off again (perception/map_screen.py). Regions in order of preference;
@@ -239,7 +241,7 @@ class Bot:
         return perceive(frame, [t.tile for t in tr.kit] if tr is not None else None,
                         regions=tuple(self.regions), day=self.day)
 
-    # every input goes through these two, so every input is recorded
+    # every input goes through these three, so every input is recorded
     def key(self, name: str, frame, **extra) -> None:
         self.rec.record(frame, KEY_LABEL.get(name, name.upper()), **extra)
         self.gw.key(name)
@@ -250,6 +252,11 @@ class Bot:
         self._check_cursor(extra.get("screen"))
         if away:
             self.gw.move_mouse_away()
+
+    def hover(self, fx: float, fy: float, frame, **extra) -> None:
+        """The cursor onto a spot and left there, so its tooltip shows (the shop's counter, 0.32)."""
+        self.rec.record(frame, "HOVER", click=(fx, fy), **extra)
+        self.gw.hover(fx, fy)
 
     CURSOR_TOL = 3     # px between the click's target and the cursor when the button went down
 
@@ -760,9 +767,9 @@ class Bot:
     def _shop(self, frame, tr=None, hp: int | None = None) -> bool:
         """The shop between regions [user 2026-10-29: read the offers and prices]: what
         perception/shop_screen.py reads (the statue's upgrade and price, the counter's prices, the
-        coins) is logged; the statue's upgrade is bought when rewards.decide_shop says so [user
-        review of run 20261029-154200]; then GO. Without a tracker (tests of 0.25-0.28) it only
-        reads and leaves. True once the shop has gone."""
+        coins) is logged, with each coin offer on the counter named by its tooltip (0.32); the purchases
+        follow your order (_shop_buy) [user review of run 20261029-154200; of run -184142, note 2]; then
+        GO. Without a tracker (tests of 0.25-0.28) it only reads and leaves. True once the shop has gone."""
         self.shop_n += 1
         self._park_mouse()                    # a hover tooltip can cover a price [f0175]
         time.sleep(0.3)
@@ -777,6 +784,12 @@ class Bot:
             self.log.exception("shop_read", e, frame=frame)
             offer = {}
         self.log.save_frame(frame, f"shop_{self.shop_n}")
+        if tr is not None and offer:
+            try:
+                offer["goods"] = self._shop_goods(frame, offer)
+            except Exception as e:            # an unread counter is left alone
+                self.log.exception("shop_goods", e, frame=frame)
+                offer["goods"] = []
         self.log.event("shop", n=self.shop_n, **offer)
         self.live.status("shop", **{k: offer.get(k) for k in ("upgrade", "coins")})
         self.say(f"shop: {shop_screen.describe(offer)}")
@@ -795,6 +808,33 @@ class Bot:
         self.log.save_frame(frame, "shop_stuck")
         return False
 
+    def _shop_goods(self, frame, offer: dict) -> list[dict]:
+        """Each coin offer on the counter with what its tooltip names: the cursor rests on the slot
+        until the tooltip shows [rec2: the user's cursor on the counter, f0177-f1753], then is parked
+        again. {'x', 'price', 'currency', 'title', 'kind', 'id'}; kind 'skill', 'consumable' or 'other'
+        (None when no tooltip was read). Each tooltip frame is saved, so new titles can be learned."""
+        goods = []
+        for i, o in enumerate(offer.get("counter") or []):
+            if o.get("currency") != "coin" or o.get("price") is None:
+                continue                      # padlocks (skulls) and blood services (hearts) are not bought
+            tip, fr = None, frame
+            for attempt in range(HOVER_TRIES):
+                self.hover(o["x"] / 1920, shop_screen.SLOT_Y / 1080, fr, screen="shop", slot=i + 1, attempt=attempt + 1)
+                time.sleep(HOVER_S)
+                fr = self.gw.grab()
+                tip = shop_screen.tooltip(normalize(fr))
+                if tip is not None and not shop_screen.tip_over(tip, o["x"]):
+                    tip = None                # another slot's tooltip, still fading
+                if tip is not None:
+                    break
+            self.log.save_frame(fr, f"shop_{self.shop_n}_offer_{i + 1}")
+            g = dict(o, title=tip and tip["title"], kind=tip and tip["kind"], id=tip and tip["id"])
+            goods.append(g)
+        if goods:
+            self._park_mouse()
+            time.sleep(0.3)
+        return goods
+
     def _shop_look(self, tr):
         """The shop again after a click: the frame, and the hand, the statue's mouth, UPGRADE and
         the coins as a reward-screen-like record for _in_statue."""
@@ -807,14 +847,35 @@ class Bot:
         return frame, look
 
     def _shop_buy(self, frame, offer: dict, hand: list, tr, hp: int):
-        """Value the statue's upgrade against keeping the coins (rewards.decide_shop) and buy it when
-        that wins: the tile into the statue's mouth (checked as at a shrine), then UPGRADE, checked by
-        the coins dropping [collect/20261028-190026 f0172-f0178]. A tile left in the mouth after a
-        failed purchase is clicked back into the hand. Returns the last frame."""
+        """The shop's purchases in your order [user 2026-10-29: -2 cooldown and +1 damage upgrades,
+        Healthy, +1 upgrade slot]: the statue's upgrade when it adds damage or takes cooldown off, then
+        Healthy, a slot-only statue upgrade, the other simulated skills, then trade-offs
+        (rewards.shop_priority); each is valued against keeping the coins when its turn comes
+        (rewards.decide_shop, decide_skill), with the coins read again after every purchase.
+        Returns the last frame."""
         notes: list = []
         if hand:
             tr.kit = kit_from_faces(tr.kit, hand, notes)
-        up, price, coins = offer.get("upgrade"), offer.get("upgrade_price"), offer.get("coins")
+        steps = []
+        pri = rewards.shop_priority(upgrade_id=offer.get("upgrade")) if offer.get("upgrade") else None
+        steps.append((pri if pri is not None else 9, 0, None))     # the statue: logged even when never bought
+        for i, g in enumerate(offer.get("goods") or []):
+            pri = rewards.shop_priority(good=g)
+            if pri is not None:
+                steps.append((pri, i + 1, g))
+            elif g.get("title"):
+                notes.append(f"counter: {g['title']} for {g['price']} {g['currency']}s is not bought "
+                             f"({g.get('kind') or 'unread'}{', not simulated' if g.get('kind') == 'skill' else ''})")
+        coins = offer.get("coins")
+        for _, _, g in sorted(steps, key=lambda t: (t[0], t[1])):
+            if g is None:
+                frame, coins = self._shop_statue(frame, offer, hand, tr, hp, coins, notes)
+            else:
+                frame, coins = self._shop_skill(frame, g, tr, hp, coins)
+            hand = []                         # read again by the statue's flow when it comes later
+        return frame
+
+    def _valuation_feed(self):
         printed = [time.time()]
 
         def feed(st):
@@ -822,13 +883,21 @@ class Bot:
             if st.get("phase") == "running" and time.time() - printed[0] >= CONSOLE_FEED_S:
                 printed[0] = time.time()
                 self.say("   " + rewards.progress_line(st))
+        return feed
+
+    def _shop_statue(self, frame, offer: dict, hand: list, tr, hp: int, coins, notes: list):
+        """Value the statue's upgrade against keeping the coins (rewards.decide_shop) and buy it when
+        that wins: the tile into the statue's mouth (checked as at a shrine), then UPGRADE, checked by
+        the coins dropping [collect/20261028-190026 f0172-f0178]. A tile left in the mouth after a
+        failed purchase is clicked back into the hand. Returns the last frame and the coins."""
+        up, price = offer.get("upgrade"), offer.get("upgrade_price")
         name = CAT.upgrades[up].name if up in CAT.upgrades else (up or "statue upgrade not read")
         self.live.valuation({"layout": "shop", "upgrade": up, "price": price, "coins": coins, "hp": hp,
                              "upgrade_text": f"{name} for {price if price is not None else '?'} coins "
                                              f"({coins if coins is not None else '?'} held)",
                              "kit": [f"{t.label} {t.damage}/{t.cooldown}" for t in tr.kit], "phase": "starting"},
                             reset=True)
-        dec = rewards.decide_shop(tr.kit, up, price, coins, hp, progress=feed)
+        dec = rewards.decide_shop(tr.kit, up, price, coins, hp, progress=self._valuation_feed())
         best, opts, st = dec.best, dec.options, dec.stats or {}
         self.log.event("shop_decision", upgrade=up, price=price, coins=coins, hp=hp, kit=tr.kit.to_list(), notes=notes,
                        seconds=dec.seconds, choice=best.name, rule=dec.rule, options=[o.summary() for o in opts],
@@ -842,14 +911,17 @@ class Bot:
                                                                         f"then UPGRADE ({price} coins)"})
         if best.name == "skip":
             self.live.valuation({"phase": "done", "outcome": "kept the coins"})
-            return frame
+            return frame, coins
         label = best.detail["label"]
+        if not hand:
+            frame, cur = self._shop_look(tr)
+            hand = cur.hand
         cur = types.SimpleNamespace(hand=hand, statue=None, upgrade_lit=False, coins=coins)
         for attempt in (1, 2, 3):
             face = match_faces(tr.kit, cur.hand).get(label)
             if face is None:
                 self.log.event("shop_buy_failed", choice=best.name, reason="tile not found in hand", attempt=attempt)
-                return self._shop_clear(frame, tr)
+                return self._shop_clear(frame, tr), coins
             self.click(face["fx"], face["fy"], frame, screen="shop", shop=best.name, attempt=attempt)
             time.sleep(0.8)
             self._park_mouse()
@@ -861,7 +933,7 @@ class Bot:
             frame, cur = self._shop_look(tr)
         else:
             self.log.event("shop_buy_failed", choice=best.name, reason="the tile did not go into the statue")
-            return self._shop_clear(frame, tr)
+            return self._shop_clear(frame, tr), coins
         for attempt in (1, 2):
             self.click(*shop_screen.UPGRADE_BUTTON, frame, screen="shop", shop="UPGRADE", attempt=attempt)
             time.sleep(1.2)
@@ -873,11 +945,51 @@ class Bot:
                                coins_after=cur.coins, kit=best.kit.to_list())
                 self.say(f"   bought {CAT.upgrades[up].name} on {label} for {coins - cur.coins} coins; kit {best.kit}")
                 self.live.valuation({"phase": "done", "outcome": f"bought {best.name}"})
-                return frame
+                return frame, cur.coins
         self.log.event("shop_buy_failed", choice=best.name, reason="the coins did not drop after UPGRADE",
                        coins_before=coins, coins_after=cur.coins)
         self.live.valuation({"phase": "done", "outcome": "purchase failed"})
-        return self._shop_clear(frame, tr)
+        return self._shop_clear(frame, tr), coins
+
+    def _shop_skill(self, frame, g: dict, tr, hp: int, coins):
+        """A skill on the counter, valued against keeping the coins (rewards.decide_skill) and bought
+        with one click on its slot, checked by the coins dropping [rec2: f0181 -> f0182 Combo Recharge,
+        31 -> 11 coins; f0447, f0449, f0458, f0460, f0786, f0791 the same]. Returns the last frame and
+        the coins."""
+        sid, price = g.get("id"), g.get("price")
+        name = CAT.skill(sid).name if sid in CAT.skills else (g.get("title") or "?")
+        self.live.valuation({"layout": "shop", "upgrade": sid, "price": price, "coins": coins, "hp": hp,
+                             "upgrade_text": f"{name} (skill) for {price} coins ({coins if coins is not None else '?'} held)",
+                             "kit": [f"{t.label} {t.damage}/{t.cooldown}" for t in tr.kit], "phase": "starting"},
+                            reset=True)
+        dec = rewards.decide_skill(tr.kit, sid, price, coins, hp, progress=self._valuation_feed())
+        best, opts, st = dec.best, dec.options, dec.stats or {}
+        self.log.event("shop_decision", skill=sid, price=price, coins=coins, hp=hp, kit=tr.kit.to_list(),
+                       seconds=dec.seconds, choice=best.name, rule=dec.rule, options=[o.summary() for o in opts],
+                       fights=st.get("fights"), cached=st.get("cached"), seeds=st.get("seeds"), seeds_max=st.get("of"))
+        self.say(f"   {name}: {'keep the coins' if best.name == 'skip' else 'buy it'}  [{dec.rule}]")
+        self.live.valuation({"phase": "decided", "choice": best.name, "rule": dec.rule, "seconds": dec.seconds,
+                             "click": "nothing" if best.name == "skip" else f"the counter's slot ({price} coins)"})
+        if best.name == "skip":
+            self.live.valuation({"phase": "done", "outcome": "kept the coins"})
+            return frame, coins
+        for attempt in (1, 2):
+            self.click(g["x"] / 1920, shop_screen.SLOT_Y / 1080, frame, screen="shop", shop=best.name, attempt=attempt)
+            time.sleep(1.0)
+            self._park_mouse()
+            frame = self.gw.grab_stable(settle_s=0.25, timeout_s=3.0)
+            now = shop_screen.number_in(normalize(frame), shop_screen.COINS_BOX)
+            if now is not None and coins is not None and now < coins:
+                tr.set_kit(best.kit)
+                self.log.event("shop_bought", choice=best.name, skill=sid, price=price, coins_before=coins,
+                               coins_after=now, kit=best.kit.to_list())
+                self.say(f"   bought {name} for {coins - now} coins; skills {tr.kit.skills}")
+                self.live.valuation({"phase": "done", "outcome": f"bought {name}"})
+                return frame, now
+        self.log.event("shop_buy_failed", choice=best.name, reason="the coins did not drop after the click",
+                       coins_before=coins, coins_after=now)
+        self.live.valuation({"phase": "done", "outcome": "purchase failed"})
+        return frame, coins if now is None else now
 
     def _shop_clear(self, frame, tr):
         """A tile still in the statue's mouth (UPGRADE lit) goes back to the hand: click it [f0174]."""

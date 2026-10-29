@@ -301,8 +301,9 @@ def _job(args):
     viewer's replay)."""
     kit_list, hp, seed, depth, scenario = args
     trace: list = []
-    r = run_once(seed, depth, kit=Kit.from_list(kit_list), hp=hp, scenario=scenario, start="bamboo-2",
-                 trace=trace)
+    kit = Kit.from_list(kit_list)
+    # a build with less max HP (Iron Skin, Fortress) starts at most at its max [wiki: Shop & Skills]
+    r = run_once(seed, depth, kit=kit, hp=min(hp, kit.max_hp), scenario=scenario, start="bamboo-2", trace=trace)
     return score(r), r.win, r.hp, r.turns, r.timeout, r.reached, trace
 
 
@@ -609,7 +610,7 @@ def evaluate(opts: list[Option], hp: int, seeds=SEEDS, depth: int = DEPTH, worke
     settled (module docstring). stop_z=None plays every option on every seed (0.22).
     progress(state) gets the running results at least every FEED_S seconds and at the end."""
     seeds = tuple(seeds)
-    hp = max(1, min(HERO_MAX_HP, hp))
+    hp = max(1, min(max([HERO_MAX_HP] + [o.kit.max_hp for o in opts]), hp))     # Healthy: up to 12 [rec2 f0802]
     marks = sorted({n for n in looks if 0 < n < len(seeds)} | {len(seeds)}) if stop_z else [len(seeds)]
     v = _Valuation(opts, seeds, hp, depth, scenario, marks, stop_z, workers, progress, job or _job)
     v.run()
@@ -670,10 +671,82 @@ def decide_tile(kit: Kit, offers: list[dict], hp: int, *, seeds=SEEDS, depth: in
     return _tradeoff(opts, "tile choice", t0, stats)
 
 
-# The coins' worth when kept, in the valuation's HP: nothing within a run the bot plays now. Coins
-# buy only in shops, and the one shop of a --full run (between Bamboo Grove and the second region)
-# is the last before the run ends at the second boss [runs 20261029-124921, -154200].
+# The coins' worth when kept, in the valuation's HP: none yet. Coins buy only in shops; since 0.31 a
+# --full run passes two (after Bamboo Grove and after the second region), and what the second sells is
+# not known at the first, so a pure gain is bought whenever affordable [runs 20261029-124921, -154200].
 COIN_HP = 0.0
+
+
+# ---------------------------------------------------------------- the shop: order and the counter
+def skill_class(sid: str | None) -> str | None:
+    """How a skill on the counter is bought: 'pure' (nothing gets worse), 'trade' (a cost: Iron Skin's
+    and Fortress's max HP), None (not simulated, or unknown: never bought) [data/skills.json]."""
+    sk = CAT.skills.get(sid) if sid else None
+    if sk is None or not sk.sim:
+        return None
+    e = sk.effect
+    if e.get("max_hp", 0) < 0 or e.get("special_cooldown", 0) > 0:
+        return "trade"
+    return "pure"
+
+
+def shop_priority(upgrade_id: str | None = None, good: dict | None = None) -> int | None:
+    """The order of the shop's purchases [user 2026-10-29, review of recording 2: "your priorities
+    first: -2 cooldown and +1 damage upgrades, Healthy (+2 max HP), +1 upgrade slot"]: 1 a statue
+    upgrade that adds damage or takes cooldown off, 2 Healthy, 3 a statue upgrade that only adds a slot,
+    4 the other simulated skills, 5 trade-offs (the statue's or a skill's); None: never bought (an
+    unread, unknown or unsimulated offer, Sacrifice, items and services)."""
+    if upgrade_id is not None:
+        up = CAT.upgrades.get(upgrade_id)
+        if up is None or not offerable(up):
+            return None
+        if pure_gain(up):
+            return 1 if (up.damage > 0 or up.cooldown < 0) else 3
+        return 5
+    if not good or good.get("kind") != "skill" or good.get("currency") != "coin" or good.get("price") is None:
+        return None
+    cls = skill_class(good.get("id"))
+    if cls is None:
+        return None
+    if cls == "trade":
+        return 5
+    return 2 if CAT.skill(good["id"]).effect.get("type") == "max_hp" else 4
+
+
+def decide_skill(kit: Kit, sid: str | None, price: int | None, coins: int | None, hp: int, *,
+                 seeds=SEEDS, depth: int = DEPTH, workers: int = WORKERS, scenario: str = SCENARIO,
+                 evaluator=None, progress=None) -> Decision:
+    """A skill on the shop's counter against keeping the coins, as the statue's upgrade (decide_shop):
+    never unread, unaffordable or unsimulated; a pure gain is bought (no simulation: the build only gains,
+    and kept coins have no value yet); a trade-off only when it scores above keeping the coins by more
+    than the noise (difference minus 2 standard errors above price x COIN_HP). A skill already owned is
+    bought to its next level [rec2 f0790: 'LEVEL 2: +2 DAMAGE ...']."""
+    t0 = time.time()
+    skip = Option("skip", kit)
+    sk = CAT.skills.get(sid) if sid else None
+    if sk is None:
+        return Decision(skip, [skip], "shop: the counter's offer was not read as a skill; coins kept", 0.0)
+    if kit.level(sid) >= sk.max_level:
+        return Decision(skip, [skip], f"shop: {sk.name} is at its last level; coins kept", 0.0)
+    opt = Option(f"skill:{sid}", kit.with_skill(sid), detail={"skill": sid, "level": kit.level(sid) + 1})
+    opts = [skip, opt]
+    if price is None or coins is None:
+        return Decision(skip, opts, f"shop: {'price' if price is None else 'coins'} not read; coins kept", 0.0)
+    if price > coins:
+        return Decision(skip, opts, f"shop: {sk.name} costs {price}, {coins} coins held; coins kept", 0.0)
+    cls = skill_class(sid)
+    if cls is None:
+        return Decision(skip, opts, f"shop: {sk.name} is not simulated yet; coins kept", 0.0)
+    if cls == "pure":
+        return Decision(opt, opts, f"shop: {sk.name} for {price} of {coins} coins, a pure gain: always bought", 0.0)
+    stats = (evaluator or evaluate)(opts, hp, seeds, depth, workers, scenario, progress=progress)
+    secs = round(time.time() - t0, 1)
+    stats = stats if isinstance(stats, dict) else {}
+    if opt.diff is not None and not opt.out and opt.diff - NOISE_Z * (opt.se or 0.0) > price * COIN_HP:
+        return Decision(opt, opts, f"shop: {sk.name} for {price} of {coins} coins scores {opt.diff:+.2f} +- "
+                                   f"{opt.se or 0.0:.2f} HP against keeping the coins", secs, stats)
+    return Decision(skip, opts, f"shop: {sk.name} for {price}: it does not score above keeping the coins by more "
+                                f"than the noise; coins kept", secs, stats)
 
 
 def decide_shop(kit: Kit, upgrade_id: str | None, price: int | None, coins: int | None, hp: int, *,

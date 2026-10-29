@@ -97,14 +97,17 @@ def analyze(run_dir: Path) -> str:
             L.append(f"    values ({e.get('seconds')}s{fights}, HP {e.get('hp')}): {opts or 'not simulated'} -> {e.get('choice')}"
                      + (f"  [{e['rule']}]" if e.get("rule") else ""))
         elif e["event"] == "shop":                                       # 0.24: read; 0.29: the statue bought from
+            named = {g.get("x"): g.get("title") or "unread" for g in e.get("goods") or []}   # 0.32: the counter's tooltips
             L.append(f"  SHOP {e.get('n')}: statue {' / '.join(e.get('upgrade_text') or []) or '-'} ({e.get('upgrade')}) "
                      f"for {e.get('upgrade_price')}; coins {e.get('coins')}; counter "
-                     + (", ".join(f"{o.get('price')} {o.get('currency')}s" for o in e.get("counter") or []) or "-"))
+                     + (", ".join((f"{named[o.get('x')]} " if o.get("x") in named else "") + f"{o.get('price')} {o.get('currency')}s"
+                                  for o in e.get("counter") or []) or "-"))
         elif e["event"] == "shop_decision":
             scored = [o for o in e.get("options", []) if o.get("scored", True)]
             opts = ", ".join(f"{o['name']} {o['value']:+.2f}" + (f" [{o['seeds']} seeds]" if o.get("seeds") else "")
                              for o in sorted(scored, key=lambda o: -o["value"]))
-            L.append(f"    shop decision ({e.get('seconds')}s, HP {e.get('hp')}): {opts or 'not simulated'} -> "
+            what = f"skill {e['skill']}, " if e.get("skill") else ""                    # 0.32: the counter
+            L.append(f"    shop decision ({what}{e.get('seconds')}s, HP {e.get('hp')}): {opts or 'not simulated'} -> "
                      f"{'keep the coins' if e.get('choice') == 'skip' else e.get('choice')}  [{e.get('rule')}]")
         elif e["event"] in ("shop_bought", "shop_buy_failed"):
             L.append(f"    {e['event']}: {e.get('choice')} {e.get('reason', '')}"
