@@ -113,3 +113,15 @@ def test_the_tracker_carries_each_enemys_history_into_the_next_turn():
     tr.acted(s2, "wait")
     s3 = tr.state(read("queue", []))
     assert (s3.enemies[0].last, s3.enemies[0].fage) == ("move", 1)
+
+
+def test_memoised_predictions_are_the_same_and_safe_to_change():
+    # 0.29: predictions are memoised by feature values (about a tenth of a valuation fight's time);
+    # intents() edits the dict it gets, which must not change the next prediction
+    m = B.model()
+    s = board(5, 0, [("ashigaru", 2, -1, 3, ["sword"])])
+    f = B.features(s, s.enemies[0], "hold", 2)
+    fresh = B.Model(m.counts, m.meta, m.boss_tiles).predict(f)
+    first = m.predict(f)
+    first["fire"] = 0.0
+    assert m.predict(f) == fresh and m.predict(f) is not m.predict(f)
