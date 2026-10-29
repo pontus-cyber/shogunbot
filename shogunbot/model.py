@@ -39,11 +39,27 @@ class KitTile:
         return self.levels - self.used
 
 
-class Kit:
-    """The hero's tiles in hand order. Immutable, so search nodes share one."""
-    __slots__ = ("tiles", "by_label", "labels", "queue_actions", "cooldowns", "ready_values", "_hash")
+def skill_max_hp(sid: str, level: int) -> int:
+    """Max HP a skill adds at this level: Healthy +2 a level; Fortress and Iron Skin cost some [wiki]."""
+    sk = CAT.skill(sid)
+    add = sk.amount(level) if sk.effect.get("type") == "max_hp" else 0
+    return int(add or 0) + int(sk.effect.get("max_hp", 0))
 
-    def __init__(self, tiles):
+
+def skill_special_cooldown(sid: str, level: int) -> int:
+    """Change to the special move's cooldown: Quick Recovery -1, -2, -3 by level; Mamushi Move +1 [wiki]."""
+    sk = CAT.skill(sid)
+    add = sk.amount(level) if sk.effect.get("type") == "special_cooldown" else 0
+    return int(add or 0) + int(sk.effect.get("special_cooldown", 0))
+
+
+class Kit:
+    """The hero's build: tiles in hand order and the skills bought in shops ((id, level) pairs,
+    data/skills.json). Immutable, so search nodes share one."""
+    __slots__ = ("tiles", "by_label", "labels", "queue_actions", "cooldowns", "ready_values", "skills",
+                 "skill_levels", "max_hp", "swap_cooldown", "_hash")
+
+    def __init__(self, tiles, skills=()):
         self.tiles: tuple[KitTile, ...] = tuple(tiles)
         self.by_label = {t.label: t for t in self.tiles}
         if len(self.by_label) != len(self.tiles):
@@ -53,7 +69,27 @@ class Kit:
         # (label, cooldown) and (label, cooldown, planner ready value), for the hot loops
         self.cooldowns = tuple((t.label, t.cooldown) for t in self.tiles)
         self.ready_values = tuple((t.label, t.cooldown, CAT.tile(t.tile).ready_value) for t in self.tiles)
-        self._hash = hash(self.tiles)
+        lv: dict[str, int] = {}
+        for sid, n in (skills.items() if isinstance(skills, dict) else skills):
+            if sid not in CAT.skills:
+                raise ValueError(f"unknown skill {sid}")
+            lv[sid] = max(1, min(int(n), CAT.skill(sid).max_level))
+        self.skills: tuple[tuple[str, int], ...] = tuple(sorted(lv.items()))
+        self.skill_levels = dict(self.skills)
+        # the special move's cooldown never drops below 1 [wiki: Quick Recovery]
+        self.max_hp = HERO_MAX_HP + sum(skill_max_hp(sid, n) for sid, n in self.skills)
+        self.swap_cooldown = max(1, SWAP_COOLDOWN + sum(skill_special_cooldown(sid, n) for sid, n in self.skills))
+        self._hash = hash((self.tiles, self.skills))
+
+    def level(self, sid: str) -> int:
+        """The level of a skill in the build, 0 when not owned."""
+        return self.skill_levels.get(sid, 0)
+
+    def with_skill(self, sid: str) -> "Kit":
+        """A new kit with the skill bought: a copy of an owned skill raises its level, up to its max [wiki]."""
+        lv = dict(self.skills)
+        lv[sid] = min(lv.get(sid, 0) + 1, CAT.skill(sid).max_level)
+        return Kit(self.tiles, lv)
 
     def __getitem__(self, label: str) -> KitTile:
         return self.by_label[label]
@@ -68,7 +104,7 @@ class Kit:
         return len(self.tiles)
 
     def __eq__(self, other) -> bool:
-        return isinstance(other, Kit) and other.tiles == self.tiles
+        return isinstance(other, Kit) and other.tiles == self.tiles and other.skills == self.skills
 
     def __hash__(self) -> int:
         return self._hash
@@ -77,15 +113,18 @@ class Kit:
         return self  # immutable
 
     def __repr__(self) -> str:
-        return "Kit(" + ", ".join(f"{t.label}:{t.damage}/{t.cooldown}" + (f"+{t.enchant}" if t.enchant else "")
-                                  for t in self.tiles) + ")"
+        return "Kit(" + ", ".join([f"{t.label}:{t.damage}/{t.cooldown}" + (f"+{t.enchant}" if t.enchant else "")
+                                   for t in self.tiles] + [f"{sid} {n}" for sid, n in self.skills]) + ")"
 
     def to_list(self) -> list[dict]:
-        return [asdict(t) for t in self.tiles]
+        """The tiles as dicts, then one {'skill', 'level'} dict per skill (logs, the fight cache's key)."""
+        return [asdict(t) for t in self.tiles] + [{"skill": sid, "level": n} for sid, n in self.skills]
 
     @staticmethod
     def from_list(items) -> "Kit":
-        return Kit(KitTile(**d) for d in items)
+        items = list(items)
+        return Kit((KitTile(**d) for d in items if "skill" not in d),
+                   [(d["skill"], d["level"]) for d in items if "skill" in d])
 
     @staticmethod
     def of(*tile_ids: str) -> "Kit":
@@ -105,13 +144,13 @@ class Kit:
             label = f"{tile_id}#{n}"
         kt = KitTile(label, tile_id, t.damage if damage is None else damage,
                      t.cooldown if cooldown is None else cooldown, enchant, levels, used)
-        return Kit(self.tiles + (kt,))
+        return Kit(self.tiles + (kt,), self.skills)
 
     def replace(self, label: str, new: KitTile) -> "Kit":
-        return Kit(new if t.label == label else t for t in self.tiles)
+        return Kit((new if t.label == label else t for t in self.tiles), self.skills)
 
     def remove(self, label: str) -> "Kit":
-        return Kit(t for t in self.tiles if t.label != label)
+        return Kit((t for t in self.tiles if t.label != label), self.skills)
 
 
 def default_kit(hero: str = HERO_ID, tile_set: int = 0) -> Kit:
@@ -197,13 +236,15 @@ class Hero:
     # current charge per kit label; a tile is ready when charge == its cooldown.
     # None = all full (level start).
     charge: dict[str, int] | None = None
-    swap_charge: int = SWAP_COOLDOWN
+    swap_charge: int | None = None   # None = ready (the kit's swap cooldown)
     shield: bool = False  # Kami Brew: negates the next attack received [wiki]
     kit: Kit = DEFAULT_KIT
 
     def __post_init__(self) -> None:
         if self.charge is None:
             self.charge = {t.label: t.cooldown for t in self.kit.tiles}
+        if self.swap_charge is None:
+            self.swap_charge = self.kit.swap_cooldown
 
     def ready(self, label: str) -> bool:
         t = self.kit.by_label.get(label)
@@ -215,7 +256,7 @@ class Hero:
 
     @property
     def swap_ready(self) -> bool:
-        return self.swap_charge >= SWAP_COOLDOWN
+        return self.swap_charge >= self.kit.swap_cooldown
 
     def clone(self) -> "Hero":
         return Hero(self.x, self.facing, self.hp, list(self.queue), dict(self.charge), self.swap_charge,

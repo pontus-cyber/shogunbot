@@ -253,7 +253,8 @@ class Tracker:
                 self.notes.append(f"{lb} is not in the hand and not queued; planned as recharging")
 
         hp = h["hp"] if h["hp_max"] else 0
-        swap_charge = SWAP_COOLDOWN - min(SWAP_COOLDOWN, h.get("swap_red", 0))
+        # the red ticks under the hero count the turns his swap still needs (Quick Recovery shortens it)
+        swap_charge = kit.swap_cooldown - min(kit.swap_cooldown, h.get("swap_red", 0))
         hero = Hero(h["x"], facing, hp=hp, queue=queue, charge=plan_charge, swap_charge=swap_charge,
                     shield=self.shield, kit=kit)
 

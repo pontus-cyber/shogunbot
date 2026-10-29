@@ -120,9 +120,10 @@ def analyze(run_dir: Path) -> str:
         elif e["event"] == "skip":
             L.append(f"    SKIP: {e.get('reason', '')}")
         elif e["event"] == "kit":
-            L.append(f"  KIT at {e.get('level')}: " + ", ".join(f"{t['label']} {t['damage']}/{t['cooldown']}"
-                                                              + (f"+{t['enchant']}" if t.get("enchant") else "")
-                                                              for t in e.get("kit", [])))
+            L.append(f"  KIT at {e.get('level')}: " + ", ".join(
+                f"{t['skill']} level {t['level']}" if "skill" in t else
+                f"{t['label']} {t['damage']}/{t['cooldown']}" + (f"+{t['enchant']}" if t.get("enchant") else "")
+                for t in e.get("kit", [])))
     notes = Counter()
     for e in events:
         if e["event"] in ("tracker_notes", "blink"):

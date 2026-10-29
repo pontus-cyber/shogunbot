@@ -308,7 +308,7 @@ def apply_hero(s: State, action: str, ev: Events) -> State:
         c = ch.get(lb, 0)
         if c < cd and lb not in q and lb not in fired:
             ch[lb] = c + 1
-    if ev.swapped_with is None and h.swap_charge < SWAP_COOLDOWN:
+    if ev.swapped_with is None and h.swap_charge < h.kit.swap_cooldown:
         h.swap_charge += 1
     s.enemies = [e for e in s.enemies if e.hp > 0]
     return s
