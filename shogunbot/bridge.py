@@ -95,7 +95,7 @@ def kit_from_faces(kit: Kit, faces: list[dict], notes: list | None = None) -> Ki
             notes.append(f"{kt.label}: read {dmg}/{cd} L{used}/{levels}, kit had "
                          f"{kt.damage}/{kt.cooldown} L{kt.used}/{kt.levels}")
             tiles[i] = KitTile(kt.label, kt.tile, dmg, cd, kt.enchant, levels, used)
-    new = Kit(tiles)
+    new = Kit(tiles, kit.skills)          # the hand shows tiles only: the skills stay
     seen = set(id(f) for f in matched.values())
     extra = [f for f in faces if f.get("tile") and id(f) not in seen and f["tile"] in CAT.tiles]
     if len(faces) <= len(kit):
@@ -205,6 +205,8 @@ class Tracker:
                 if self.kit != before:
                     self.notes.append(f"kit at level start: {self.kit}")
             self.charge = {t.label: t.cooldown for t in self.kit}
+            if self.kit.fx.get("start_shield"):
+                self.shield = True        # Fortress: every fight starts with a shield [wiki]
             self.queue_track = []
             self.level = level
             self.facing_known = False

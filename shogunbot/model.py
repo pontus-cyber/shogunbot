@@ -57,7 +57,7 @@ class Kit:
     """The hero's build: tiles in hand order and the skills bought in shops ((id, level) pairs,
     data/skills.json). Immutable, so search nodes share one."""
     __slots__ = ("tiles", "by_label", "labels", "queue_actions", "cooldowns", "ready_values", "skills",
-                 "skill_levels", "max_hp", "swap_cooldown", "swap_both_ways", "_hash")
+                 "skill_levels", "max_hp", "swap_cooldown", "swap_both_ways", "fx", "_hash")
 
     def __init__(self, tiles, skills=()):
         self.tiles: tuple[KitTile, ...] = tuple(tiles)
@@ -81,6 +81,14 @@ class Kit:
         self.swap_cooldown = max(1, SWAP_COOLDOWN + sum(skill_special_cooldown(sid, n) for sid, n in self.skills))
         # Two-Way Move: the swap also works with a unit behind the hero [wiki] [rec2 f0491-f0492]
         self.swap_both_ways = any(CAT.skill(sid).effect.get("type") == "special_both_ways" for sid, _ in self.skills)
+        # the build's simulated skill effects: effect type -> amount at its level (rules.py reads these)
+        fx: dict[str, int] = {}
+        for sid, n in self.skills:
+            sk = CAT.skill(sid)
+            if sk.sim:
+                a = sk.amount(n)
+                fx[sk.effect["type"]] = fx.get(sk.effect["type"], 0) + (int(a) if isinstance(a, (int, float)) else 1)
+        self.fx = fx
         self._hash = hash((self.tiles, self.skills))
 
     def level(self, sid: str) -> int:

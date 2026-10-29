@@ -174,12 +174,31 @@ def _push(s: State, u, d: int, ev: Events, collision: int, src: str, by: Enemy |
             _damage_enemy(s, v, collision, src + "+collision", ev)
 
 
-def _hero_hit(s: State, e: Enemy, kt, spec: dict, ev: Events) -> bool:
-    """One hero tile hitting one enemy, with the tile's enchantment.
-    Returns True on an exact kill (Perfect Strike)."""
+def _skill_bonus(s: State, e: Enemy, moved: bool) -> int:
+    """Extra damage from the build's skills [wiki: Shop & Skills]: Back Stabber +1 on an enemy facing
+    away from the hero, Sniper +1 from 4 or more cells away, Close Combat +1 on an adjacent enemy unless
+    the tile moved the hero; a level adds its amount again (two Snipers give +2 [wiki])."""
+    fx = s.hero.kit.fx
+    if not fx:
+        return 0
+    h = s.hero
+    dist = abs(e.x - h.x)
+    b = 0
+    if "damage_from_behind" in fx and dist and e.facing == (1 if e.x > h.x else -1):
+        b += fx["damage_from_behind"]
+    if "damage_far" in fx and dist >= 4:
+        b += fx["damage_far"]
+    if "damage_adjacent" in fx and dist == 1 and not moved:
+        b += fx["damage_adjacent"]
+    return b
+
+
+def _hero_hit(s: State, e: Enemy, kt, spec: dict, ev: Events, moved: bool = False) -> bool:
+    """One hero tile hitting one enemy, with the tile's enchantment and the build's skills (moved:
+    the tile moved the hero before it struck). Returns True on an exact kill (Perfect Strike)."""
     src = "hero:" + kt.tile
     hp0 = e.hp
-    _damage_enemy(s, e, kt.damage, src, ev, spec.get("cannot_kill", False))
+    _damage_enemy(s, e, kt.damage + _skill_bonus(s, e, moved), src, ev, spec.get("cannot_kill", False))
     ench = kt.enchant
     if ench is None:
         return False
@@ -232,8 +251,9 @@ def _hero_attack(s: State, kt, ev: Events) -> bool:
                 if spec.get("no_target") == "edge":
                     h.x = s.cells - 1 if d > 0 else 0
             else:
+                moved = h.x != u.x - d
                 h.x = u.x - d
-                recharge |= _hero_hit(s, u, kt, spec, ev)
+                recharge |= _hero_hit(s, u, kt, spec, ev, moved)
         elif k == "dash_through":
             # HYP: passes every unit of the first group ahead, lands on the
             # first empty cell behind them and strikes each one it passed
@@ -247,7 +267,7 @@ def _hero_attack(s: State, kt, ev: Events) -> bool:
             if passed and s.in_bounds(nx):
                 h.x = nx
                 for e in passed:
-                    recharge |= _hero_hit(s, e, kt, spec, ev)
+                    recharge |= _hero_hit(s, e, kt, spec, ev, True)
     return recharge
 
 
@@ -290,6 +310,8 @@ def apply_hero(s: State, action: str, ev: Events) -> State:
             occ.x, h.x = h.x, nx
             h.swap_charge = 0
             ev.swapped_with = occ.uid
+            if h.kit.fx.get("special_damage"):
+                _damage_enemy(s, occ, h.kit.fx["special_damage"], "hero:swap", ev)   # Damaging Move [wiki]
         else:
             h.x = nx
     elif action == "turn":
@@ -310,6 +332,13 @@ def apply_hero(s: State, action: str, ev: Events) -> State:
             ch[lb] = c + 1
     if ev.swapped_with is None and h.swap_charge < h.kit.swap_cooldown:
         h.swap_charge += 1
+    extra = h.kit.fx.get("wait_recharge") if action == "wait" else 0
+    if extra:
+        # Mindfulness: waiting recharges an extra cooldown of the tiles and the special move [wiki]
+        for lb, cd in h.kit.cooldowns:
+            if lb not in q:
+                ch[lb] = min(cd, ch.get(lb, 0) + extra)
+        h.swap_charge = min(h.kit.swap_cooldown, h.swap_charge + extra)
     s.enemies = [e for e in s.enemies if e.hp > 0]
     return s
 
@@ -545,11 +574,19 @@ def _daisuke_options(s, e, d, dist, facing_hero, move_or_wait):
 
 
 def _hurt_hero(h, dmg: int, e: Enemy, ev: Events) -> None:
-    """A shield (Kami Brew) negates the next attack received [wiki]."""
+    """A shield (Kami Brew) negates the next attack received [wiki]. Skills [wiki: Shop & Skills]:
+    Iron Skin takes 1 off each hit but never to 0; Reactive Shield raises a shield when the hero is hit
+    (not while one is up; also on a 0-damage hit)."""
     if h.shield:
         h.shield = False
         ev.enemy_actions.append((e.uid, "hit absorbed by shield"))
         return
+    fx = h.kit.fx
+    if fx:
+        if fx.get("damage_taken") and dmg > 0:
+            dmg = max(1, dmg + fx["damage_taken"])
+        if "shield_on_damage" in fx:
+            h.shield = True
     h.hp -= dmg
     ev.hero_damage.append((e.kind, e.uid, dmg))
 
@@ -558,7 +595,8 @@ def _enemy_hit(s: State, e: Enemy, u, dmg: int, tile: str, ev: Events) -> None:
     if u is s.hero:
         _hurt_hero(s.hero, dmg, e, ev)
     elif u is not None:
-        _damage_enemy(s, u, dmg, f"{e.kind}:{tile}", ev)
+        # Unfriendly Fire: enemies deal +1 damage to each other [wiki]
+        _damage_enemy(s, u, dmg + s.hero.kit.fx.get("enemy_friendly_fire", 0), f"{e.kind}:{tile}", ev)
 
 
 def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:

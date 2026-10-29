@@ -73,3 +73,96 @@ def test_two_way_move_swaps_with_a_unit_behind_the_hero():
     assert "right" in legal_hero_actions(s)
     s2 = apply_hero(s, "right", Events())
     assert (s2.hero.x, s2.hero.facing, s2.enemies[0].x, s2.hero.swap_charge) == (4, -1, 3, 0)
+
+
+# ---- skills from the wiki's text [wiki: Shop & Skills], not yet seen in play ------------------------
+
+def _fire(kit, hero_x, facing, enemies, tiles):
+    """Queue the tiles and fire them; returns the state after the hero's action and its events."""
+    from shogunbot.model import Enemy
+    s = State(9, Hero(hero_x, facing, kit=kit), [Enemy(k, x, f, hp, uid=i + 1) for i, (k, x, f, hp) in enumerate(enemies)])
+    for t in tiles:
+        s = apply_hero(s, "queue:" + t, Events())
+    ev = Events()
+    return apply_hero(s, "attack", ev), ev
+
+
+def _dealt(ev):
+    return sum(d for _, _, d, _ in ev.enemy_damage)
+
+
+def test_back_stabber_sniper_and_close_combat_add_damage():
+    base = Kit.of("swirl", "arrow", "charge")
+    # Back Stabber: +1 on an enemy that faces away from the hero
+    _, ev = _fire(base.with_skill("back_stabber"), 2, 1, [("ashigaru", 4, 1, 3)], ["arrow"])
+    assert _dealt(ev) == 3
+    _, ev = _fire(base.with_skill("back_stabber"), 2, 1, [("ashigaru", 4, -1, 3)], ["arrow"])
+    assert _dealt(ev) == 2
+    # Sniper: +1 from 4 or more cells away; two Snipers +2
+    _, ev = _fire(base.with_skill("sniper"), 0, 1, [("ashigaru", 4, -1, 5)], ["arrow"])
+    assert _dealt(ev) == 3
+    _, ev = _fire(base.with_skill("sniper").with_skill("sniper"), 0, 1, [("ashigaru", 4, -1, 5)], ["arrow"])
+    assert _dealt(ev) == 4
+    _, ev = _fire(base.with_skill("sniper"), 1, 1, [("ashigaru", 4, -1, 5)], ["arrow"])
+    assert _dealt(ev) == 2
+    # Close Combat: +1 on an adjacent enemy, not when the tile moved the hero there (Charge)
+    _, ev = _fire(base.with_skill("close_combat"), 3, 1, [("ashigaru", 4, -1, 5)], ["swirl"])
+    assert _dealt(ev) == 3
+    _, ev = _fire(base.with_skill("close_combat"), 1, 1, [("ashigaru", 4, -1, 5)], ["charge"])
+    assert _dealt(ev) == 1
+
+
+def test_damaging_move_hurts_the_unit_swapped_with():
+    from shogunbot.model import Enemy
+    s = State(5, Hero(1, 1, kit=DEFAULT_KIT.with_skill("damaging_move")), [Enemy("ashigaru", 2, -1, 3, uid=1)])
+    ev = Events()
+    s2 = apply_hero(s, "right", ev)
+    assert s2.hero.x == 2 and s2.enemies[0].x == 1 and s2.enemies[0].hp == 2
+
+
+def test_iron_skin_and_reactive_shield():
+    from shogunbot.rules import _hurt_hero
+    from shogunbot.model import Enemy
+    e = Enemy("tachi", 3, -1, 2, uid=1)
+    h = Hero(2, 1, hp=7, kit=DEFAULT_KIT.with_skill("iron_skin"))
+    assert h.kit.max_hp == HERO_MAX_HP - 3
+    _hurt_hero(h, 2, e, Events())
+    _hurt_hero(h, 1, e, Events())                       # never to 0
+    assert h.hp == 5
+    h = Hero(2, 1, hp=10, kit=DEFAULT_KIT.with_skill("reactive_shield"))
+    _hurt_hero(h, 2, e, Events())
+    assert h.hp == 8 and h.shield                        # hit, then a shield
+    _hurt_hero(h, 2, e, Events())
+    assert h.hp == 8 and not h.shield                    # the shield takes the next hit
+
+
+def test_unfriendly_fire_and_mindfulness():
+    from shogunbot.rules import _enemy_hit
+    from shogunbot.model import Enemy
+    s = State(5, Hero(0, 1, kit=DEFAULT_KIT.with_skill("unfriendly_fire")),
+              [Enemy("tachi", 2, 1, 2, uid=1), Enemy("ashigaru", 3, -1, 3, uid=2)])
+    _enemy_hit(s, s.enemies[0], s.enemies[1], 2, "swirl", Events())
+    assert s.enemies[1].hp == 0                          # 2 + 1
+    kit = DEFAULT_KIT.with_skill("mindfulness")
+    s = State(5, Hero(0, 1, kit=kit, charge={"swirl": 0, "arrow": 0}, swap_charge=0))
+    s = apply_hero(s, "wait", Events())
+    assert s.hero.charge == {"swirl": 2, "arrow": 2} and s.hero.swap_charge == 2
+
+
+def test_fortress_starts_every_fight_with_a_shield():
+    from shogunbot import selfplay
+    kit = DEFAULT_KIT.with_skill("fortress")
+    assert kit.max_hp == HERO_MAX_HP - 2
+    seen = []
+    orig = selfplay.play_level
+    def spy(seed, level_i, lp, s, *a, **k):
+        seen.append(s.hero.shield)
+        return s, True
+    selfplay.play_level = spy
+    try:
+        selfplay.run_once(0, 1, kit=kit, start="bamboo-2", scenario="stress")
+    except Exception:
+        pass
+    finally:
+        selfplay.play_level = orig
+    assert seen and all(seen)
