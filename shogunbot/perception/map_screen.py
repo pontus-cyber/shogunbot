@@ -19,6 +19,7 @@ Whispering Caves and Hibiku Wastelands (the paths cross) [obs: that map].
 
 from __future__ import annotations
 
+import cv2
 import numpy as np
 
 from ..catalogue import CAT
@@ -43,22 +44,20 @@ def keyboard_mode(rgb: np.ndarray) -> bool:
 
 
 def _boxes(rgb: np.ndarray) -> list[tuple[int, int, int, int]]:
-    """(x0, y0, x1, y1) of the dark tooltip boxes on the map."""
-    from scipy import ndimage
+    """(x0, y0, x1, y1) of the dark tooltip boxes on the map. OpenCV labels the dark pixels
+    (4-connected): 0.25-0.26 used scipy, which the bot's venv on the PC does not have, so the
+    map step crashed after the boss [runs 20261029-120329 and -122345]."""
     x0, x1, y0, y1 = MAP_AREA
     reg = rgb[y0:y1, x0:x1].astype(np.int16)
     mx, mn = reg.max(axis=2), reg.min(axis=2)
-    dark = (mx - mn < 12) & (mx > 25) & (mx < 70)
-    lab, n = ndimage.label(dark)
+    dark = ((mx - mn < 12) & (mx > 25) & (mx < 70)).astype(np.uint8)
+    n, _, stats, _ = cv2.connectedComponentsWithStats(dark, connectivity=4)
     out = []
-    for i, sl in enumerate(ndimage.find_objects(lab), 1):
-        if sl is None:
-            continue
-        px = int((lab[sl] == i).sum())
-        h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
+    for i in range(1, n):
+        bx, by, w, h, px = (int(v) for v in stats[i])
         if px >= TIP_MIN_PX and px / (h * w) >= TIP_FILL:
-            out.append((x0 + sl[1].start, y0 + sl[0].start, x0 + sl[1].stop, y0 + sl[0].stop))
-    return out
+            out.append((x0 + bx, y0 + by, x0 + bx + w, y0 + by + h))
+    return sorted(out, key=lambda b: (b[1], b[0]))
 
 
 def _lines(rgb: np.ndarray, box) -> list[str]:

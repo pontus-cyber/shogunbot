@@ -52,7 +52,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.27"
+VERSION = "0.27.1"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
