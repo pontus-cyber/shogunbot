@@ -33,11 +33,25 @@ tied; at 48 Spear won, Swirl and Arrow each died once), and a faster decision
 is not worth a worse one [user 2026-10-29]. The worker processes start once
 and stay for the bot's lifetime (pool()); each decision used to start seven
 new ones.
+
+Fight cache (0.29) [user review of run 20261029-154200: reward decisions took
+4.6 of 16 minutes]. A simulated fight is fixed by the kit (each tile's label,
+tile, damage, cooldown and enchantment, in kit order), the HP, the seed, the
+depth, the scenario and the simulator itself, so a fight already played is not
+played again: a shrine's 'skip' kit is the kit the last decision chose, at the
+same HP, and every run's first tile choice starts from the same kit. Of the
+1,008 fights of that run, 144 repeated a fight of the same run and 144 more one
+of an earlier run (with the same simulator). Results are kept for the bot's
+lifetime and on disk (CACHE_FILE, runs/fight_cache.jsonl on the PC) under a
+fingerprint of the simulator's code and data, so a new version starts afresh;
+the decisions are the same as without the cache.
 """
 
 from __future__ import annotations
 
 import atexit
+import hashlib
+import json
 import math
 import multiprocessing as mp
 import os
@@ -45,6 +59,7 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass, field
 from functools import lru_cache
+from pathlib import Path
 
 from .catalogue import CAT
 from .model import HERO_MAX_HP, Kit, KitTile
@@ -219,6 +234,67 @@ def close_pool() -> None:
 atexit.register(close_pool)
 
 
+# ---------------------------------------------------------------- fight cache
+CACHE_FILE: Path | None = None    # set by the bot (runs/fight_cache.jsonl); None: memory only
+_CACHE: dict = {}                 # key -> (score, win, hp, turns, stalled, level reached, [])
+_CACHE_LOADED: Path | None = None
+_FP: str | None = None
+
+
+def fingerprint() -> str:
+    """The simulator's code and data: every module of the package's top level and every data file."""
+    global _FP
+    if _FP is None:
+        root = Path(__file__).parent
+        h = hashlib.sha1()
+        for f in sorted(root.glob("*.py")) + sorted((root / "data").glob("*.json")):
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+        _FP = h.hexdigest()[:16]
+    return _FP
+
+
+def fight_key(kit_list: list, hp: int, seed: int, depth: int, scenario: str) -> str:
+    """What fixes a simulated fight. A tile's levels and used levels change no fight."""
+    tiles = [[t["label"], t["tile"], t["damage"], t["cooldown"], t.get("enchant")] for t in kit_list]
+    return json.dumps([fingerprint(), tiles, hp, seed, depth, scenario], separators=(",", ":"))
+
+
+def _cache_load() -> None:
+    """Read CACHE_FILE's fights of this fingerprint once; lines of other versions are dropped."""
+    global _CACHE_LOADED
+    if CACHE_FILE is None or _CACHE_LOADED == CACHE_FILE:
+        return
+    _CACHE_LOADED = CACHE_FILE
+    fp, keep = fingerprint(), []
+    try:
+        if Path(CACHE_FILE).exists():
+            for line in Path(CACHE_FILE).read_text(encoding="utf-8").splitlines():
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if json.loads(d["k"])[0] == fp:
+                    _CACHE[d["k"]] = tuple(d["f"]) + ([],)
+                    keep.append(line)
+            Path(CACHE_FILE).write_text("".join(l + "\n" for l in keep), encoding="utf-8")
+    except Exception:
+        pass                              # the cache must never stop a decision
+
+
+def _cache_store(new: dict) -> None:
+    for k, f in new.items():
+        _CACHE[k] = tuple(f[:6]) + ([],)  # without the viewer's replay of the fight
+    if CACHE_FILE is None or not new:
+        return
+    try:
+        with open(CACHE_FILE, "a", encoding="utf-8") as fh:
+            for k, f in new.items():
+                fh.write(json.dumps({"k": k, "f": list(f[:6])}, separators=(",", ":")) + "\n")
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------- simulation
 def _job(args):
     """One simulated fight: (score, win, hp left, turns, stalled, level reached, its turns for the
@@ -306,6 +382,24 @@ class _Valuation:
         self.feed_s, self.feeds, self.last_feed = 0.0, 0, 0.0
         for o in opts:
             o.scores, o.fights, o.stopped, o.out, o.above = [], [], None, False, False
+        # fights played before, by this or an earlier decision (the fight cache): taken as played
+        self.cached, self.new = 0, {}
+        self.caching = self.job is _job
+        if self.caching:
+            _cache_load()
+            for o in opts:
+                kl = o.kit.to_list()
+                for i, seed in enumerate(seeds):
+                    f = _CACHE.get(fight_key(kl, hp, seed, depth, scenario))
+                    if f is not None:
+                        self.got[id(o)][i] = f
+                        self.cached += 1
+
+    def _got(self, o: Option, i: int, f) -> None:
+        self.got[id(o)][i] = f
+        self.fights += 1
+        if self.caching:
+            self.new[fight_key(o.kit.to_list(), self.hp, self.seeds[i], self.depth, self.scenario)] = f
 
     # ---- order and looks
     def next_job(self, sent: set):
@@ -407,8 +501,7 @@ class _Valuation:
                 done, _ = wait(list(inflight), timeout=FEED_S, return_when=FIRST_COMPLETED)
                 for f in done:
                     o, i = inflight.pop(f)
-                    self.got[id(o)][i] = f.result()
-                    self.fights += 1
+                    self._got(o, i, f.result())
                 self.feed()
         finally:
             for f in inflight:            # fights of options that stopped: not waited for
@@ -420,8 +513,7 @@ class _Valuation:
             if nj is None:
                 return
             o, i = nj
-            self.got[id(o)][i] = self.job((o.kit.to_list(), self.hp, self.seeds[i], self.depth, self.scenario))
-            self.fights += 1
+            self._got(o, i, self.job((o.kit.to_list(), self.hp, self.seeds[i], self.depth, self.scenario)))
             self.feed()
 
     # ---- progress feed
@@ -521,10 +613,11 @@ def evaluate(opts: list[Option], hp: int, seeds=SEEDS, depth: int = DEPTH, worke
     marks = sorted({n for n in looks if 0 < n < len(seeds)} | {len(seeds)}) if stop_z else [len(seeds)]
     v = _Valuation(opts, seeds, hp, depth, scenario, marks, stop_z, workers, progress, job or _job)
     v.run()
+    _cache_store(v.new)
     paired(opts)
     v.feed(force=True, phase="valued")
-    return {"fights": v.fights, "seeds": max((len(o.scores) for o in opts), default=0), "of": len(seeds),
-            "feed_s": round(v.feed_s, 3), "feeds": v.feeds, "seconds": round(time.time() - v.t0, 1)}
+    return {"fights": v.fights, "cached": v.cached, "seeds": max((len(o.scores) for o in opts), default=0),
+            "of": len(seeds), "feed_s": round(v.feed_s, 3), "feeds": v.feeds, "seconds": round(time.time() - v.t0, 1)}
 
 
 def _stops(opts: list[Option], stats) -> str:
@@ -575,6 +668,56 @@ def decide_tile(kit: Kit, offers: list[dict], hp: int, *, seeds=SEEDS, depth: in
         return Decision(opts[0], opts, "no offered tile the simulator can play", 0.0)
     stats = evaluator(opts, hp, seeds, depth, workers, scenario, progress=progress)
     return _tradeoff(opts, "tile choice", t0, stats)
+
+
+# The coins' worth when kept, in the valuation's HP: nothing within a run the bot plays now. Coins
+# buy only in shops, and the one shop of a --full run (between Bamboo Grove and the second region)
+# is the last before the run ends at the second boss [runs 20261029-124921, -154200].
+COIN_HP = 0.0
+
+
+def decide_shop(kit: Kit, upgrade_id: str | None, price: int | None, coins: int | None, hp: int, *,
+                seeds=SEEDS, depth: int = DEPTH, workers: int = WORKERS, scenario: str = SCENARIO,
+                evaluator=None, progress=None) -> Decision:
+    """The shop statue's upgrade against keeping the coins [user review of run 20261029-154200:
+    '+1 UPGRADE SLOT' for 10 coins with 26 held, not bought]. The same options as at a shrine
+    ('skip' = keep the coins) and the same simulation, with two differences, as a purchase costs
+    coins: nothing is bought unread or unaffordable, and a trade-off is bought only when its best
+    option scores above keeping the coins by more than the noise (difference minus 2 standard
+    errors above price x COIN_HP), not merely when it is no net loss. A pure gain is bought, its
+    tile picked as at a shrine; Sacrifice and unknown effects never."""
+    t0 = time.time()
+    up = CAT.upgrades.get(upgrade_id) if upgrade_id else None
+    opts = upgrade_options(kit, upgrade_id) if up is not None else [Option("skip", kit)]
+    skip = opts[0]
+    if up is None:
+        return Decision(skip, opts, "shop: the statue's upgrade was not read; coins kept", 0.0)
+    if price is None or coins is None:
+        return Decision(skip, opts, f"shop: {'price' if price is None else 'coins'} not read; coins kept", 0.0)
+    if price > coins:
+        return Decision(skip, opts, f"shop: {up.name} costs {price}, {coins} coins held; coins kept", 0.0)
+    if not offerable(up):
+        return Decision(skip, opts, f"shop: {up.name} is never bought (sacrifice or unknown effect)", 0.0)
+    if len(opts) == 1:
+        return Decision(skip, opts, f"shop: no tile can take {up.name}; coins kept", 0.0)
+    if pure_gain(up):
+        d = decide_upgrade(kit, upgrade_id, hp, seeds=seeds, depth=depth, workers=workers, scenario=scenario,
+                           evaluator=evaluator, progress=progress)
+        d.rule = f"shop: {up.name} for {price} of {coins} coins, a " + d.rule
+        return d
+    stats = (evaluator or evaluate)(opts, hp, seeds, depth, workers, scenario, progress=progress)
+    secs = round(time.time() - t0, 1)
+    stats = stats if isinstance(stats, dict) else {}
+    note = _stops(opts, stats)
+    cost = price * COIN_HP
+    above = [o for o in opts[1:] if not o.out and o.diff is not None and o.diff - NOISE_Z * (o.se or 0.0) > cost]
+    if not above:
+        return Decision(skip, opts, f"shop: {up.name} for {price}: no option scores above keeping the coins by "
+                                    f"more than the noise; coins kept" + note, secs, stats)
+    best = _best(above)
+    return Decision(best, opts, f"shop: {up.name} for {price} of {coins} coins: {best.name} scores "
+                                f"{best.diff:+.2f} +- {best.se or 0.0:.2f} HP against keeping the coins" + note,
+                    secs, stats)
 
 
 def _tradeoff(opts: list[Option], what: str, t0: float, stats=None) -> Decision:

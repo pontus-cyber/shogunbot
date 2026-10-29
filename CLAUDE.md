@@ -7,7 +7,7 @@ Game rules with sources are in `claude/stage1-domain-model.md`.
 - The bot runs on the user's Windows PC: `C:\Users\Pontu\claudegamedevwagents\shogunbot\`.
 - It uses the sibling venv `..\local-game-MCP\.venv` (dxcam capture and SendInput come from `local_game_mcp`).
 - The user has little programming experience. He runs `.\play.bat` and reports turn numbers. Claude does all code work.
-- Run data (`runs/`, `collect/`) stays on the PC and is never committed. Review it with `python3 shogunbot/analyze.py <run_id>` through the device shell (plain Python; works in the Linux VM).
+- Run data (`runs/`, `collect/`) stays on the PC and is never committed. Review it with `python3 shogunbot/analyze.py <run_id>` through the device shell (plain Python; works in the Linux VM). The reward valuation's fight cache (`runs/fight_cache.jsonl`, 0.29) stays there too: its entries carry a fingerprint of the simulator's code and data, so a new version starts it afresh and old entries are dropped when it loads.
 
 ## Ship procedure (every change)
 1. `python -m pytest -q tests` must pass.

@@ -4,15 +4,18 @@
 (collect/20261028-190026 f0285-f0318) is the second sample. Frame tests skip when the frames are
 missing."""
 
+import json
+
 import numpy as np
-from test_bot_flow import FakeGW, frame, make_bot
+import pytest
+from test_bot_flow import DATA, FakeGW, frame, make_bot
 
 from shogunbot import behaviour
 from shogunbot.bridge import Tracker
 from shogunbot.catalogue import CAT
 from shogunbot.model import Enemy, Hero, Kit, State
 from shogunbot.perception.perceive import perceive, read_stack
-from shogunbot.planner import plan
+from shogunbot.planner import plan, principal_variation
 from shogunbot.rules import _boss_queue, step
 
 R = "runs/20261029-124921/frames/"
@@ -148,3 +151,43 @@ def test_a_bubble_off_its_units_centre_is_read():
     assert [(e["kind"], e["x"], e["queue"]) for e in p.enemies] == [("rei", 2, ["dragon_punch"])]
     _, p = _read(R + "t0095_before.png")
     assert [(e["kind"], e["x"], e["queue"]) for e in p.enemies] == [("tachi", 0, ["swirl"]), ("yari_master", 3, ["spear"])]
+
+
+# ---- his '+' telegraph [user review of run 20261029-154200, point 1] ---------------------------
+R2 = "runs/20261029-154200/frames/"
+KIT2 = ("swirl", "arrow", "katana")
+
+
+def _logged(run):
+    path = DATA / f"runs/{run}/turns.jsonl"
+    if not path.exists():
+        pytest.skip("run logs not available")
+    return {json.loads(l)["turn"]: json.loads(l) for l in open(path, encoding="utf-8")}
+
+
+def test_his_white_plus_reads_as_a_load():
+    # t159 and t162: a red bubble with a small white '+' over him, and he loaded in that phase (Earth
+    # Impale, then its Swirl). 0.28 counted only the yellow '+' and planned him as holding
+    for rel, x in ((R2 + "t0159_before.png", 1), (R2 + "t0162_before.png", 2)):
+        _, p = _read(rel, kit=KIT2)
+        boss = next(e for e in p.enemies if e["kind"] == "iwao")
+        assert (boss["x"], boss["intent"]) == (x, "queue")
+
+
+def test_read_as_a_load_t159_does_not_swap_into_the_corner():
+    # t159 (". J19> <H" with a Yari Master in cell 0): 0.28 swapped past him into cell 1, with the
+    # swap then recharging for 4 turns; his Earth Impale and Swirl hit for 2 at t164 whatever the
+    # hero did from t160 on
+    recs = _logged("20261029-154200")
+    s = State.from_dict(recs[159]["state"])
+    iwao = next(e for e in s.enemies if e.kind == "iwao")
+    assert iwao.intent == "hold" and recs[159]["decision"]["action"] == "left"     # as 0.28 read and played it
+    iwao.intent = "queue"
+    d = plan(s, 5)
+    value = {c["action"]: c["value"] for c in d.candidates}
+    assert d.action != "left" and value["left"] < d.value - 1500           # the swap now shows its hit
+    s = State.from_dict(recs[160]["state"])
+    d = plan(s, 5)
+    for c in d.candidates:                                                  # t160: the trap was set
+        line, _ = principal_variation(s, d, c["action"], 5)
+        assert sum(p["hero_damage"] for p in line) == 2

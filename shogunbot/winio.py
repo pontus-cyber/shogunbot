@@ -15,19 +15,15 @@ from local_game_mcp import windowing
 from local_game_mcp.backends import sendinput
 from local_game_mcp.capture import CaptureManager
 
-from .display import move_to, on_primary
+from .display import NotOnPrimary, home_rect, on_primary, placed
 
 TITLE_REGEX = r"(?i)shogun"
 HOLD_S = 0.06
-SWP_NOSIZE, SWP_NOZORDER, SWP_NOACTIVATE = 0x0001, 0x0004, 0x0010
-SW_MAXIMIZE, SW_RESTORE = 3, 9
+SWP_NOZORDER, SWP_NOACTIVATE = 0x0004, 0x0010
+SW_RESTORE = 9
 
 
 class GameNotFound(RuntimeError):
-    pass
-
-
-class NotOnPrimary(RuntimeError):
     pass
 
 
@@ -52,6 +48,7 @@ def _user32():
         u.GetSystemMetrics.argtypes, u.GetSystemMetrics.restype = [ctypes.c_int], ctypes.c_int
         u.GetWindowRect.argtypes, u.GetWindowRect.restype = [wintypes.HWND, ctypes.POINTER(_RECT)], wintypes.BOOL
         u.IsZoomed.argtypes, u.IsZoomed.restype = [wintypes.HWND], wintypes.BOOL
+        u.IsIconic.argtypes, u.IsIconic.restype = [wintypes.HWND], wintypes.BOOL
         u.ShowWindow.argtypes, u.ShowWindow.restype = [wintypes.HWND, ctypes.c_int], wintypes.BOOL
         u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
                                    ctypes.c_int, ctypes.c_uint]
@@ -89,6 +86,9 @@ class GameWindow:
         self.title_regex = title_regex
         self.cap = CaptureManager()
         self.last_click = None    # (target x, y, cursor x, y) of the last click, screen pixels
+        self.home = None          # the client rect last seen on the primary display
+        self.notify = None        # callback(event, **fields): the bot logs window moves with it
+        self.should_stop = None   # callback: True when the user asks to stop (F8) during a wait
 
     # ---- window ---------------------------------------------------------
     def hwnd(self) -> int:
@@ -100,33 +100,39 @@ class GameWindow:
     def rect(self) -> tuple[int, int, int, int]:
         return windowing.client_rect_screen(self.hwnd())
 
-    def ensure_on_primary(self) -> tuple | None:
-        """Move the window onto the primary display when its client area is elsewhere: capture
-        reads the primary output only (display.py). A maximised window is restored, moved and
-        maximised again (Windows maximises it on the display it is on). Returns (from, to) client
-        rects when it moved, None when it was already there; NotOnPrimary when moving failed."""
+    def _move_home(self) -> tuple[int, int, int, int]:
+        """Put the window back on the primary display where its client area was last seen there,
+        at that size (display.home_rect); a maximised or minimised window is restored first.
+        Returns the client rect after the move."""
         h = self.hwnd()
-        before = self.rect()
-        if on_primary(before, primary_size()):
-            return None
         u = _user32()
-        maxed = bool(u.IsZoomed(h))
-        if maxed:
+        if u.IsZoomed(h) or u.IsIconic(h):
             u.ShowWindow(h, SW_RESTORE)
             time.sleep(0.4)
-        to = move_to(self.rect(), outer_rect(h), primary_size())
-        if to is not None:
-            u.SetWindowPos(h, 0, to[0], to[1], 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
-            time.sleep(0.4)
-        if maxed:
-            u.ShowWindow(h, SW_MAXIMIZE)
-            time.sleep(0.4)
+        x, y, w, hh = home_rect(self.rect(), outer_rect(h), primary_size(), self.home)
+        u.SetWindowPos(h, 0, x, y, w, hh, SWP_NOZORDER | SWP_NOACTIVATE)
         time.sleep(1.0)                # let the game redraw at its new place
-        after = self.rect()
+        return self.rect()
+
+    def ensure_on_primary(self) -> tuple | None:
+        """At the start of a run (and of `collect`): move the window onto the primary display when
+        its client area is elsewhere. Returns (from, to) client rects when it moved, None when it
+        was there already; NotOnPrimary when moving failed."""
+        before = self.rect()
+        if on_primary(before, primary_size()):
+            self.home = before
+            return None
+        after = self._move_home()
         if not on_primary(after, primary_size()):
-            raise NotOnPrimary(f"the game window is at {after}, not on the primary display {primary_size()}; "
-                               "move it there and start again")
+            raise NotOnPrimary(f"the game window is at {after}, not on the primary display {primary_size()}")
+        self.home = after
         return before, after
+
+    def placed_rect(self) -> tuple[int, int, int, int]:
+        """The client rect, on the primary display (display.placed): checked before every capture."""
+        r = placed(self.rect, self._move_home, primary_size, self.notify, self.should_stop)
+        self.home = r
+        return r
 
     def focus(self) -> bool:
         h = self.hwnd()
@@ -140,8 +146,8 @@ class GameWindow:
 
     # ---- capture --------------------------------------------------------
     def grab(self) -> np.ndarray:
-        """Client-area frame as RGB uint8 (H, W, 3)."""
-        bgra = self.cap.grab_region(self.rect())
+        """Client-area frame as RGB uint8 (H, W, 3), with the window on the primary display."""
+        bgra = self.cap.grab_region(self.placed_rect())
         return np.ascontiguousarray(bgra[..., 2::-1])
 
     def grab_stable(self, settle_s: float = 0.25, timeout_s: float = 4.0, tol: float = 1.5) -> np.ndarray:

@@ -190,6 +190,78 @@ def test_shop_reads_on_every_recorded_shop():
         assert (d["upgrade"], d["upgrade_price"], d["coins"]) == (up, price, coins), rel
 
 
+# ---- buying the statue's upgrade [user review of run 20261029-154200, point 3] -----------------
+def test_shop_buys_the_statues_upgrade_when_the_valuation_says_so(tmp_path, monkeypatch):
+    # the recording's first shop: -2 COOLDOWN for 20 with 27 coins; the user put the 2/3 Swirl in
+    # the statue (f0176), clicked UPGRADE and had 7 coins left (f0178)
+    from shogunbot import rewards
+    from shogunbot.model import Kit
+    from test_bot_flow import prefer
+    monkeypatch.setattr(rewards, "evaluate", prefer("upgrade:swirl"))
+    gw = _GW([(frame(FULL + "f0172_CLICK.png"), [(790, 900, 892, 1008)]),       # the 2/3 Swirl in the hand
+              (frame(FULL + "f0176_idle.png"), [(344, 722, 674, 790)]),         # in the mouth, UPGRADE lit
+              (frame(FULL + "f0178_idle.png"), [SHOP_GO_BOX]),                  # 7 coins left
+              (frame(FULL + "f0183_CLICK.png"), [])])
+    b = make_bot(tmp_path, gw)
+    b.rec, b.restart_after, b.shop_n = _Rec(), False, 0
+    tr = Tracker(Kit.of("swirl", "arrow", "swirl"))
+    assert b._shop(gw.grab(), tr, 10) is True
+    assert gw.clicks == [(840, 954), (509, 756), (1651, 755)]               # tile, UPGRADE, GO
+    bought = next(e for e in _events(b) if e["event"] == "shop_bought")
+    assert (bought["choice"], bought["coins_before"], bought["coins_after"]) == ("upgrade:swirl", 27, 7)
+    assert (tr.kit["swirl"].cooldown, tr.kit["swirl"].used) == (1, 1)
+
+
+def test_shop_keeps_the_coins_when_the_purchase_does_not_show(tmp_path, monkeypatch):
+    # UPGRADE clicked but the coins did not drop (the screen stays as at f0176): the kit is not
+    # changed, the tile is clicked back out of the mouth, then GO
+    from shogunbot import rewards
+    from shogunbot.model import Kit
+    from test_bot_flow import prefer
+    monkeypatch.setattr(rewards, "evaluate", prefer("upgrade:swirl"))
+    gw = _GW([(frame(FULL + "f0172_CLICK.png"), [(790, 900, 892, 1008)]),
+              (frame(FULL + "f0176_idle.png"), [(456, 508, 560, 616)]),         # only the mouth reacts
+              (frame(FULL + "f0172_CLICK.png"), [SHOP_GO_BOX]),
+              (frame(FULL + "f0183_CLICK.png"), [])])
+    b = make_bot(tmp_path, gw)
+    b.rec, b.restart_after, b.shop_n = _Rec(), False, 0
+    tr = Tracker(Kit.of("swirl", "arrow", "swirl"))
+    assert b._shop(gw.grab(), tr, 10) is True
+    assert gw.clicks == [(840, 954), (509, 756), (509, 756), (508, 562), (1651, 755)]
+    assert any(e["event"] == "shop_buy_failed" for e in _events(b))
+    assert tr.kit["swirl"].cooldown == 3
+
+
+def test_shop_decisions_on_the_bots_shops():
+    from shogunbot import rewards
+    from shogunbot.model import Kit, KitTile
+    kit = Kit([KitTile("swirl", "swirl", 5, 7, None, 3, 2), KitTile("arrow", "arrow", 2, 5, None, 3, 0),
+               KitTile("katana", "katana", 2, 0, None, 4, 0)])        # run 20261029-154200 at its shop
+    d = rewards.decide_shop(kit, "slot_1", 10, 26, 10)
+    assert d.best.name == "upgrade:swirl" and d.best.kit["swirl"].levels == 4   # a pure gain: bought
+    assert rewards.decide_shop(kit, "slot_1", 10, 9, 10).best.name == "skip"    # not affordable
+    assert rewards.decide_shop(kit, "slot_1", None, 26, 10).best.name == "skip"  # price unread
+    assert rewards.decide_shop(kit, "sacrifice", None, 23, 10).best.name == "skip"   # run 124921's shop
+    assert rewards.decide_shop(kit, None, 20, 26, 10).best.name == "skip"
+
+
+def test_a_shop_trade_off_is_bought_only_above_keeping_the_coins(monkeypatch):
+    from shogunbot import rewards
+    from shogunbot.model import Kit
+
+    def ev(diff, se):
+        def f(opts, hp, seeds, depth, workers, scenario, **kw):
+            for o in opts:
+                o.scores = [5.0] * 4
+            for o in opts[1:]:
+                o.diff, o.se = diff, se
+        return f
+    kit = Kit.of("swirl", "arrow")
+    assert rewards.decide_shop(kit, "damage_2_cooldown_3", 20, 30, 10, evaluator=ev(0.5, 0.1)).best.name != "skip"
+    # within the noise: kept (a shrine would take it, rewards._tradeoff)
+    assert rewards.decide_shop(kit, "damage_2_cooldown_3", 20, 30, 10, evaluator=ev(0.1, 0.2)).best.name == "skip"
+
+
 def test_shop_stops_when_go_does_not_leave(tmp_path):
     gw = _GW([(frame(FULL + "f0172_CLICK.png"), [])])
     b = make_bot(tmp_path, gw)
@@ -328,7 +400,9 @@ def test_map_takes_a_shop_at_once(tmp_path):
 
 def test_keyboard_mode_left_on_is_turned_off_by_a_click(tmp_path, monkeypatch):
     # the shop in keyboard mode: one click on an empty spot first, then the shop as usual
-    from shogunbot import bot as B
+    from shogunbot import bot as B, rewards
+    keep = lambda kit, *a, **k: rewards.Decision(rewards.Option("skip", kit), [rewards.Option("skip", kit)], "test")
+    monkeypatch.setattr(rewards, "decide_shop", keep)          # this test is about keyboard mode, not buying
     spot = (round(B.MOUSE_MODE_SPOT[0] * 1920), round(B.MOUSE_MODE_SPOT[1] * 1080))
     gw = _GW([(frame(KBD + "k5_shop_kbd.jpg"), [(spot[0] - 5, spot[1] - 5, spot[0] + 5, spot[1] + 5)]),
               (frame(FULL + "f0172_CLICK.png"), [SHOP_GO_BOX]), (frame(FULL + "f0183_CLICK.png"), [])])

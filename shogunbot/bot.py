@@ -36,6 +36,7 @@ import json
 import queue
 import threading
 import time
+import types
 
 import numpy as np
 
@@ -45,6 +46,7 @@ from .catalogue import CAT
 from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HERO_MAX_HP
 from .perception import map_screen, reward_screen, screens, shop_screen
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
+from .perception.tiles import FACE_H, FACE_W
 from .planner import STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_weights
 from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS, free_action, legal_hero_actions, step
 from .live import LiveView
@@ -52,7 +54,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.28"
+VERSION = "0.29"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -217,6 +219,7 @@ class Bot:
                  stage1: bool = True):
         self.gw = GameWindow()
         self.log = RunLogger("runs", frame_policy)
+        rewards.CACHE_FILE = self.log.root / "fight_cache.jsonl"   # simulated fights kept between runs
         self.live = LiveView()            # runs/<id>/live.json for `python -m shogunbot watch`
         self.log.on_event = self.live.event
         self.rec = Recorder()
@@ -362,7 +365,7 @@ class Bot:
         best, opts, secs, st = dec.best, dec.options, dec.seconds, dec.stats or {}
         self.log.event("reward_decision", layout=rs.kind, upgrade=rs.upgrade, level=level, hp=hp, seconds=secs,
                        workers=rewards.WORKERS, choice=best.name, rule=dec.rule, options=[o.summary() for o in opts],
-                       fights=st.get("fights"), seeds=st.get("seeds"), seeds_max=st.get("of"),
+                       fights=st.get("fights"), cached=st.get("cached"), seeds=st.get("seeds"), seeds_max=st.get("of"),
                        feed_ms=round(1000 * st.get("feed_s", 0.0)), feeds=st.get("feeds"))
         self.live.reward({"layout": rs.kind, "upgrade": rs.upgrade, "level": level, "hp": hp, "seconds": round(secs, 1),
                           "choice": best.name, "rule": dec.rule, "options": [o.summary() for o in opts],
@@ -373,7 +376,8 @@ class Bot:
         scored = [o for o in opts if o.scores]
         self.say("   " + (", ".join(f"{o.name} {o.value:+.2f} ({len(o.scores)})"
                                     for o in sorted(scored, key=lambda o: -o.value)) or "no simulation needed")
-                 + f"  ({secs:.0f}s{', ' + str(st['fights']) + ' fights' if st.get('fights') else ''})"
+                 + f"  ({secs:.0f}s{', ' + str(st['fights']) + ' fights' if st.get('fights') else ''}"
+                   f"{', ' + str(st['cached']) + ' from the cache' if st.get('cached') else ''})"
                  + f" -> {best.name}  [{dec.rule}]")
         out = self._take(frame, rs, best, tr, dec)
         self.live.valuation({"phase": "done", "outcome": out})
@@ -752,23 +756,35 @@ class Bot:
         return False
 
     # ------------------------------------------------------------------ shop
-    def _shop(self, frame) -> bool:
-        """The shop between regions [user 2026-10-29: read the offers and prices; at first just
-        leave]: what perception/shop_screen.py reads (the statue's upgrade and price, the counter's
-        prices, the coins) is logged, then GO. True once the shop has gone."""
+    def _shop(self, frame, tr=None, hp: int | None = None) -> bool:
+        """The shop between regions [user 2026-10-29: read the offers and prices]: what
+        perception/shop_screen.py reads (the statue's upgrade and price, the counter's prices, the
+        coins) is logged; the statue's upgrade is bought when rewards.decide_shop says so [user
+        review of run 20261029-154200]; then GO. Without a tracker (tests of 0.25-0.28) it only
+        reads and leaves. True once the shop has gone."""
         self.shop_n += 1
         self._park_mouse()                    # a hover tooltip can cover a price [f0175]
         time.sleep(0.3)
         frame = self.gw.grab_stable(settle_s=0.25, timeout_s=3.0)
+        hand: list = []
         try:
-            offer = shop_screen.read(normalize(frame))
+            f = normalize(frame)
+            offer = shop_screen.read(f)
+            if tr is not None:
+                hand = reward_screen.read_hand(f, tuple(set(t.tile for t in tr.kit) | BASE_POOL), dots=True)
         except Exception as e:                # reading must never keep the bot in the shop
             self.log.exception("shop_read", e, frame=frame)
             offer = {}
         self.log.save_frame(frame, f"shop_{self.shop_n}")
         self.log.event("shop", n=self.shop_n, **offer)
         self.live.status("shop", **{k: offer.get(k) for k in ("upgrade", "coins")})
-        self.say(f"shop: {shop_screen.describe(offer)}; GO")
+        self.say(f"shop: {shop_screen.describe(offer)}")
+        if tr is not None and offer:
+            try:
+                frame = self._shop_buy(frame, offer, hand, tr, hp if hp is not None else HERO_MAX_HP)
+            except Exception as e:            # buying must never keep the bot in the shop
+                self.log.exception("shop_buy", e, frame=frame)
+        self.say("shop: GO")
         for attempt in range(1, SHOP_GO_TRIES + 1):
             self.click(*screens.SHOP_GO, frame, screen="shop", attempt=attempt)
             time.sleep(1.5)
@@ -777,6 +793,102 @@ class Bot:
                 return True
         self.log.save_frame(frame, "shop_stuck")
         return False
+
+    def _shop_look(self, tr):
+        """The shop again after a click: the frame, and the hand, the statue's mouth, UPGRADE and
+        the coins as a reward-screen-like record for _in_statue."""
+        frame = self.gw.grab_stable(settle_s=0.25, timeout_s=3.0)
+        f = normalize(frame)
+        tiles = tuple(set(t.tile for t in tr.kit) | BASE_POOL)
+        look = types.SimpleNamespace(hand=reward_screen.read_hand(f, tiles, dots=True),
+                                     statue=shop_screen.statue_tile(f, tiles), upgrade_lit=shop_screen.upgrade_lit(f),
+                                     coins=shop_screen.number_in(f, shop_screen.COINS_BOX))
+        return frame, look
+
+    def _shop_buy(self, frame, offer: dict, hand: list, tr, hp: int):
+        """Value the statue's upgrade against keeping the coins (rewards.decide_shop) and buy it when
+        that wins: the tile into the statue's mouth (checked as at a shrine), then UPGRADE, checked by
+        the coins dropping [collect/20261028-190026 f0172-f0178]. A tile left in the mouth after a
+        failed purchase is clicked back into the hand. Returns the last frame."""
+        notes: list = []
+        if hand:
+            tr.kit = kit_from_faces(tr.kit, hand, notes)
+        up, price, coins = offer.get("upgrade"), offer.get("upgrade_price"), offer.get("coins")
+        printed = [time.time()]
+
+        def feed(st):
+            self.live.valuation(st)
+            if st.get("phase") == "running" and time.time() - printed[0] >= CONSOLE_FEED_S:
+                printed[0] = time.time()
+                self.say("   " + rewards.progress_line(st))
+        name = CAT.upgrades[up].name if up in CAT.upgrades else (up or "statue upgrade not read")
+        self.live.valuation({"layout": "shop", "upgrade": up, "price": price, "coins": coins, "hp": hp,
+                             "upgrade_text": f"{name} for {price if price is not None else '?'} coins "
+                                             f"({coins if coins is not None else '?'} held)",
+                             "kit": [f"{t.label} {t.damage}/{t.cooldown}" for t in tr.kit], "phase": "starting"},
+                            reset=True)
+        dec = rewards.decide_shop(tr.kit, up, price, coins, hp, progress=feed)
+        best, opts, st = dec.best, dec.options, dec.stats or {}
+        self.log.event("shop_decision", upgrade=up, price=price, coins=coins, hp=hp, kit=tr.kit.to_list(), notes=notes,
+                       seconds=dec.seconds, choice=best.name, rule=dec.rule, options=[o.summary() for o in opts],
+                       fights=st.get("fights"), cached=st.get("cached"), seeds=st.get("seeds"), seeds_max=st.get("of"))
+        scored = [o for o in opts if o.scores]
+        self.say("   " + (", ".join(f"{o.name} {o.value:+.2f} ({len(o.scores)})"
+                                    for o in sorted(scored, key=lambda o: -o.value)) or "no simulation needed")
+                 + f" -> {'keep the coins' if best.name == 'skip' else 'buy ' + best.name}  [{dec.rule}]")
+        self.live.valuation({"phase": "decided", "choice": best.name, "rule": dec.rule, "seconds": dec.seconds,
+                             "click": "GO" if best.name == "skip" else f"{best.detail['label']} into the statue, "
+                                                                        f"then UPGRADE ({price} coins)"})
+        if best.name == "skip":
+            self.live.valuation({"phase": "done", "outcome": "kept the coins"})
+            return frame
+        label = best.detail["label"]
+        cur = types.SimpleNamespace(hand=hand, statue=None, upgrade_lit=False, coins=coins)
+        for attempt in (1, 2, 3):
+            face = match_faces(tr.kit, cur.hand).get(label)
+            if face is None:
+                self.log.event("shop_buy_failed", choice=best.name, reason="tile not found in hand", attempt=attempt)
+                return self._shop_clear(frame, tr)
+            self.click(face["fx"], face["fy"], frame, screen="shop", shop=best.name, attempt=attempt)
+            time.sleep(0.8)
+            self._park_mouse()
+            frame, cur = self._shop_look(tr)
+            if self._in_statue(cur, tr, label):
+                break
+            self.log.event("shop_retry", choice=best.name, attempt=attempt, lit=cur.upgrade_lit, statue=cur.statue)
+            frame = self._shop_clear(frame, tr)      # a wrong tile in the mouth goes back first
+            frame, cur = self._shop_look(tr)
+        else:
+            self.log.event("shop_buy_failed", choice=best.name, reason="the tile did not go into the statue")
+            return self._shop_clear(frame, tr)
+        for attempt in (1, 2):
+            self.click(*shop_screen.UPGRADE_BUTTON, frame, screen="shop", shop="UPGRADE", attempt=attempt)
+            time.sleep(1.2)
+            self._park_mouse()
+            frame, cur = self._shop_look(tr)
+            if cur.coins is not None and coins is not None and cur.coins < coins:
+                tr.set_kit(best.kit)
+                self.log.event("shop_bought", choice=best.name, upgrade=up, price=price, coins_before=coins,
+                               coins_after=cur.coins, kit=best.kit.to_list())
+                self.say(f"   bought {CAT.upgrades[up].name} on {label} for {coins - cur.coins} coins; kit {best.kit}")
+                self.live.valuation({"phase": "done", "outcome": f"bought {best.name}"})
+                return frame
+        self.log.event("shop_buy_failed", choice=best.name, reason="the coins did not drop after UPGRADE",
+                       coins_before=coins, coins_after=cur.coins)
+        self.live.valuation({"phase": "done", "outcome": "purchase failed"})
+        return self._shop_clear(frame, tr)
+
+    def _shop_clear(self, frame, tr):
+        """A tile still in the statue's mouth (UPGRADE lit) goes back to the hand: click it [f0174]."""
+        frame, cur = self._shop_look(tr)
+        if cur.upgrade_lit:
+            x, y = shop_screen.STATUE_FACE
+            self.click((x + FACE_W / 2) / 1920, (y + FACE_H / 2) / 1080, frame,
+                       screen="shop", shop="tile back to the hand")
+            time.sleep(0.8)
+            self._park_mouse()
+            frame = self.gw.grab_stable(settle_s=0.25, timeout_s=3.0)
+        return frame
 
     def _start_elsewhere(self, scr: str, p, frame) -> str | None:
         """A run start that finds the game anywhere but the camp or the title [user 2026-10-29]:
@@ -875,6 +987,14 @@ class Bot:
         if move_error:
             log.event("window_move_failed", error=move_error)
             self.say(f"could not move the game window onto the primary display: {move_error}")
+        if hasattr(gw, "notify"):
+            # during the run every capture checks the window [run 20261029-153952: it left the primary
+            # display at turn 14 of Bamboo Grove I and the capture stopped the run]: winio puts it back
+            # (or waits for it) and the moves are logged here
+            def on_window(event: str, **fields) -> None:
+                log.event(event, **fields)
+                self.say(f"{event.replace('_', ' ')}: {fields}")
+            gw.notify, gw.should_stop = on_window, _stop_requested
         self.rec.start(log.run_dir / "frames")
         if "live" not in self.__dict__:      # a Bot built without __init__ (tests): its own viewer feed
             self.live = LiveView()
@@ -992,7 +1112,7 @@ class Bot:
                     log.save_frame(frame, "win")
                     break
                 if scr == "shop":
-                    if not self._shop(frame):
+                    if not self._shop(frame, tr, last_hp):
                         self.say("shop: GO did not leave the shop; stopping")
                         result = "stuck"
                         break

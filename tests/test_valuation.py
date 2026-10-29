@@ -192,3 +192,60 @@ def test_the_example_fight_carries_its_turns_and_the_console_line_reads():
     line = rewards.progress_line(last)
     assert line.startswith(f"{last['elapsed']:.0f}s, {last['fights']} fights: skip 24/48")
     assert "take:katana 24/48" in line and "take:spear 24/48" in line and "stopped" in line
+
+
+# ---- 0.29: the fight cache [user review of run 20261029-154200: decisions took 4.6 of 16 minutes] ----
+def _cache_setup(monkeypatch, tmp_path):
+    played = []
+
+    def job(args):
+        played.append((args[0][-1]["label"], args[2]))
+        return fake_job({"katana": 1.0, "spear": 0.5}, args) + ([],)
+    monkeypatch.setattr(rewards, "_job", job)
+    monkeypatch.setattr(rewards, "_CACHE", {})
+    monkeypatch.setattr(rewards, "_CACHE_LOADED", None)
+    monkeypatch.setattr(rewards, "CACHE_FILE", tmp_path / "fight_cache.jsonl")
+    return played
+
+
+def test_a_fight_already_played_is_not_played_again(monkeypatch, tmp_path):
+    played = _cache_setup(monkeypatch, tmp_path)
+    seeds = rewards.SEEDS[:8]
+    first = rewards.tile_choice_options(DEFAULT_KIT, OFFERS)
+    st = rewards.evaluate(first, 10, seeds=seeds, workers=1, stop_z=None)
+    assert (st["fights"], st["cached"], len(played)) == (24, 0, 24)
+    # the next decision: its 'skip' kit is the kit just chosen (Katana taken), at the same HP
+    taken = first[1].kit
+    nxt = rewards.upgrade_options(taken, "cooldown_minus_2")
+    st2 = rewards.evaluate(nxt, 10, seeds=seeds, workers=1, stop_z=None)
+    assert st2["cached"] == 8 and st2["fights"] == 8 * (len(nxt) - 1)
+    assert nxt[0].scores == first[1].scores                      # the same fights, the same scores
+    # another HP is another fight
+    st3 = rewards.evaluate(rewards.upgrade_options(taken, "cooldown_minus_2"), 9, seeds=seeds, workers=1, stop_z=None)
+    assert st3["cached"] == 0
+
+
+def test_the_cache_file_serves_the_next_run_of_the_same_version_only(monkeypatch, tmp_path):
+    _cache_setup(monkeypatch, tmp_path)
+    seeds = rewards.SEEDS[:8]
+    rewards.evaluate(rewards.tile_choice_options(DEFAULT_KIT, OFFERS), 10, seeds=seeds, workers=1, stop_z=None)
+    assert len((tmp_path / "fight_cache.jsonl").read_text().splitlines()) == 24
+    monkeypatch.setattr(rewards, "_CACHE", {})                   # a new bot process
+    monkeypatch.setattr(rewards, "_CACHE_LOADED", None)
+    again = rewards.tile_choice_options(DEFAULT_KIT, OFFERS)
+    st = rewards.evaluate(again, 10, seeds=seeds, workers=1, stop_z=None)
+    assert (st["cached"], st["fights"]) == (24, 0)
+    monkeypatch.setattr(rewards, "_CACHE", {})                   # a new version: its fingerprint differs
+    monkeypatch.setattr(rewards, "_CACHE_LOADED", None)
+    monkeypatch.setattr(rewards, "_FP", "another-version")
+    st = rewards.evaluate(rewards.tile_choice_options(DEFAULT_KIT, OFFERS), 10, seeds=seeds, workers=1, stop_z=None)
+    assert st["cached"] == 0
+    assert len((tmp_path / "fight_cache.jsonl").read_text().splitlines()) == 24   # the old lines dropped
+
+
+def test_a_tiles_levels_change_no_fight():
+    a = Kit.of("swirl", "arrow").to_list()
+    b = [dict(t, levels=4, used=1) for t in a]
+    assert rewards.fight_key(a, 10, 9000, 3, "stress") == rewards.fight_key(b, 10, 9000, 3, "stress")
+    c = [dict(t, cooldown=t["cooldown"] - 1) for t in a]
+    assert rewards.fight_key(a, 10, 9000, 3, "stress") != rewards.fight_key(c, 10, 9000, 3, "stress")

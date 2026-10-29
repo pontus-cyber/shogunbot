@@ -31,63 +31,65 @@
    "20261029-120329",
    "20261029-122345",
    "20261029-124921",
+   "20261029-153952",
+   "20261029-154200",
    "20261027-164727",
    "20261028-190026"
   ],
-  "source": "learned from 32 recordings (283 waves, every one from the HUD counter) [bot: python -m shogunbot.levelgen build, 2026-10-29]",
+  "source": "learned from 34 recordings (295 waves, every one from the HUD counter) [bot: python -m shogunbot.levelgen build, 2026-10-29]",
   "waves_by_source": {
-   "hud": 283
+   "hud": 295
   }
  },
  "facing": {
   "ashigaru": {
-   "away": 111,
+   "away": 114,
    "p_toward": 0.51,
-   "toward": 114
+   "toward": 120
   },
   "charger": {
-   "away": 54,
-   "p_toward": 0.43,
-   "toward": 40
+   "away": 56,
+   "p_toward": 0.47,
+   "toward": 49
   },
   "tachi": {
-   "away": 135,
+   "away": 140,
    "p_toward": 0.45,
-   "toward": 110
+   "toward": 116
   }
  },
  "levels": {
   "bamboo-1": {
    "cell_counts": {
     "free": {
-     "1": 252,
-     "2": 199,
-     "3": 46,
+     "1": 266,
+     "2": 210,
+     "3": 49,
      "4": 4
     },
     "spawned": {
-     "1": 51,
-     "2": 108,
-     "3": 30,
+     "1": 52,
+     "2": 114,
+     "3": 33,
      "4": 3
     }
    },
    "cell_weight_by_distance": {
-    "1": 0.31,
-    "2": 0.83,
+    "1": 0.29,
+    "2": 0.81,
     "3": 1.0
    },
    "dropped_as_misread": {},
    "templates": {
     "1": [
      {
-      "seen": 19,
+      "seen": 20,
       "units": [
        "tachi"
       ]
      },
      {
-      "seen": 13,
+      "seen": 14,
       "units": [
        "ashigaru"
       ]
@@ -95,13 +97,13 @@
     ],
     "2": [
      {
-      "seen": 19,
+      "seen": 20,
       "units": [
        "ashigaru"
       ]
      },
      {
-      "seen": 13,
+      "seen": 14,
       "units": [
        "tachi"
       ]
@@ -109,14 +111,14 @@
     ],
     "3": [
      {
-      "seen": 17,
+      "seen": 18,
       "units": [
        "tachi",
        "tachi"
       ]
      },
      {
-      "seen": 15,
+      "seen": 16,
       "units": [
        "ashigaru",
        "tachi"
@@ -125,7 +127,7 @@
     ],
     "4": [
      {
-      "seen": 17,
+      "seen": 18,
       "units": [
        "ashigaru",
        "tachi"
@@ -142,33 +144,33 @@
    },
    "waves": 4,
    "waves_seen": {
-    "4": 128
+    "4": 135
    }
   },
   "bamboo-2": {
    "cell_counts": {
     "free": {
-     "1": 296,
-     "2": 262,
-     "3": 216,
-     "4": 87,
-     "5": 40,
+     "1": 306,
+     "2": 271,
+     "3": 224,
+     "4": 89,
+     "5": 41,
      "6": 9
     },
     "spawned": {
-     "1": 65,
-     "2": 139,
-     "3": 120,
-     "4": 36,
-     "5": 23,
+     "1": 69,
+     "2": 143,
+     "3": 122,
+     "4": 38,
+     "5": 24,
      "6": 6
     }
    },
    "cell_weight_by_distance": {
-    "1": 0.38,
-    "2": 0.92,
-    "3": 0.97,
-    "4": 0.72,
+    "1": 0.39,
+    "2": 0.9,
+    "3": 0.93,
+    "4": 0.73,
     "5": 1.0
    },
    "dropped_as_misread": {},
@@ -213,7 +215,7 @@
       ]
      },
      {
-      "seen": 3,
+      "seen": 4,
       "units": [
        "ashigaru",
        "ashigaru"
@@ -245,18 +247,18 @@
       ]
      },
      {
-      "seen": 5,
+      "seen": 6,
       "units": [
-       "ashigaru",
-       "ashigaru",
-       "charger"
+       "charger",
+       "tachi"
       ]
      },
      {
       "seen": 5,
       "units": [
-       "charger",
-       "tachi"
+       "ashigaru",
+       "ashigaru",
+       "charger"
       ]
      },
      {
@@ -283,7 +285,7 @@
       ]
      },
      {
-      "seen": 5,
+      "seen": 6,
       "units": [
        "ashigaru",
        "ashigaru",
@@ -324,7 +326,7 @@
       ]
      },
      {
-      "seen": 6,
+      "seen": 7,
       "units": [
        "charger",
        "tachi",
@@ -393,17 +395,17 @@
       ]
      },
      {
-      "seen": 3,
+      "seen": 4,
       "units": [
-       "charger",
+       "ashigaru",
+       "tachi",
        "tachi"
       ]
      },
      {
       "seen": 3,
       "units": [
-       "ashigaru",
-       "tachi",
+       "charger",
        "tachi"
       ]
      }
@@ -411,31 +413,31 @@
    },
    "waves": 5,
    "waves_seen": {
-    "5": 155
+    "5": 160
    }
   }
  },
  "next_wave": {
-  "none_left": "the next wave comes at once [obs: 192 waves came with no older enemy on the board]",
+  "none_left": "the next wave comes at once [obs: 201 waves came with no older enemy on the board]",
   "one_left_before": {
    "3": {
     "p": 0.0,
-    "turns": 179,
+    "turns": 190,
     "waves": 0
    },
    "5": {
     "p": 0.0,
-    "turns": 114,
+    "turns": 125,
     "waves": 0
    },
    "8": {
     "p": 0.0,
-    "turns": 99,
+    "turns": 103,
     "waves": 0
    },
    ">8": {
-    "p": 0.145,
-    "turns": 69,
+    "p": 0.143,
+    "turns": 70,
     "waves": 10
    }
   },
@@ -451,7 +453,7 @@
    },
    "<12": {
     "p": 0.0,
-    "turns": 585,
+    "turns": 598,
     "waves": 0
    }
   }

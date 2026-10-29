@@ -475,9 +475,9 @@ def merge_blink(p: "Perception", frames: list) -> list[str]:
                 e["intent"], e["fire_now"] = "fire", True
                 notes.append(f"enemy at {e['x']}: yellow on a later frame -> fire")
                 break
-            if e["intent"] is None and plus and plus[0]["plus"] == "yellow":
+            if e["intent"] is None and plus:
                 e["intent"] = "queue"
-                notes.append(f"enemy at {e['x']}: yellow plus on a later frame -> queue")
+                notes.append(f"enemy at {e['x']}: a '+' on a later frame -> queue")
                 break
     return notes
 
@@ -607,7 +607,14 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 intent = None
                 if marker:
                     intent = marker
-                elif plus and plus[0]["plus"] == "yellow":
+                elif plus:
+                    # the '+' bubble blinks between a small white '+' and a big yellow one, and both
+                    # mean a load this phase: after a white read the unit loaded 367 times in 373
+                    # (regular units 304 of 308, bosses 63 of 65; Iwao 14 of 14), after a yellow one
+                    # 457 of 458 [bot: the logged turns of 29 runs, bots 0.3-0.28]. Until 0.29 only the
+                    # yellow phase counted: Iwao's load was missed 10 times in 14 (his yellow '+' read
+                    # as white), so at t159 and t162 of run 20261029-154200 he was planned as holding
+                    # and the bot swapped into the corner beside him
                     intent = "queue"
                 elif tiles and tiles[0]["colour"] == "yellow":
                     intent = "fire"

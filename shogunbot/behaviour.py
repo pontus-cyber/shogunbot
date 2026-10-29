@@ -130,6 +130,10 @@ class Model:
         self.meta = meta or {}
         # per boss: {kind: {"dist|loaded": {tile: n}}}, what a 'queue' telegraph loaded
         self.boss_tiles = boss_tiles or {}
+        # predictions by feature values: a simulated fight asks the same few hundred situations
+        # tens of thousands of times (about a tenth of a valuation fight's time went to building
+        # the same keys and sums again) [profile of 6 stress fights, 2026-10-29]
+        self._memo: dict = {}
 
     @staticmethod
     def fit(rows: list[dict], meta: dict | None = None) -> "Model":
@@ -171,14 +175,19 @@ class Model:
         return sorted(((v / tot, t) for t, v in keep.items()), reverse=True)
 
     def predict(self, f: dict) -> dict[str, float]:
-        p = {c: 1.0 / len(CLASSES) for c in CLASSES}
-        for i in range(len(LEVELS) - 1, -1, -1):
-            c = self.counts[i].get(key(f, LEVELS[i]))
-            if not c:
-                continue
-            n = sum(c.values())
-            p = {k: (c.get(k, 0) + ALPHA * p[k]) / (n + ALPHA) for k in CLASSES}
-        return p
+        """Class probabilities for features f; a new dict the caller may change."""
+        mk = tuple(f[k] for k in FEATURES)
+        p = self._memo.get(mk)
+        if p is None:
+            p = {c: 1.0 / len(CLASSES) for c in CLASSES}
+            for i in range(len(LEVELS) - 1, -1, -1):
+                c = self.counts[i].get(key(f, LEVELS[i]))
+                if not c:
+                    continue
+                n = sum(c.values())
+                p = {k: (c.get(k, 0) + ALPHA * p[k]) / (n + ALPHA) for k in CLASSES}
+            self._memo[mk] = p
+        return dict(p)
 
     def to_json(self) -> dict:
         return {"_meta": self.meta, "classes": list(CLASSES), "levels": [list(l) for l in LEVELS],

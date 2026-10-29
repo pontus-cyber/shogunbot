@@ -93,8 +93,24 @@ def analyze(run_dir: Path) -> str:
                              + (f" [{o['seeds']} seeds]" if o.get("seeds") else "")
                              for o in sorted(scored, key=lambda o: -o["value"]))
             fights = f", {e['fights']} fights" if e.get("fights") else ""     # 0.23: sequential valuation
+            fights += f", {e['cached']} from the cache" if e.get("cached") else ""   # 0.29: fight cache
             L.append(f"    values ({e.get('seconds')}s{fights}, HP {e.get('hp')}): {opts or 'not simulated'} -> {e.get('choice')}"
                      + (f"  [{e['rule']}]" if e.get("rule") else ""))
+        elif e["event"] == "shop":                                       # 0.24: read; 0.29: the statue bought from
+            L.append(f"  SHOP {e.get('n')}: statue {' / '.join(e.get('upgrade_text') or []) or '-'} ({e.get('upgrade')}) "
+                     f"for {e.get('upgrade_price')}; coins {e.get('coins')}; counter "
+                     + (", ".join(f"{o.get('price')} {o.get('currency')}s" for o in e.get("counter") or []) or "-"))
+        elif e["event"] == "shop_decision":
+            scored = [o for o in e.get("options", []) if o.get("scored", True)]
+            opts = ", ".join(f"{o['name']} {o['value']:+.2f}" + (f" [{o['seeds']} seeds]" if o.get("seeds") else "")
+                             for o in sorted(scored, key=lambda o: -o["value"]))
+            L.append(f"    shop decision ({e.get('seconds')}s, HP {e.get('hp')}): {opts or 'not simulated'} -> "
+                     f"{'keep the coins' if e.get('choice') == 'skip' else e.get('choice')}  [{e.get('rule')}]")
+        elif e["event"] in ("shop_bought", "shop_buy_failed"):
+            L.append(f"    {e['event']}: {e.get('choice')} {e.get('reason', '')}"
+                     + (f" coins {e.get('coins_before')} -> {e.get('coins_after')}" if e.get("coins_before") is not None else ""))
+        elif e["event"] in ("window_moved", "window_move_failed", "window_back"):   # 0.29: checked every capture
+            L.append("  " + json.dumps({k: v for k, v in e.items() if k != "ts"}))
         elif e["event"] in ("reward_taken", "reward_failed"):
             L.append(f"    {e['event']}: {e.get('choice')} {e.get('reason', '')}"
                      + (" (unverified)" if e.get("unverified") else ""))

@@ -54,13 +54,14 @@ class RewardScreen:
                                               "upgrade_match", "upgrade_lit", "statue", "skip")}
 
 
-def upgrade_lit(rgb: np.ndarray) -> bool:
+def upgrade_lit(rgb: np.ndarray, box=_UPGRADE_BOX) -> bool:
     """UPGRADE is dark maroon (72,32,40) with dark text until a tile sits in the
     statue. Then its text turns cream (232,224,208) on a brown pill (~114,66,56),
     or a peach pill (~175,116,82) while the cursor is on it. 0.15 looked for peach
     only, so the bot (cursor moved away) never saw it lit and skipped both shrines
-    [run 20261028-092419 f0089 vs f0090, f0124 vs f0125; collect 20261027-164727 f0111]."""
-    x0, x1, y0, y1 = _UPGRADE_BOX
+    [run 20261028-092419 f0089 vs f0090, f0124 vs f0125; collect 20261027-164727 f0111].
+    box: the shrine's pill, or the shop statue's (shop_screen.UPGRADE_BOX)."""
+    x0, x1, y0, y1 = box
     a = rgb[y0:y1, x0:x1].astype(np.int16)
     text = int((a.min(axis=2) > 180).sum())                              # 3568 lit, 0 unlit
     pill = int(((a[..., 0] > 95) & (a[..., 0] - a[..., 2] > 35)).sum())  # brown or peach, not maroon or grey
