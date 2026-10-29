@@ -100,6 +100,21 @@ class EnemyKind:
         """The tile the simulator loads by default (the first listed)."""
         return self.tiles[0] if self.tiles else None
 
+    def combo_next(self, queue, dist: int) -> str | None:
+        """The second tile of a boss combo while the queue holds only its first, else None.
+        'combos' maps a first tile to its second, always (Daisuke's Charge then Sword, Rei's Charge
+        then Dragon Punch and Back Charge then Summon), or to {"then": tile, "if": "adjacent"}:
+        Iwao adds Swirl to a loaded Earth Impale only with the hero next to him [wiki] [bot: run
+        20261029-124921 t184-t186; rec: collect/20261028-190026 f0289-f0292, f0313-f0316]."""
+        if len(queue) != 1:
+            return None
+        c = self.behaviour.get("combos", {}).get(queue[0])
+        if c is None or isinstance(c, str):
+            return c
+        if c.get("if") == "adjacent" and dist != 1:
+            return None
+        return c["then"]
+
 
 @dataclass(frozen=True)
 class Consumable:

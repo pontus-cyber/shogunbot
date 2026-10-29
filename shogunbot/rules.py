@@ -456,15 +456,19 @@ def _intent_options(s: State, e: Enemy, move_or_wait):
 
 def _boss_queue(s: State, e: Enemy, move_or_wait) -> list[tuple[float, tuple]]:
     """What a boss loads on a 'queue' telegraph (the bubble shows it only a phase later). The
-    second half of a combo always follows the first (catalogue 'combos': Daisuke's Charge then
-    Sword, 29 of 29 logged; Rei's Charge then Dragon Punch 10 of 10, Back Charge then Summon 2
-    of 2); otherwise what he loaded in the logs at this distance with this queue (behaviour.json),
-    else the boss's catalogue 'loads' by distance (Rei), else Daisuke's presets."""
-    b = CAT.enemy(e.kind).behaviour
-    combos = b.get("combos", {})
-    if len(e.queue) == 1 and e.queue[0] in combos:
-        return [(1.0, ("queue", combos[e.queue[0]]))]
+    second half of a combo follows the first (catalogue 'combos': Daisuke's Charge then Sword, 29
+    of 29 logged; Rei's Charge then Dragon Punch 10 of 10, Back Charge then Summon 2 of 2; Iwao's
+    Earth Impale then Swirl with the hero next to him, 3 of 3); otherwise what he loaded in the logs
+    at this distance with this queue (behaviour.json), else the boss's catalogue 'loads' by distance
+    (Rei, Iwao), else Daisuke's presets."""
+    kind = CAT.enemy(e.kind)
+    b = kind.behaviour
     dist = abs(e.x - s.hero.x)
+    # a 'queue' telegraph over the first half of a combo adds its second half: he decided at the
+    # start of the turn, so Iwao's Swirl comes even if the hero has stepped away since (dist 1)
+    nxt = kind.combo_next(e.queue, 1)
+    if nxt:
+        return [(1.0, ("queue", nxt))]
     m = behaviour.model() if BEHAVIOUR == "learned" else None
     learned = m.boss_tile(abs(e.x - s.hero.x), e.queue, e.kind) if m else None
     if learned:
@@ -485,25 +489,30 @@ def _boss_queue(s: State, e: Enemy, move_or_wait) -> list[tuple[float, tuple]]:
 
 
 def _boss_options(s, e, d, dist, facing_hero, move_or_wait):
-    """A boss without a telegraph, from the catalogue (Rei) [bot: Rei's five fights, runs
-    20261029-072323 ... -103242]: a summon or a finished combo fires one phase after loading
-    (R1); a combo's first tile is followed by its second; a single tile with the hero in its
-    footprint fires (R2), otherwise she walks toward him (a loaded Dragon Punch was walked up and
-    fired when adjacent, run 100218 t88-t91); unloaded, she turns to the hero or loads."""
-    combos = CAT.enemy(e.kind).behaviour.get("combos", {})
+    """A boss without a telegraph, from the catalogue (Rei, Iwao) [bot: Rei's five fights, runs
+    20261029-072323 ... -103242; Iwao: run 20261029-124921 t159-t198]: a summon or a finished combo
+    fires one phase after loading (R1); a combo's first tile is followed by its second; a single
+    tile with the hero in its footprint fires (R2), otherwise she walks toward him (a loaded Dragon
+    Punch was walked up and fired when adjacent, run 100218 t88-t91); unloaded, she turns to the
+    hero or loads. Iwao ('after_fire': away) steps away from the hero the turn after he fires, or
+    holds when blocked, and loads the turn after (8 of 8)."""
+    kind = CAT.enemy(e.kind)
     if e.armed:
         q = e.queue
-        if len(q) == 1 and q[0] in combos:
-            return [(1.0, ("queue", combos[q[0]]))] if e.wind >= 1 else [(1.0, ("wait",))]
+        nxt = kind.combo_next(q, dist)
+        if nxt:
+            return [(1.0, ("queue", nxt))] if e.wind >= 1 else [(1.0, ("wait",))]
         if e.wind >= 1 and (len(q) > 1 or CAT.tile(q[0]).kind == "summon"):
             return [(1.0, ("fire",))]
         if e.primed:
             return [(1.0, ("fire",))]
-        if not facing_hero:
+        if not facing_hero and CAT.tile(q[0]).directional:
             return [(1.0, ("turn",))]
         if _hits_hero(s, e, q[0]):
             return [(1.0, ("wait",))]     # the hero walked in: red now, yellow next phase
         return [(1.0, move_or_wait(d))]
+    if kind.behaviour.get("after_fire") == "away" and e.fage == 0:
+        return [(1.0, move_or_wait(-d))]
     if not facing_hero:
         return [(1.0, ("turn",))]
     return _boss_queue(s, e, move_or_wait)

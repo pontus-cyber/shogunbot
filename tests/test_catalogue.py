@@ -18,13 +18,15 @@ def test_values_match_the_013_constants():
     stage1 = {"ashigaru", "tachi", "charger", "daisuke"}
     assert {k: v for k, v in ENEMY_KINDS.items() if k in stage1} == {
         "ashigaru": (3, "sword"), "tachi": (2, "swirl"), "charger": (1, "charge"), "daisuke": (15, "sword")}
-    # 0.26: the Yari Master; 0.27: Rei the Ruthless (13 HP; Dragon Punch, Back Charge, the red bell)
-    assert set(ENEMY_KINDS) - stage1 == {"yari_master", "rei"}
+    # 0.26: the Yari Master; 0.27: Rei the Ruthless (13 HP; Dragon Punch, Back Charge, the red bell);
+    # 0.28: Iwao the Impaler (25 HP; Earth Impale, Swirl, Spear, Summon)
+    assert set(ENEMY_KINDS) - stage1 == {"yari_master", "rei", "iwao"}
     assert ENEMY_KINDS["yari_master"] == (4, "spear") and ENEMY_KINDS["rei"] == (13, "dragon_punch")
+    assert ENEMY_KINDS["iwao"] == (25, "earth_impale")
     assert ENEMY_TILE_DAMAGE == {"sword": 2, "swirl": 2, "charge": 1, "summon": 0, "spear": 2,
-                                 "dragon_punch": 1, "back_charge": 1, "summon_double": 0}
+                                 "dragon_punch": 1, "back_charge": 1, "summon_double": 0, "earth_impale": 2}
     assert ENEMY_TILE_COOLDOWN == {"sword": 2, "swirl": 3, "charge": 4, "summon": 6, "spear": 5,
-                                   "dragon_punch": 4, "back_charge": 3, "summon_double": 6}
+                                   "dragon_punch": 4, "back_charge": 3, "summon_double": 6, "earth_impale": 4}
 
 
 def test_ready_values_reproduce_the_013_weights():

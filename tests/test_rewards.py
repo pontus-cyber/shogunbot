@@ -38,6 +38,12 @@ TILE_CHOICES = {
     "runs/20261028-082756/frames/reward_1_tile_choice.png": [("spear", 2, 5, 3), ("katana", 2, 0, 4)],
     # a bird flying past the right pedestal shifted its box 12 px; 0.20 read 'None None/5 L2'
     "runs/20261028-153448/frames/reward_1_tile_choice.png": [("back_charge", 1, 3, 4), ("shadow_dash", 1, 5, 2)],
+    # 0.28: the pedestal faces are found by their frame at fixed spots. Found by colour runs, the left
+    # face merged with the Whispering Caves rock (read as 'unknown' and skipped [user review of run
+    # 20261029-124921]) or with Moonlit Port's night sky (the box 24 px off, the offer unread)
+    "runs/20261029-124921/frames/reward_4_unknown.png": [('spear', 2, 5, 4), ('shadow_dash', 1, 5, 4)],
+    "collect/20261028-190026/f0218_idle.png": [('shadow_dash', 1, 5, 3), ('katana', 2, 0, 2)],
+    "collect/20261028-190026/f0583_idle.png": [('charge', 1, 4, 3), ('swirl', 2, 3, 4)],
 }
 SHRINES = {
     "runs/20261027-182237/frames/f0135_CLICK.png": "slot_1_cooldown_minus_1",

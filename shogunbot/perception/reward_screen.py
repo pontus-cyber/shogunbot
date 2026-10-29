@@ -1,8 +1,9 @@
 """Reward screens between levels.
 
 Two layouts carry the grey SKIP pill (screens.find_skip):
-  tile_choice  two tiles on pedestals (top y 408, x 744 and 1080); click one
-               to add it to the hand. After Bamboo Grove I.
+  tile_choice  two tiles on pedestals (top y 408-416, x 744 and 1080); click one
+               to add it to the hand. After the first level of a region (Bamboo
+               Grove I, Whispering Caves I, Moonlit Port ...).
   shrine       a statue with a white bubble naming an upgrade; click a hand
                tile (it moves into the statue's mouth and UPGRADE lights up),
                then click UPGRADE. After Bamboo Grove II and after the boss.
@@ -24,6 +25,16 @@ _UPGRADE_BOX = (800, 1130, 718, 786)     # x0, x1, y0, y1 of the pill
 STATUE_FACE = (912, 504)                 # top-left of a tile face in the statue's mouth
                                          # [run 20261028-092419 f0090, f0091, f0125, f0126; collect f0111]
 UNKNOWN_DIST = 0.07                      # icon distance above which a tile is unknown (classes are >= 0.073 apart)
+# The two pedestal faces sit at fixed spots and bob up and down: left x 744 and 1080, top y 408, 412
+# or 416 on all 79 recorded tile-choice screens. A face is a dark square inside a light frame (cream
+# in Bamboo Grove and Whispering Caves, grey at night in Moonlit Port). Found by colour runs alone,
+# the left face merged with the Caves' maroon rock (Whispering Caves I, run 20261029-124921
+# reward_4_unknown, collect/20261028-190026 f0218-f0220: read as 'unknown' and skipped) or with
+# Moonlit Port's night sky (f0583-f0585: the box 24 px left, the offer unread).
+PEDESTAL_X = (744, 1080)
+PEDESTAL_Y = range(400, 428, 4)          # searched on the 4-px art grid
+PEDESTAL_MIN = 0.6                       # face score: 0.76-0.84 on all 158 recorded pedestal faces,
+                                         # at most 0.34 at these spots on the 221 shrine screens
 
 
 @dataclass
@@ -68,6 +79,35 @@ def read_statue(rgb: np.ndarray, kit_tiles=None) -> dict | None:
     cd, _ = T.read_marks(g)
     return {"tile": tid, "dist": round(dist, 4), "conf": round(conf, 2), "damage": dmg,
             "damage_conf": round(dconf, 2), "cooldown": cd}
+
+
+def face_score(rgb: np.ndarray, x: int, y: int) -> float:
+    """How much (x, y) looks like the top-left of a pedestal face: the share of dark pixels on
+    the face's outer 4 px, and of light pixels in the frame 2-6 px outside it (corners left out,
+    they are rounded); the lower of the two."""
+    a = rgb.astype(np.int16)
+    w, h = T.FACE_W, T.FACE_H
+    box = a[y:y + h, x:x + w]
+    edge = np.concatenate([box[:4].reshape(-1, 3), box[-4:].reshape(-1, 3),
+                           box[4:-4, :4].reshape(-1, 3), box[4:-4, -4:].reshape(-1, 3)])
+    ring = np.concatenate([a[y - 6:y - 2, x + 12:x + w - 12].reshape(-1, 3),
+                           a[y + h + 2:y + h + 6, x + 12:x + w - 12].reshape(-1, 3),
+                           a[y + 12:y + h - 12, x - 6:x - 2].reshape(-1, 3),
+                           a[y + 12:y + h - 12, x + w + 2:x + w + 6].reshape(-1, 3)])
+    dark = float((edge.max(axis=1) < 70).mean())
+    light = float((ring.min(axis=1) > 90).mean())
+    return min(dark, light)
+
+
+def pedestal_faces(rgb: np.ndarray) -> list[tuple[int, int, int, int]]:
+    """Face boxes on the tile-choice pedestals, left to right: the fixed spots first (any
+    backdrop), else faces found by colour runs (another layout)."""
+    out = []
+    for x in PEDESTAL_X:
+        score, y = max((face_score(rgb, x, y), y) for y in PEDESTAL_Y)
+        if score >= PEDESTAL_MIN:
+            out.append((x, y, x + T.FACE_W, y + T.FACE_H))
+    return out if len(out) == len(PEDESTAL_X) else T.find_faces(rgb, 600, 1320, *T.PEDESTAL_ROW)
 
 
 def identify(g: np.ndarray, damage: int | None, cooldown: int, candidates=None) -> tuple[str | None, float, float]:
@@ -116,7 +156,7 @@ def read(rgb: np.ndarray, kit_tiles=None) -> RewardScreen:
         return RewardScreen("shrine", hand=hand, upgrade=uid if ok else None, upgrade_lines=lines,
                             upgrade_match=(uid, d, second, unknown), upgrade_lit=upgrade_lit(rgb),
                             statue=read_statue(rgb, kit_tiles), skip=skip)
-    boxes = T.find_faces(rgb, 600, 1320, *T.PEDESTAL_ROW)
+    boxes = pedestal_faces(rgb)
     if len(boxes) == 2:
         offers = []
         pool = [t.id for t in CAT.base_pool()]

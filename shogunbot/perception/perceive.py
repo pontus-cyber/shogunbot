@@ -153,6 +153,42 @@ def _frame_colour(px: np.ndarray) -> str | None:
     return "red" if best == red else "yellow" if best == yel else "grey"
 
 
+# A bubble a few px off its unit's centre was read as no bubble: Rei's Dragon Punch at t71 of run
+# 20261029-124921, 6 px right of her cell after her step (her punch then pushed the hero
+# unpredicted), and the Yari Master's Spear at t95, next to the hero (it hit him and the Twin Tachi
+# behind him). The centred check comes first, so a centred bubble reads as before; off centre only
+# an enemy's frame counts (red or yellow on both sides, each side on its own, with the bubble's dark
+# outline outside it): a shifted grey or one-sided match found bubbles in the bamboo and the red
+# backdrops of later regions (hero bubbles on 37 frames, all false).
+STACK_SHIFTS = (0, 4, -4, 8, -8, 12, -12)
+
+
+def _frame_at(rgb: np.ndarray, y0: int, y1: int, cx: int) -> str | None:
+    for dl in (-61, -63, -59, -65):
+        for dr in (60, 62, 58, 64):
+            border = np.concatenate([rgb[y0 + 10:y1 - 10, cx + dl], rgb[y0 + 10:y1 - 10, cx + dr]])
+            col = _frame_colour(border)
+            if col:
+                return col
+    return None
+
+
+def _frame_off_centre(rgb: np.ndarray, y0: int, y1: int, cx: int) -> str | None:
+    """An enemy's bubble centred within 2 px of cx: from its centre, a 4 px dark outline at 65-68
+    px out, the coloured frame from 53 to 64 px [run 20261029-124921 t70-t71, Rei's bubble]."""
+    rows = rgb[y0 + 10:y1 - 10]
+    cols = [_frame_colour(rows[:, cx + d]) for d in (-59, -58, 58, 59)]
+    if cols[0] not in ("red", "yellow") or any(c != cols[0] for c in cols):
+        return None
+
+    def dark(x: int) -> float:
+        return float((rows[:, x].max(axis=1) < 60).mean())
+
+    if max(dark(cx + d) for d in range(-70, -63)) < 0.8 or max(dark(cx + d) for d in range(64, 71)) < 0.8:
+        return None
+    return cols[0]
+
+
 def read_stack(rgb: np.ndarray, cx: int) -> list[dict]:
     """Bubble slots above a unit, bottom first: {type:'tile'|'plus', tile, colour, plus_colour}."""
     out = []
@@ -161,13 +197,10 @@ def read_stack(rgb: np.ndarray, cx: int) -> list[dict]:
         if y0 < 120:
             break
         col = None
-        for dl in (-61, -63, -59, -65):
-            for dr in (60, 62, 58, 64):
-                border = np.concatenate([rgb[y0 + 10:y1 - 10, cx + dl], rgb[y0 + 10:y1 - 10, cx + dr]])
-                col = _frame_colour(border)
-                if col:
-                    break
+        for sh in STACK_SHIFTS:
+            col = _frame_at(rgb, y0, y1, cx) if sh == 0 else _frame_off_centre(rgb, y0, y1, cx + sh)
             if col:
+                cx += sh
                 break
         if col is None:
             break
@@ -586,7 +619,10 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 by_tile = by_tile_kind.get(tiles[0]["tile"]) if tiles else None
                 elite = day != 1 and elite_pixels(rgb, cx) >= ELITE_PX     # Day 1 has no elites
                 alt = None
-                if screen == "boss" and (g + r) == 0:
+                if (g + r) == 0 and (screen == "boss" or (kind in CAT.enemies and CAT.enemies[kind].boss)):
+                    # no pips: a boss. The fight's first frame shows no boss bar yet, so the screen
+                    # reads as a fight and only the sprite (Daisuke's, the one boss sprite known)
+                    # says boss [run 20261029-124921 t159: Iwao read as Daisuke]
                     kind = boss_kind(regions, len(cs))
                 else:
                     by_pips, alt = decide_kind(g + r, by_tile, kind if kc >= SPRITE_KIND_CONF else None, elite,

@@ -52,15 +52,16 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.27.1"
+VERSION = "0.28"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
-# Edamame Brew restores up to 3 HP [catalogue]. It is drunk only [user 2026-10-29]: (a) when a hit
-# this turn or the next would kill the hero or leave HP within one enemy hit of 0, and its HP
-# prevent that; (b) when all of its HP heal (HP <= max - 3); (c) to free its slot for a better
-# item or another potion on the ground (ground items are not read yet, so (c) never applies).
-# It is not part of the last level's 'use it or lose it' pass: items carry over past Stage 1.
+# Edamame Brew restores up to 3 HP [catalogue]. It is drunk [user 2026-10-29] (a) when a hit this
+# turn or the next would kill the hero or leave HP within one enemy hit of 0, and its HP prevent
+# that; or (b) when all of its HP heal (HP <= max - 3), threat or not; or (c) to free its slot for a
+# better item or another potion on the ground (ground items are not read yet, so (c) never
+# applies). 0.24-0.27.1 required (a) and (b) together, so run 20261029-124921 held two brews from
+# HP 7 down to 3 [user review]. It is not part of the last level's 'use it or lose it' pass.
 HEAL = CAT.consumable_by_screen("green_potion").effect["amount"]
 RISK_P = 0.1              # an outcome this likely or more counts as a hit that can land
 POISON_MIN_VALUE = 4      # use Mass Poison when it deals at least this much in total
@@ -137,17 +138,22 @@ def worst_loss(s, action: str, plies: int = 2, free_left: int = 1) -> int:
 
 
 def edamame_reason(s, action: str, hp_cap: int) -> str | None:
-    """Why to drink Edamame Brew now, or None [user 2026-10-29]: (b) all of its HP heal, and (a) a
+    """Why to drink Edamame Brew now, or None [user 2026-10-29]: (b) all of its HP heal, or (a) a
     hit this turn (with the chosen action) or the next (with the least damaging reply) would kill
     the hero or leave HP within one enemy hit of 0, and the brew prevents that."""
     hp = s.hero.hp
-    if hp <= 0 or hp > hp_cap - HEAL or not s.alive():
+    if hp <= 0 or hp >= hp_cap:
         return None
+    if hp <= hp_cap - HEAL:
+        return f"all {HEAL} of its HP heal (HP {hp} of {hp_cap})"
+    if not s.alive():
+        return None
+    healed = min(hp_cap, hp + HEAL)
     m = s.clone()
-    m.hero.hp = hp + HEAL            # the hits do not depend on HP; counted without an early death
+    m.hero.hp = healed               # the hits do not depend on HP; counted without an early death
     loss = worst_loss(m, action)
     hit = one_hit(s)
-    without, with_brew = hp - loss, hp + HEAL - loss
+    without, with_brew = hp - loss, healed - loss
     if loss <= 0 or without > hit:
         return None                                  # no hit coming, or no real risk
     if with_brew <= (hit if without > 0 else 0):
@@ -550,7 +556,10 @@ class Bot:
     def _spend_item(self, s, d, tr, have: set) -> tuple[str, str] | None:
         """The run's last level: spend each held item at its first useful moment
         [user 2026-10-28]. One item per pass; the board is read again after each. Edamame
-        Brew is not spent here, only by edamame_reason [user 2026-10-29]."""
+        Brew is not spent here, only by edamame_reason [user 2026-10-29]. Kami Brew is not spent
+        here either: it is kept for a turn where every move takes damage (_damage_item) [user review
+        of run 20261029-124921: spent at t161 on an armed Iwao, the unavoidable hits came at t172
+        and t192; the same in the 0.24 series]."""
         hx = s.hero.x
         active = [e for e in s.alive() if e.frozen <= 0]
         armed = [e for e in active if e.armed]
@@ -560,12 +569,25 @@ class Bot:
             return "dice_card", "last level: an enemy telegraphs fire"
         if "mirror_card" in have and any(e.facing == (1 if hx > e.x else -1) for e in armed):
             return "mirror_card", "last level: an armed enemy faces you"
-        if "blue_potion" in have and armed and not tr.shield:
-            return "blue_potion", "last level: an enemy is armed"
         if "white_potion" in have and self._best_tile_recharging(s):
             return "white_potion", "last level: the best tile is recharging"
         if "curse_card" in have and d.action == "attack" and self._attack_hits_boss(s):
             return "curse_card", "last level: the attack hits the boss"
+        return None
+
+    def _damage_item(self, s, have: set) -> str | None:
+        """Every move takes damage this turn: freeze everyone (Mass Ice), turn everyone around
+        (Rain of Mirrors) if that removes the damage, reroll every enemy's intent (Lucky Die; the
+        new telegraphs are read off the screen), or shield (Kami Brew, not while a shield is up);
+        the board is then read again and re-planned with the effect in the model."""
+        if "ice_card" in have:
+            return "ice_card"
+        if "mirror_card" in have and self._mirror_saves(s):
+            return "mirror_card"
+        if "dice_card" in have:
+            return "dice_card"
+        if "blue_potion" in have and not s.hero.shield:
+            return "blue_potion"
         return None
 
     @staticmethod
@@ -836,9 +858,23 @@ class Bot:
     # ------------------------------------------------------------------ run
     def run(self) -> str:
         gw, log = self.gw, self.log
+        # capture reads the primary display only: a game window on another monitor is moved there
+        # first [user review of run 20261029-124921: run 124858 stopped with a capture error]
+        moved, move_error = None, None
+        if hasattr(gw, "ensure_on_primary"):
+            try:
+                moved = gw.ensure_on_primary()
+            except Exception as e:          # the capture says it plainly if the window is still off
+                move_error = repr(e)
         gw.focus()
         run_id = log.start_run({"bot_version": VERSION, "weights": WEIGHTS,
                                 "autostart": self.autostart, "kit": DEFAULT_KIT.to_list()})
+        if moved:
+            log.event("window_moved", before=list(moved[0]), after=list(moved[1]))
+            self.say(f"moved the game window onto the primary display: {moved[0]} -> {moved[1]}")
+        if move_error:
+            log.event("window_move_failed", error=move_error)
+            self.say(f"could not move the game window onto the primary display: {move_error}")
         self.rec.start(log.run_dir / "frames")
         if "live" not in self.__dict__:      # a Bot built without __init__ (tests): its own viewer feed
             self.live = LiveView()
@@ -1195,29 +1231,19 @@ class Bot:
                     alt = next((c["action"] for c in d.candidates if c["action"] not in banned[key]), d.action)
                     d.action = alt
                 last_key, last_action = key, d.action
-                best = next((c for c in d.candidates if c["action"] == d.action), {})
                 have = {it["item"] for it in p.items if item_tries.get(it["item"], 0) < 2 and not it.get("dim")}
-                if best.get("exp_damage", 0) >= 1.0:
-                    # every move takes damage: freeze everyone (Mass Ice), turn everyone
-                    # around (Rain of Mirrors) if that removes the damage, reroll every
-                    # enemy's intent (Lucky Die; the new telegraphs are read off the screen),
-                    # or shield (Kami Brew); then re-read and re-plan with the effect in the model
-                    item = None
-                    if "ice_card" in have:
-                        item = "ice_card"
-                    elif "mirror_card" in have and self._mirror_saves(s):
-                        item = "mirror_card"
-                    elif "dice_card" in have:
-                        item = "dice_card"
-                    elif "blue_potion" in have:
-                        item = "blue_potion"
+                # every move takes damage: the least damaging one (in stall mode the chosen move
+                # may take a 1-HP trade while a safe move exists; that is not 'every move')
+                every = min((c["exp_damage"] for c in d.candidates), default=0.0)
+                if every >= 1.0:
+                    item = self._damage_item(s, have)
                     if item:
                         self._use_item(item, p, s, frame, turn,
-                                       f"expected {best['exp_damage']:.1f} damage on every move", tr, item_tries)
+                                       f"expected {every:.1f} damage on every move", tr, item_tries)
                         continue
                 if "green_potion" in have:
-                    # [user 2026-10-29] only against a hit that would kill or leave HP within one
-                    # enemy hit of 0, and only when all of its HP heal (edamame_reason)
+                    # [user 2026-10-29] when all of its HP heal, or against a hit that would kill or
+                    # leave HP within one enemy hit of 0 (edamame_reason)
                     why = edamame_reason(s, d.action, hp_cap)
                     if why:
                         self._use_item("green_potion", p, s, frame, turn, why, tr, item_tries)

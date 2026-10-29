@@ -28,6 +28,7 @@ def _boss(hero, *enemies):
 
 
 WAIT = SimpleNamespace(action="wait")
+BOXED = dict(swap_charge=0, charge={"swirl": 0, "arrow": 0})    # no swap, no tile ready: no escape
 
 
 # ---- 1. use it or lose it on the last level [user 2026-10-28] ------------------------
@@ -43,12 +44,24 @@ def test_mass_ice_when_an_enemy_is_armed_or_adjacent(tmp_path):
     assert b._spend_item(frozen, WAIT, tr, {"ice_card"}) is None        # already frozen
 
 
-def test_kami_brew_when_an_enemy_is_armed_and_no_shield_is_up(tmp_path):
+def test_kami_brew_is_not_spent_on_an_armed_enemy_alone(tmp_path):
+    # [user review of run 20261029-124921] 0.20-0.27.1 spent it on the last level as soon as an
+    # enemy was armed (t161, Iwao armed); the unavoidable hits came at t172 and t192
     b, tr = _bot(tmp_path), Tracker()
     armed = _boss(Hero(0, 1), Enemy("ashigaru", 5, -1, 3, ["sword"], uid=1))
-    assert b._spend_item(armed, WAIT, tr, {"blue_potion"})[0] == "blue_potion"
-    tr.shield = True
     assert b._spend_item(armed, WAIT, tr, {"blue_potion"}) is None
+
+
+def test_kami_brew_when_every_move_takes_damage(tmp_path):
+    # the chain for a turn where every move takes damage: Mass Ice first, Kami Brew last, and no
+    # second shield while one is up
+    b = _bot(tmp_path)
+    s = _boss(Hero(1, 1, hp=7, **BOXED), Enemy("ashigaru", 0, 1, 3, ["sword"], uid=1, intent="fire", wind=2),
+              Enemy("ashigaru", 2, -1, 3, ["sword"], uid=2, intent="fire", wind=2))
+    assert b._damage_item(s, {"blue_potion"}) == "blue_potion"
+    assert b._damage_item(s, {"ice_card", "blue_potion"}) == "ice_card"
+    s.hero.shield = True
+    assert b._damage_item(s, {"blue_potion"}) is None
 
 
 def test_lucky_die_when_an_enemy_telegraphs_fire(tmp_path):
@@ -90,41 +103,55 @@ def test_edamame_is_neither_spent_on_the_last_level_nor_drunk_before_planning(tm
     assert b._spend_item(hurt, WAIT, tr, {"green_potion"}) is None
 
 
-# ---- Edamame Brew [user 2026-10-29]: (a) against a hit that would kill or leave HP within one
-# enemy hit of 0, when the brew prevents it; (b) only when all 3 HP heal
-BOXED = dict(swap_charge=0, charge={"swirl": 0, "arrow": 0})    # no swap, no tile ready: no escape
-
-
+# ---- Edamame Brew [user 2026-10-29]: (b) whenever all 3 HP heal, or (a) against a hit that would
+# kill or leave HP within one enemy hit of 0, when the brew prevents it. 0.24-0.27.1 required both, so
+# run 20261029-124921 held two brews from HP 7 down to 3 [user review]
 def _fight(hero, *enemies):
     return State(7, hero, list(enemies), level="bamboo-2", wave=1, waves_total=5)
 
 
-def test_edamame_against_a_hit_that_leaves_hp_within_one_hit():
+def test_edamame_whenever_all_its_hp_heal():
     from shogunbot.bot import edamame_reason
-    for hp, drink in ((3, True), (4, True), (5, False), (8, False)):
-        s = _fight(Hero(0, 1, hp=hp, **BOXED), Enemy("ashigaru", 1, -1, 3, ["sword"], uid=1, intent="fire", wind=2))
-        assert bool(edamame_reason(s, "wait", 10)) is drink, hp    # the Sword hits for 2
+    for hp, drink in ((2, True), (7, True), (8, False), (10, False)):
+        calm = _fight(Hero(0, 1, hp=hp), Enemy("ashigaru", 5, -1, 3, uid=1, intent="hold"))
+        assert bool(edamame_reason(calm, "wait", 10)) is drink, hp
+
+
+def test_edamame_at_hp_7_in_whispering_caves_i():
+    # run 20261029-124921 t97: HP 7, two Edamame Brews in the slots, no hit coming [user review]
+    from shogunbot.bot import edamame_reason
+    from shogunbot.perception.perceive import perceive
+    p = perceive(frame("runs/20261029-124921/frames/t0097_before.png"), ["swirl", "arrow", "back_charge"],
+                 regions=("bamboo_grove", "whispering_caves"), day=1)
+    assert [i["item"] for i in p.items if not i.get("dim")].count("green_potion") == 2
+    s = Tracker(Kit.of("swirl", "arrow", "back_charge")).state(p)
+    assert s.hero.hp == 7 and "heal" in edamame_reason(s, "wait", 10)
+
+
+def test_edamame_against_a_hit_when_not_all_its_hp_heal():
+    # (a) on its own: with 5 max HP and 3 left, a Sword (2) would leave 1; the brew heals 2 of its 3
+    from shogunbot.bot import edamame_reason
+    s = _fight(Hero(0, 1, hp=3, **BOXED), Enemy("ashigaru", 1, -1, 3, ["sword"], uid=1, intent="fire", wind=2))
+    assert "leave 1 HP" in edamame_reason(s, "wait", 5)
+    calm = _fight(Hero(0, 1, hp=3), Enemy("ashigaru", 5, -1, 3, uid=1, intent="hold"))
+    assert edamame_reason(calm, "wait", 5) is None             # no hit coming and not all of it heals
 
 
 def test_edamame_against_a_hit_on_the_next_turn():
     # loaded this phase (R1: it cannot fire yet); it fires next turn and the hero cannot get away
     from shogunbot.bot import edamame_reason
     s = _fight(Hero(0, 1, hp=3, **BOXED), Enemy("ashigaru", 1, -1, 3, ["sword"], uid=1, intent="hold", wind=0))
-    assert edamame_reason(s, "wait", 10)
+    assert "next" in edamame_reason(s, "wait", 5)
 
 
-def test_edamame_only_when_the_brew_prevents_it_and_all_its_hp_heal():
+def test_edamame_against_a_kill_only_when_the_brew_prevents_it():
+    # two Swords at once: 4 damage. Max HP 5 and 4 makes (b) false, so (a) alone decides
     from shogunbot.bot import edamame_reason
     both = lambda hp: _fight(Hero(1, 1, hp=hp, **BOXED),
                              Enemy("ashigaru", 0, 1, 3, ["sword"], uid=1, intent="fire", wind=2),
                              Enemy("ashigaru", 2, -1, 3, ["sword"], uid=2, intent="fire", wind=2))
-    assert "kill" in edamame_reason(both(2), "wait", 10)       # 4 damage: 2 + 3 - 4 = 1 HP left
-    assert edamame_reason(both(1), "wait", 10) is None         # 1 + 3 - 4 = 0: it would not save him
-    calm = _fight(Hero(0, 1, hp=2), Enemy("ashigaru", 5, -1, 3, uid=1, intent="hold"))
-    assert edamame_reason(calm, "wait", 10) is None            # low HP alone is no reason
-    s = _fight(Hero(0, 1, hp=3, **BOXED), Enemy("ashigaru", 1, -1, 3, ["sword"], uid=1, intent="fire", wind=2))
-    assert edamame_reason(s, "wait", 10)
-    assert edamame_reason(s, "wait", 5) is None                # (b): with 5 max HP only 2 of the 3 would heal
+    assert "kill" in edamame_reason(both(3), "wait", 5)        # 3 - 4 < 0 without; 5 - 4 = 1 with the brew
+    assert edamame_reason(both(2), "wait", 4) is None          # 4 - 4 = 0 with the brew: it would not save him
 
 
 # ---- 4. an HP drop needs a second frame [user 2026-10-28] -----------------------------

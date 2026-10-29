@@ -18,6 +18,10 @@ from .rules import apply_hero, Events
 
 BOSS_HP = {k: CAT.enemy(k).hp for k in BOSS_KINDS}         # the bar's full width [wiki]: Daisuke 15, Rei 13
 BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
+# sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
+# symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
+# left on all 40 turns, and his sprite read 'facing right' on 12 of them, flipping 12 times
+FRONT_FACING = ("charger", "iwao")
 # hero tiles whose queue bubble shows another tile's art: a queued Katana has the enemy
 # Sword's icon [run 20261028-092419 t117-t150: read as Sword or Spear, the bot thought
 # Katana was still in the hand and tried to queue it 47 times]
@@ -403,7 +407,7 @@ class Tracker:
         """
         toward = 1 if hero_x > e["x"] else -1
         directional = kind in ("ashigaru", "charger") or (
-            kind in BOSS_KINDS and queue and queue[0] in ("sword", "charge", "dragon_punch"))
+            kind in BOSS_KINDS and queue and queue[0] in ("sword", "charge", "dragon_punch", "spear"))
         if directional and (queue or intent == "fire") and self.swapped_uid_x != e["x"]:
             return toward
         if intent == "turn":
@@ -415,7 +419,7 @@ class Tracker:
             if e["facing"] and e["facing"] != f and conf >= 0.95:
                 self.notes.append(f"enemy at {e['x']}: sprite says {e['facing']} with high confidence, kept {f}")
             return f
-        if kind == "charger":
+        if kind in FRONT_FACING:
             return toward
         return e["facing"] or toward
 

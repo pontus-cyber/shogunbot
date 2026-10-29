@@ -44,10 +44,27 @@ def to_action(rec: dict, p) -> str | None:
     return None
 
 
+def logged_route(folder: Path) -> tuple[list | None, int | None]:
+    """A bot run's route and day from its event log beside the frames folder: Bamboo Grove, then
+    each region the map took it to (map_travel), and the day chosen at the camp (day_select)."""
+    ev = folder.parent / "events.jsonl"
+    if folder.name != "frames" or not ev.exists():
+        return None, None
+    route, day = ["bamboo_grove"], None
+    for line in ev.open(encoding="utf-8"):
+        e = json.loads(line)
+        if e.get("event") == "map_travel" and e.get("region") and e["region"] not in route:
+            route.append(e["region"])
+        elif e.get("event") == "day_select" and e.get("day"):
+            day = e["day"]
+    return route, day
+
+
 def replay(folder: str | Path, verbose: bool = True, route: list | None = None, day: int | None = None) -> dict:
     """route: the regions of the run in order, and day: its day, as the bot passes them to
     perception (M4). By default from route.json in the folder ({"route": [...], "day": 1}) when
-    there is one, else Bamboo Grove only and the day unknown."""
+    there is one, else from the run's event log (a bot run: logged_route), else Bamboo Grove only
+    and the day unknown."""
     folder = Path(folder)
     recs = [json.loads(l) for l in open(folder / "actions.jsonl", encoding="utf-8")]
     percs = {}
@@ -55,6 +72,9 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
     if route is None and meta.exists():
         info = json.loads(meta.read_text(encoding="utf-8"))
         route, day = info.get("route"), info.get("day", day)
+    elif route is None:
+        route, logged_day = logged_route(folder)
+        day = day if day is not None else logged_day
     route = list(route or ["bamboo_grove"])
 
     tr = Tracker()

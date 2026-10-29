@@ -206,7 +206,7 @@ PAGE = r"""<!doctype html>
 </main>
 <script>
 const NAMES = {ashigaru: "Ashigaru", tachi: "Twin Tachi", charger: "Spike Charger", daisuke: "Daisuke",
-               rei: "Rei", yari_master: "Yari Master"};
+               rei: "Rei", yari_master: "Yari Master", iwao: "Iwao"};
 const INTENT = {fire: ["FIRE", "fire"], queue: ["LOAD", "queue"], "move-left": ["← STEP", "move"],
                 "move-right": ["STEP →", "move"], turn: ["TURN", "turn"], hold: ["hold", ""]};
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
