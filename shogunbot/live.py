@@ -45,6 +45,9 @@ _EVENT_TEXT = {
                       + (f" for {d['upgrade_price']}" if d.get("upgrade_price") is not None else "")
                       + f", coins {d.get('coins')}; GO",
     "map_stuck": lambda d: f"map: {d.get('tries')} inputs did not leave the map",
+    "map": lambda d: f"map: {d.get('step')}" + (f" ({d.get('node')})" if d.get("node") else ""),
+    "map_travel": lambda d: f"map: travel to {d.get('node') or 'the marked node'} ({d.get('why')})",
+    "mouse_mode": lambda d: f"{d.get('screen')}: keyboard-only mode off (a click on an empty spot)",
     "cursor": lambda d: f"click on the {d.get('screen')}: cursor at {d.get('cursor')}, target {d.get('target')}"
                         + ("" if d.get("ok") else " (missed)"),
     "level_end": lambda d: f"level {d.get('level')} ends at {d.get('hp_end')} HP ({d.get('outcome')})",
@@ -188,7 +191,7 @@ class LiveView:
             text = kind
         self.events.append({"t": round(time.time() - self._t0, 1), "kind": kind, "text": text})
         if kind in ("give_up", "give_up_failed", "stall_mode", "item_use", "level_start", "wave_spawn",
-                    "start_elsewhere", "shop", "map_stuck"):
+                    "start_elsewhere", "shop", "map_stuck", "map_travel"):
             self._write()
 
     def end(self, result: str, summary: dict | None = None) -> None:

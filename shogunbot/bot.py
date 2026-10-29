@@ -13,7 +13,9 @@ Screens:
              (pause menu); the death screen -> BACK TO CAMP (autostart) [user 2026-10-29]
   title   -> click NEW RUN                    (autostart)
   camp    -> step the day selector down to Day 1, walk right, click GO (autostart)
-  map     -> click the first node (Stage 1); stops after MAP_TRIES_MAX inputs (autostart)
+  map     -> Stage 1: click the first node; after a boss (--full): keyboard-only mode, read the
+             marked node, Enter on a shop or a MAP_REGIONS region (perception/map_screen.py);
+             stops after MAP_TRIES_MAX inputs (autostart)
   shop    -> read the offers, click GO (perception/shop_screen.py)
   combat  -> plan one action and send it
   reward  -> shrine: read the upgrade; a pure gain is always taken (simulation picks the tile),
@@ -41,7 +43,7 @@ from . import rewards
 from .bridge import Tracker, kit_from_faces, level_name, match_faces
 from .catalogue import CAT
 from .model import DEFAULT_KIT, ENEMY_TILE_DAMAGE, HERO_MAX_HP
-from .perception import reward_screen, screens, shop_screen
+from .perception import map_screen, reward_screen, screens, shop_screen
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
 from .planner import STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_weights
 from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS, free_action, legal_hero_actions, step
@@ -50,7 +52,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.24"
+VERSION = "0.25"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -72,6 +74,13 @@ MAP_TRIES_MAX = 12        # map inputs that leave the map unchanged before the r
                           # [run 20261029-072042: 18 inputs on a Stage 2 map, none applied]
 START_GIVE_UPS_MAX = 2    # give-ups at a run start that still do not reach the camp: 'stuck'
 SHOP_GO_TRIES = 3         # GO clicks before the run stops as 'stuck' in a shop
+# The map between regions (M4 step 1) is played in keyboard-only mode [user 2026-10-29]: its button
+# turns it on, the up/down arrows move the mark among the reachable nodes, Enter travels there, and
+# any mouse click turns it off again (perception/map_screen.py). Regions in order of preference;
+# a shop is always taken (both shops after Bamboo Grove led to both regions).
+MAP_REGIONS = ("whispering_caves",)   # [user 2026-10-28: Whispering Caves first]
+MAP_LOOKS_MAX = 4         # arrow presses spent looking for a preferred region before taking the mark
+MOUSE_MODE_SPOT = (0.97, 0.27)   # an empty spot: a click there turns keyboard-only mode off
 BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink
 BLINK_GAP_S = 0.15
 UNKNOWN_FRAME_S = 6.0     # save a frame when a screen stays unknown this long
@@ -147,7 +156,8 @@ def edamame_reason(s, action: str, hp_cap: int) -> str | None:
     return f"a hit this turn or the next could {risk}; with the brew {with_brew} HP"
 
 
-KEY_LABEL = {"a": "A", "d": "D", "w": "W", "s": "S", "space": "SPACE", "enter": "ENTER", "esc": "ESC"}
+KEY_LABEL = {"a": "A", "d": "D", "w": "W", "s": "S", "space": "SPACE", "enter": "ENTER", "esc": "ESC",
+             "up": "UP", "down": "DOWN"}
 
 
 class Recorder:
@@ -638,11 +648,18 @@ class Bot:
         #    be open (a run start that finds the game paused): the pause button is hidden then
         #    [collect/20261028-121900-giveup]
         m = c = None
+        esc_sent = False
         while True:
             if _stop_requested():
                 return self._give_up_failed("stopped (F8)", None)
             frame = gw.grab_stable(settle_s=0.3, timeout_s=3.0)
             f = normalize(frame)
+            if not esc_sent and map_screen.keyboard_mode(f):
+                # keyboard-only mode hides the pause button; Esc opens the menu [obs 2026-10-29]
+                self.key("esc", frame, screen="give_up", step="esc")
+                esc_sent = True
+                time.sleep(1.0)
+                continue
             if screens.pause_button(f):
                 if not wait_map or screens.classify(f) == "map" or time.time() - t0 > GIVE_UP_WAIT_S / 2:
                     break
@@ -744,6 +761,69 @@ class Bot:
         self.log.save_frame(frame, f"start_{scr}")
         return "gave_up" if self._give_up(wait_map=False) else None
 
+    # ------------------------------------------------------------------ map (M4)
+    def _map_step(self, frame, look: dict) -> None:
+        """One input on the map between regions [user 2026-10-29]: turn keyboard-only mode on,
+        then read the marked node (perception/map_screen.py). A shop or a region in MAP_REGIONS is
+        entered with Enter; another region makes the bot look at the other reachable nodes first
+        (down, then up when down did not move the mark), at most MAP_LOOKS_MAX presses, after which
+        it takes the mark. look keeps that state for one map visit."""
+        f = normalize(frame)
+        if not map_screen.keyboard_mode(f):
+            self.say("map: keyboard-only mode on")
+            self.log.event("map", step="keyboard on")
+            self.click(*map_screen.KEYBOARD_BUTTON, frame, screen="map", step="keyboard")
+            time.sleep(0.8)
+            return
+        sel = map_screen.selected(f)
+        if sel is None:
+            look["unread"] = look.get("unread", 0) + 1
+            self.log.event("map", step="no node read", tries=look["unread"])
+            self.log.save_frame(frame, f"map_unread_{look['unread']}")
+            if look["unread"] >= 3:      # a mark the reader cannot name: take it
+                self._map_travel(frame, None, look, "the marked node could not be read")
+            else:
+                time.sleep(0.6)
+            return
+        seen = look.setdefault("seen", [])
+        if sel["text"] not in seen:
+            seen.append(sel["text"])
+        if sel["kind"] == "shop":
+            self._map_travel(frame, sel, look, "a shop (every shop led on to both regions)")
+            return
+        if sel["region"] in MAP_REGIONS:
+            self._map_travel(frame, sel, look, f"region {sel['region']}, the preferred one")
+            return
+        if look.get("looks", 0) >= MAP_LOOKS_MAX:
+            self._map_travel(frame, sel, look, f"no region of {list(MAP_REGIONS)} reachable")
+            return
+        key = "up" if look.get("bottom") else "down"
+        self.log.event("map", step="look", key=key, node=sel["text"], region=sel["region"])
+        self.key(key, frame, screen="map", step="look")
+        look["looks"] = look.get("looks", 0) + 1
+        time.sleep(0.6)
+        after = map_screen.selected(normalize(self.gw.grab()))
+        if key == "down" and after is not None and after["text"] == sel["text"]:
+            look["bottom"] = True        # down did not move the mark: look upward next
+
+    def _map_travel(self, frame, sel, look: dict, why: str) -> None:
+        name = sel["text"] if sel else None
+        self.say(f"map: travel to {name or 'the marked node'} ({why})")
+        # RunLogger.event's first parameter is called 'kind': the node's goes in as 'node_kind'
+        self.log.event("map_travel", node=name, node_kind=sel and sel["kind"], region=sel and sel["region"],
+                       why=why, seen=look.get("seen", []))
+        self.log.save_frame(frame, "map_travel")
+        self.key("enter", frame, screen="map", step="travel")
+        look.clear()
+        time.sleep(2.5)
+
+    def _mouse_mode(self, frame, scr: str) -> None:
+        """Keyboard-only mode left on by the map: a click on an empty spot turns it off, so the
+        clicks of the other screens work as before [obs 2026-10-29: any click turns it off]."""
+        self.log.event("mouse_mode", screen=scr)
+        self.click(*MOUSE_MODE_SPOT, frame, screen=scr, step="mouse mode")
+        time.sleep(0.5)
+
     # ------------------------------------------------------------------ run
     def run(self) -> str:
         gw, log = self.gw, self.log
@@ -773,7 +853,7 @@ class Bot:
         unknown_saved = False
         camp_steps = 0
         day_clicks, day_done = 0, not LOWEST_DAY
-        map_tries = 0
+        map_tries, map_look = 0, {}
         zero_hp = 0
         last_key, last_action = None, None
         potion_check = None
@@ -798,6 +878,9 @@ class Bot:
                     unknown_since, unknown_saved = None, False
                 if scr not in ("combat", "boss"):
                     self.live.status({"unknown": "waiting"}.get(scr, scr))
+                if scr not in ("map", "black") and map_screen.keyboard_mode(normalize(frame)):
+                    self._mouse_mode(frame, scr)      # the map's keyboard mode is still on
+                    continue
 
                 # ---------------- run start [user 2026-10-29]: every run starts at the camp, where
                 # Day 1 is chosen. Run 20261029-072042 began on the Stage 2 map a single run had
@@ -867,6 +950,7 @@ class Bot:
                         self.say("shop: GO did not leave the shop; stopping")
                         result = "stuck"
                         break
+                    map_tries, map_look = 0, {}       # the next map is a new one
                     continue
                 if scr == "death" and turn == 0:
                     # the last run's death screen (a death, or a run given up in a fight): RESTART
@@ -953,6 +1037,11 @@ class Bot:
                             log.save_frame(frame, "map_stuck")
                             result = "stuck"
                             break
+                        if tr.level_i >= 2 or tr.stage > 1:
+                            # the map after a boss: keyboard-only mode (M4) [user 2026-10-29]
+                            map_tries += 1
+                            self._map_step(frame, map_look)
+                            continue
                         # [run 20261027-175511] a click followed by an instant mouse move did not
                         # register; keep the cursor on the node, then try other inputs in turn
                         how = screens.MAP_TRIES[map_tries % len(screens.MAP_TRIES)]
@@ -984,7 +1073,7 @@ class Bot:
                     continue
 
                 # ---------------- combat / boss
-                map_tries = 0
+                map_tries, map_look = 0, {}
                 if p.screen in ("combat", "boss") and any(e.get("spawning") for e in p.enemies):
                     frame, p = self._wait_spawns(frame, p, tr, turn)
                 if p.screen in ("combat", "boss") and any(e["queue"] or e["intent"] is None for e in p.enemies):

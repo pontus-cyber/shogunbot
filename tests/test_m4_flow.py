@@ -250,3 +250,85 @@ def test_clicks_log_the_cursor_on_the_map_and_on_a_miss(tmp_path):
     b.click(0.5, 0.5, f, screen="camp")                     # on target elsewhere: not logged
     got = [(e["screen"], e["ok"]) for e in _events(b) if e["event"] == "cursor"]
     assert got == [("camp", False), ("map", True)]
+
+
+# ---- the map between regions in keyboard-only mode [user 2026-10-29; captures 20261029-kbd-map] ----
+KBD = "collect/20261029-kbd-map/"
+KEYBOARD_BOX = (1785, 808, 1855, 878)
+
+
+class KeyGW(_GW):
+    """FakeGW whose steps may also move on keys: steps [(frame, click boxes, {key: next step})]."""
+    def __init__(self, steps):
+        super().__init__([(st[0], st[1]) for st in steps])
+        self.keymap = [st[2] if len(st) > 2 else {} for st in steps]
+        self.keys = []
+
+    def key(self, name):
+        self.keys.append(name)
+        nxt = self.keymap[self.i].get(name)
+        if nxt is not None:
+            self.i = nxt
+
+
+def test_map_reader_names_the_marked_node():
+    from shogunbot.perception import map_screen as M
+    reads = {}
+    for name in ("k1_map_kbd_shop_top", "k2_map_mouse_at_shop", "k3_map_kbd_caves", "k4_map_kbd_hibiku"):
+        f = frame(KBD + name + ".jpg")
+        sel = M.selected(f)
+        reads[name] = (M.keyboard_mode(f), sel and sel["kind"], sel and sel["region"])
+    assert reads == {"k1_map_kbd_shop_top": (True, "shop", None), "k2_map_mouse_at_shop": (False, None, None),
+                     "k3_map_kbd_caves": (True, "region", "whispering_caves"),
+                     "k4_map_kbd_hibiku": (True, "region", "hibiku_wastelands")}
+    assert M.keyboard_mode(frame(KBD + "k5_shop_kbd.jpg")) is True
+    assert M.keyboard_mode(frame(R072042 + "map_1.png")) is False
+
+
+def test_map_after_a_boss_looks_for_the_preferred_region(tmp_path):
+    # mouse mode: click the keyboard button; Hibiku is marked, down does not move the mark, up
+    # marks the Caves, Enter travels there
+    gw = KeyGW([(frame(KBD + "k2_map_mouse_at_shop.jpg"), [KEYBOARD_BOX]),
+                (frame(KBD + "k4_map_kbd_hibiku.jpg"), [], {"up": 2}),
+                (frame(KBD + "k3_map_kbd_caves.jpg"), [], {"enter": 3}),
+                (frame(FULL + "f0186_idle.png"), [])])
+    b = make_bot(tmp_path, gw)
+    look = {}
+    for _ in range(8):
+        if gw.i == 3:
+            break
+        b._map_step(gw.grab(), look)
+    assert gw.clicks == [(1820, 843)] and gw.keys == ["down", "up", "enter"]
+    travel = next(e for e in _events(b) if e["event"] == "map_travel")
+    assert travel["region"] == "whispering_caves" and len(travel["seen"]) == 2
+
+
+def test_map_takes_a_shop_at_once(tmp_path):
+    gw = KeyGW([(frame(KBD + "k1_map_kbd_shop_top.jpg"), [], {"enter": 1}), (frame(FULL + "f0172_CLICK.png"), [])])
+    b = make_bot(tmp_path, gw)
+    b._map_step(gw.grab(), {})
+    assert gw.keys == ["enter"] and gw.i == 1
+
+
+def test_keyboard_mode_left_on_is_turned_off_by_a_click(tmp_path, monkeypatch):
+    # the shop in keyboard mode: one click on an empty spot first, then the shop as usual
+    from shogunbot import bot as B
+    spot = (round(B.MOUSE_MODE_SPOT[0] * 1920), round(B.MOUSE_MODE_SPOT[1] * 1080))
+    gw = _GW([(frame(KBD + "k5_shop_kbd.jpg"), [(spot[0] - 5, spot[1] - 5, spot[0] + 5, spot[1] + 5)]),
+              (frame(FULL + "f0172_CLICK.png"), [SHOP_GO_BOX]), (frame(FULL + "f0183_CLICK.png"), [])])
+    b = make_bot(tmp_path, gw)
+    b.rec, b.restart_after = _Rec(), False
+    _stop_after(monkeypatch, 3)
+    b.run()
+    assert gw.clicks[:2] == [spot, (1651, 755)]
+    assert any(e["event"] == "mouse_mode" for e in _events(b))
+
+
+def test_give_up_in_keyboard_mode_opens_the_menu_with_esc(tmp_path):
+    gw = KeyGW([(frame(KBD + "k3_map_kbd_caves.jpg"), [], {"esc": 1}),
+                (frame(KBD + "k0_pause_kbd.jpg"), [GIVE_UP_ROW]),
+                (frame(SERIES + "f0102_CLICK.png"), [YES_ROW]),
+                (frame(SERIES + "give_up_failed.png"), [])])
+    b = make_bot(tmp_path, gw)
+    assert b._give_up(wait_map=False) is True
+    assert gw.keys == ["esc"] and gw.clicks == [(958, 632), (958, 552)]
