@@ -60,6 +60,16 @@ def _rei_as_daisuke(t: dict, version: str) -> bool:
             and (t.get("state") or {}).get("cells") == 7)
 
 
+# Bots before 0.28 planned a boss past Stage 1 (Iwao) as Daisuke, the stand-in, and rewrote his
+# icons as Daisuke's tiles [run 20261029-124921 t159-t198]: those fights are left out too.
+IWAO_READ_FROM = (0, 28)
+
+
+def _stand_in_boss(t: dict, version: str) -> bool:
+    lv = t.get("level") or ""
+    return _version(version) < IWAO_READ_FROM and lv.startswith("stage") and lv.endswith("boss")
+
+
 def load_runs(root: str | Path, min_version: tuple = MIN_VERSION) -> list[Run]:
     """Bot runs with turn logs under root/runs (stopped or empty runs, runs of bots older
     than min_version and SKIP_RUNS skipped; the turns of SKIP_LEVELS dropped)."""
@@ -71,7 +81,8 @@ def load_runs(root: str | Path, min_version: tuple = MIN_VERSION) -> list[Run]:
         meta = json.loads((d / "meta.json").read_text()) if (d / "meta.json").exists() else {}
         turns = [json.loads(l) for l in tf.open(encoding="utf-8") if l.strip()]
         version = str(meta.get("bot_version", "?"))
-        turns = [t for t in turns if (d.name, t.get("level")) not in SKIP_LEVELS and not _rei_as_daisuke(t, version)]
+        turns = [t for t in turns if (d.name, t.get("level")) not in SKIP_LEVELS
+                 and not _rei_as_daisuke(t, version) and not _stand_in_boss(t, version)]
         ef = d / "events.jsonl"
         events = [json.loads(l) for l in ef.open(encoding="utf-8") if l.strip()] if ef.exists() else []
         if turns and _version(version) >= min_version:

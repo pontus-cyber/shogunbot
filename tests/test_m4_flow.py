@@ -305,8 +305,9 @@ def test_map_after_a_boss_looks_for_the_preferred_region(tmp_path):
     assert list(b.regions) == ["bamboo_grove", "whispering_caves"]
     assert [e["kind"] for e in b._see(frame(FULL + "f0204_CLICK.png")).enemies] == \
         ["yari_master", "ashigaru", "yari_master"]
-    # a spear read as a Sword fits an elite Ashigaru (4 = 3 + 1) unless the day rules elites out
-    assert b._see(frame(FULL + "f0198_idle.png")).enemies[0]["kind"] == "ashigaru"
+    # 0.26-0.27.1 read this Spear as a Sword, which fits an elite Ashigaru (4 = 3 + 1) unless the day
+    # rules elites out (test_m4_caves.test_decide_kind_on_day_1); since 0.28 it reads as a Spear
+    assert b._see(frame(FULL + "f0198_idle.png")).enemies[0]["kind"] == "yari_master"
     b.day = 1
     assert b._see(frame(FULL + "f0198_idle.png")).enemies[0]["kind"] == "yari_master"
 

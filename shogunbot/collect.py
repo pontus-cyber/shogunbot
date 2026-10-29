@@ -63,6 +63,9 @@ def _cursor() -> tuple[int, int]:
 def run(out_root: str = "collect", poll_s: float = 0.015, refresh_s: float = 0.05,
         settle_s: float = 1.5, min_change: float = 2.0) -> None:
     gw = GameWindow()
+    moved = gw.ensure_on_primary()        # capture reads the primary display only (display.py)
+    if moved:
+        print(f"moved the game window onto the primary display: {moved[0]} -> {moved[1]}")
     out = Path(out_root) / datetime.now().strftime("%Y%m%d-%H%M%S")
     out.mkdir(parents=True, exist_ok=True)
     log = open(out / "actions.jsonl", "a", encoding="utf-8")

@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from . import tiles as T
+from . import reward_screen, tiles as T
 
 PEDESTALS = {
     # frame: [left offer, right offer]   [bot/collect frames, labels read on screen]
@@ -54,7 +54,7 @@ def build(root: Path) -> dict:
 
     for f, labels in PEDESTALS.items():
         rgb = _load(root / f)
-        boxes = T.find_faces(rgb, 600, 1320, *T.PEDESTAL_ROW)
+        boxes = reward_screen.pedestal_faces(rgb)
         if len(boxes) != len(labels):
             raise SystemExit(f"{f}: {len(boxes)} pedestal faces, expected {len(labels)}")
         for b, lab in zip(boxes, labels):

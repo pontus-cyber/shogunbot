@@ -211,8 +211,22 @@ def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | No
     loaded_earlier = bool(e.queue) and e.wind >= 1 and f["last"] != "queue"
     # rules confirmed in play come first; the model fills in everything else
     boss = e.kind in BOSS_KINDS
-    combos = CAT.enemy(e.kind).behaviour.get("combos", {}) if boss else {}
-    half = boss and len(e.queue) == 1 and e.queue[0] in combos    # Charge alone is half his combo
+    kind = CAT.enemy(e.kind) if boss else None
+    b = kind.behaviour if boss else {}
+    toward = 1 if s.hero.x > e.x else -1
+
+    def step(d: int) -> str:                   # a move telegraph, or hold when the cell is taken
+        nx = e.x + d
+        if not s.in_bounds(nx) or s.unit_at(nx) is not None:
+            return "hold"
+        return "move-right" if d > 0 else "move-left"
+
+    # Charge alone is half Daisuke's combo; Earth Impale is half Iwao's only with the hero next to him
+    half = boss and kind.combo_next(e.queue, abs(e.x - s.hero.x)) is not None
+    if boss and b.get("after_fire") == "away" and not e.queue and e.fage is not None:
+        # Iwao: the turn after he fires he steps away from the hero (or holds when blocked), and
+        # loads the turn after [run 20261029-124921: after each of his 8 shots, t162-t198]
+        return [(1.0, step(-toward) if e.fage == 0 else "queue")]
     if loaded_earlier and boss and CAT.tile(e.queue[0]).kind == "summon":
         return [(1.0, "fire")]                # a loaded Summon holds one phase, then fires [rules.py, 6 of 6
                                               # cases; Rei's bells 10 of 10, runs 20261029-072323 ... -103242]
@@ -222,8 +236,13 @@ def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | No
         return [(1.0, "queue")]               # ... and loads its second half after the wind-up phase (12 of 12)
     if loaded_earlier and f["in_fp"] and ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0 and not half:
         return [(1.0, "fire")]                # R2: loaded, hero in the footprint at the start of the turn
+    if loaded_earlier and b.get("approach") and not half and ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0:
+        # Iwao, loaded with the hero out of reach: steps toward him, then fires [run 20261029-124921
+        # t166, t171, t180; t191 blocked]; a Spear facing away needs a turn first
+        if CAT.tile(e.queue[0]).directional and not f["face"]:
+            return [(1.0, "turn")]
+        return [(1.0, step(toward))]
     p = m.predict(f)
-    toward = 1 if s.hero.x > e.x else -1
     # what the rules allow [domain model R1 and section 7]
     if not e.queue:
         p["fire"] = 0.0

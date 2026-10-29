@@ -49,8 +49,10 @@ def test_caves_i_yari_masters_read_as_themselves():
     assert r[4] == ("yari_master", 2, 4, ["spear"], None)
 
 
-def test_a_spear_read_as_a_sword_leaves_no_alt_on_day_1():
-    assert _reads(REC + "f0198_idle.png")[4] == ("yari_master", 4, 4, ["sword"], None)
+def test_the_yari_masters_spear_reads_as_a_spear():
+    # 0.26-0.27.1 read this Spear as a Sword (18 of 30 Caves reads; test_decide_kind_on_day_1 keeps
+    # that case); 0.28 added the Yari Master's and Iwao's Spear to the icon templates
+    assert _reads(REC + "f0198_idle.png")[4] == ("yari_master", 4, 4, ["spear"], None)
 
 
 def test_the_stage_1_roster_reads_them_as_elite_ashigaru():
@@ -87,3 +89,18 @@ def test_the_spear_does_not_reach_three_cells():
     y = Enemy("yari_master", 3, -1, 4, ["spear"], uid=1, intent="fire")
     _, s2, _ = step(_board([y], hero_x=0), "wait")[0]
     assert s2.hero.hp == 10
+
+
+def test_a_bot_run_replays_with_the_route_it_logged(tmp_path):
+    # 0.28: run 20261029-124921 (--full) logged its map travel and day; the replay reads them, so its
+    # Caves levels are read with the Caves roster as the bot read them
+    from shogunbot.replay import logged_route
+    run = tmp_path / "20261029-124921"
+    (run / "frames").mkdir(parents=True)
+    (run / "events.jsonl").write_text(
+        '{"event": "day_select", "day": 1}\n'
+        '{"event": "map_travel", "node": "SLOT UPGRADE ? DANCER S?OP", "node_kind": "shop", "region": null}\n'
+        '{"event": "map_travel", "node": "W?ISPERING CA?ES", "node_kind": "region", "region": "whispering_caves"}\n',
+        encoding="utf-8")
+    assert logged_route(run / "frames") == (["bamboo_grove", "whispering_caves"], 1)
+    assert logged_route(tmp_path) == (None, None)

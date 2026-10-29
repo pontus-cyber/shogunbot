@@ -15,16 +15,61 @@ from local_game_mcp import windowing
 from local_game_mcp.backends import sendinput
 from local_game_mcp.capture import CaptureManager
 
+from .display import move_to, on_primary
+
 TITLE_REGEX = r"(?i)shogun"
 HOLD_S = 0.06
+SWP_NOSIZE, SWP_NOZORDER, SWP_NOACTIVATE = 0x0001, 0x0004, 0x0010
+SW_MAXIMIZE, SW_RESTORE = 3, 9
 
 
 class GameNotFound(RuntimeError):
     pass
 
 
+class NotOnPrimary(RuntimeError):
+    pass
+
+
 class _POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+class _RECT(ctypes.Structure):
+    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+
+_U32 = None
+
+
+def _user32():
+    """A user32 of our own with declared argument types (window handles are pointer-sized), so the
+    types set here never touch local_game_mcp's calls."""
+    global _U32
+    if _U32 is None:
+        from ctypes import wintypes
+        u = ctypes.WinDLL("user32", use_last_error=True)
+        u.GetSystemMetrics.argtypes, u.GetSystemMetrics.restype = [ctypes.c_int], ctypes.c_int
+        u.GetWindowRect.argtypes, u.GetWindowRect.restype = [wintypes.HWND, ctypes.POINTER(_RECT)], wintypes.BOOL
+        u.IsZoomed.argtypes, u.IsZoomed.restype = [wintypes.HWND], wintypes.BOOL
+        u.ShowWindow.argtypes, u.ShowWindow.restype = [wintypes.HWND, ctypes.c_int], wintypes.BOOL
+        u.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                   ctypes.c_int, ctypes.c_uint]
+        u.SetWindowPos.restype = wintypes.BOOL
+        _U32 = u
+    return _U32
+
+
+def primary_size() -> tuple[int, int]:
+    """The primary display in physical px (the process is DPI-aware): SM_CXSCREEN, SM_CYSCREEN."""
+    u = _user32()
+    return int(u.GetSystemMetrics(0)), int(u.GetSystemMetrics(1))
+
+
+def outer_rect(hwnd: int) -> tuple[int, int, int, int]:
+    r = _RECT()
+    _user32().GetWindowRect(hwnd, ctypes.byref(r))
+    return r.left, r.top, r.right, r.bottom
 
 
 def cursor_pos() -> tuple[int, int] | None:
@@ -54,6 +99,34 @@ class GameWindow:
 
     def rect(self) -> tuple[int, int, int, int]:
         return windowing.client_rect_screen(self.hwnd())
+
+    def ensure_on_primary(self) -> tuple | None:
+        """Move the window onto the primary display when its client area is elsewhere: capture
+        reads the primary output only (display.py). A maximised window is restored, moved and
+        maximised again (Windows maximises it on the display it is on). Returns (from, to) client
+        rects when it moved, None when it was already there; NotOnPrimary when moving failed."""
+        h = self.hwnd()
+        before = self.rect()
+        if on_primary(before, primary_size()):
+            return None
+        u = _user32()
+        maxed = bool(u.IsZoomed(h))
+        if maxed:
+            u.ShowWindow(h, SW_RESTORE)
+            time.sleep(0.4)
+        to = move_to(self.rect(), outer_rect(h), primary_size())
+        if to is not None:
+            u.SetWindowPos(h, 0, to[0], to[1], 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
+            time.sleep(0.4)
+        if maxed:
+            u.ShowWindow(h, SW_MAXIMIZE)
+            time.sleep(0.4)
+        time.sleep(1.0)                # let the game redraw at its new place
+        after = self.rect()
+        if not on_primary(after, primary_size()):
+            raise NotOnPrimary(f"the game window is at {after}, not on the primary display {primary_size()}; "
+                               "move it there and start again")
+        return before, after
 
     def focus(self) -> bool:
         h = self.hwnd()
