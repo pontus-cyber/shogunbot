@@ -193,12 +193,13 @@ def _skill_bonus(s: State, e: Enemy, moved: bool) -> int:
     return b
 
 
-def _hero_hit(s: State, e: Enemy, kt, spec: dict, ev: Events, moved: bool = False) -> bool:
+def _hero_hit(s: State, e: Enemy, kt, spec: dict, ev: Events, moved: bool = False, boost: int = 0) -> bool:
     """One hero tile hitting one enemy, with the tile's enchantment and the build's skills (moved:
-    the tile moved the hero before it struck). Returns True on an exact kill (Perfect Strike)."""
+    the tile moved the hero before it struck; boost: Dynamic Boost's extra damage this turn).
+    Returns True on an exact kill (Perfect Strike)."""
     src = "hero:" + kt.tile
     hp0 = e.hp
-    _damage_enemy(s, e, kt.damage + _skill_bonus(s, e, moved), src, ev, spec.get("cannot_kill", False))
+    _damage_enemy(s, e, kt.damage + _skill_bonus(s, e, moved) + boost, src, ev, spec.get("cannot_kill", False))
     ench = kt.enchant
     if ench is None:
         return False
@@ -218,9 +219,11 @@ def _hero_hit(s: State, e: Enemy, kt, spec: dict, ev: Events, moved: bool = Fals
     return ench == "perfect_strike" and hp0 > 0 and e.hp == 0
 
 
-def _hero_attack(s: State, kt, ev: Events) -> bool:
-    """Fire one kit tile from the hero's current cell. Returns True when the
-    tile recharges at once (Perfect Strike)."""
+def _hero_attack(s: State, kt, ev: Events, boost: int = 0, dyn: int = 0) -> bool:
+    """Fire one kit tile from the hero's current cell. Returns True when the tile recharges at once
+    (Perfect Strike). boost: extra damage on every hit (Dynamic Boost after a tile moved the hero this
+    turn); dyn: Dynamic Boost's bonus, which a dash tile also gets on its own strike once it has moved
+    the hero [hyp: the wiki says 'if you moved with a tile in the same turn']."""
     h = s.hero
     spec = CAT.tile(kt.tile).attack
     k = spec["kind"]
@@ -231,7 +234,7 @@ def _hero_attack(s: State, kt, ev: Events) -> bool:
             for off in spec["offsets"]:
                 e = s.enemy_at(h.x + h.facing * off)
                 if e:
-                    recharge |= _hero_hit(s, e, kt, spec, ev)
+                    recharge |= _hero_hit(s, e, kt, spec, ev, boost=boost)
                     if spec.get("push"):
                         _push(s, e, h.facing * (1 if off > 0 else -1), ev, spec.get("collision", 1),
                               "hero:" + kt.tile, None)
@@ -239,10 +242,10 @@ def _hero_attack(s: State, kt, ev: Events) -> bool:
             u = (_first_unit_ahead(s, h.x, d, rng=spec.get("range")) if k == "first"
                  else _furthest_unit_ahead(s, h.x, d))
             if isinstance(u, Enemy):
-                recharge |= _hero_hit(s, u, kt, spec, ev)
+                recharge |= _hero_hit(s, u, kt, spec, ev, boost=boost)
         elif k == "damaged":
             for e in [e for e in s.alive() if e.hp < e.max_hp]:
-                recharge |= _hero_hit(s, e, kt, spec, ev)
+                recharge |= _hero_hit(s, e, kt, spec, ev, boost=boost)
         elif k == "dash_strike":
             # HYP: the hero stops next to the first unit and strikes it; with
             # nothing in the way it dashes to the last cell (catalogue no_target)
@@ -253,7 +256,7 @@ def _hero_attack(s: State, kt, ev: Events) -> bool:
             else:
                 moved = h.x != u.x - d
                 h.x = u.x - d
-                recharge |= _hero_hit(s, u, kt, spec, ev, moved)
+                recharge |= _hero_hit(s, u, kt, spec, ev, moved, max(boost, dyn) if moved else boost)
         elif k == "dash_through":
             # HYP: passes every unit of the first group ahead, lands on the
             # first empty cell behind them and strikes each one it passed
@@ -267,7 +270,7 @@ def _hero_attack(s: State, kt, ev: Events) -> bool:
             if passed and s.in_bounds(nx):
                 h.x = nx
                 for e in passed:
-                    recharge |= _hero_hit(s, e, kt, spec, ev, True)
+                    recharge |= _hero_hit(s, e, kt, spec, ev, True, max(boost, dyn))
     return recharge
 
 
@@ -276,14 +279,19 @@ def _hero_fire(s: State, ev: Events) -> set[str]:
     from zero (Perfect Strike)."""
     h = s.hero
     keep = set()
+    # Dynamic Boost: attacks deal more once a tile has moved the hero this turn [wiki] [rec2 f1158-f1159:
+    # level 2, a Charge carried the hero to the Guardian and the 4-damage Swirl behind it showed 6]
+    dyn, moved = h.kit.fx.get("damage_if_moved", 0), False
     for label in list(h.queue):
         kt = h.kit.by_label.get(label)
         if kt is None:
             continue
-        if _hero_attack(s, kt, ev):
+        x0 = h.x
+        if _hero_attack(s, kt, ev, dyn if moved else 0, dyn):
             keep.add(label)
         else:
             h.charge[label] = 0
+        moved = moved or h.x != x0
     h.queue = []
     return keep
 

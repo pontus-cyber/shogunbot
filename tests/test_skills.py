@@ -166,3 +166,16 @@ def test_fortress_starts_every_fight_with_a_shield():
     finally:
         selfplay.play_level = orig
     assert seen and all(seen)
+
+
+def test_dynamic_boost_after_a_tile_moved_the_hero():
+    # rec2 f1158 -> f1159 (Dynamic Boost level 2 since f0790): the hero on cell 3 facing left fired a
+    # Charge, which carried him next to the Guardian on cell 0, then a 4-damage Swirl, which showed 6
+    kit = Kit.of("charge").add("swirl", damage=4).with_skill("dynamic_boost").with_skill("dynamic_boost")
+    s, ev = _fire(kit, 3, -1, [("ashigaru", 0, 1, 20)], ["charge", "swirl"])
+    hits = [d for _, _, d, src in ev.enemy_damage]
+    assert s.hero.x == 1 and hits[-1] == 6
+    assert hits[0] == 3            # the Charge's own strike after its move [hyp]
+    # nothing moved: no boost (a Charge with its target next to the hero; rec2 f1275 -> f1276 took 1)
+    s, ev = _fire(kit, 1, -1, [("ashigaru", 0, 1, 20)], ["charge"])
+    assert [d for _, _, d, _ in ev.enemy_damage] == [1]
