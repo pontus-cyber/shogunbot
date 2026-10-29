@@ -51,3 +51,25 @@ def test_quick_recovery_readies_the_swap_sooner():
         assert not s.hero.swap_ready
         s = apply_hero(s, "wait", Events())
     assert s.hero.swap_ready and kit.swap_cooldown == 3
+
+
+def test_quick_recovery_level_2_leaves_two_turns_of_swap_cooldown():
+    # after Quick Recovery level 2 (f0457) every swap showed 2 red ticks under the hero, not 4
+    # [rec2 f0541-f0542, f0574-f0575, f0696-f0697]
+    kit = DEFAULT_KIT.with_skill("quick_recovery").with_skill("quick_recovery")
+    assert kit.swap_cooldown == 2
+
+
+def test_two_way_move_swaps_with_a_unit_behind_the_hero():
+    # rec2 f0491 -> f0492 (Two-Way Move bought at f0460): the hero on cell 3 facing left pressed D
+    # with a Tachi on cell 4 behind him; next frame he stood on cell 4, still facing left, the swap
+    # recharging (2 red ticks, Quick Recovery level 2)
+    from shogunbot.model import Enemy
+    def board(kit):
+        return State(7, Hero(3, -1, kit=kit), [Enemy("tachi", 4, -1, 2, uid=1)])
+    assert "right" not in legal_hero_actions(board(DEFAULT_KIT))          # without it the move is blocked
+    kit = DEFAULT_KIT.with_skill("two_way_move").with_skill("quick_recovery").with_skill("quick_recovery")
+    s = board(kit)
+    assert "right" in legal_hero_actions(s)
+    s2 = apply_hero(s, "right", Events())
+    assert (s2.hero.x, s2.hero.facing, s2.enemies[0].x, s2.hero.swap_charge) == (4, -1, 3, 0)

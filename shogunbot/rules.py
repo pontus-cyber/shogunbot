@@ -120,7 +120,7 @@ def legal_hero_actions(s: State) -> list[str]:
             if not s.in_bounds(nx):
                 continue
             occ = s.enemy_at(nx)
-            if occ is not None and not (h.facing == d and h.swap_ready):
+            if occ is not None and not ((h.facing == d or h.kit.swap_both_ways) and h.swap_ready):
                 continue
         out.append(a)
     q = h.queue
