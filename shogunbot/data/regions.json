@@ -23,7 +23,7 @@
      "level_list": [
        {"id": "bamboo-1", "n": 1, "cells": 5, "waves": 4, "spawn": "normal", "new_enemies": ["ashigaru", "tachi"], "reward": "tile_choice", "hero_cell": 2},
        {"id": "bamboo-2", "n": 2, "cells": 7, "waves": 5, "spawn": "normal", "new_enemies": ["charger"], "reward": "tile_upgrade", "hero_cell": 3},
-       {"id": "boss", "n": 3, "cells": 5, "waves": 0, "spawn": null, "boss": "daisuke", "boss_day2": "rei", "boss_day2_cells": 7, "reward": "tile_upgrade", "hero_cell": 1}
+       {"id": "boss", "n": 3, "cells": 5, "waves": 0, "spawn": null, "boss": "daisuke", "boss_alt": "rei", "boss_alt_cells": 7, "reward": "tile_upgrade", "hero_cell": 1}
      ]},
     {"id": "whispering_caves", "name": "Whispering Caves", "index": "2.1", "levels": 3, "enemies": ["yari_master"], "boss": ["iwao"], "next": ["moonlit_port"], "observed_day1": {"levels": [{"cells": 5, "waves": 3}, {"cells": 7, "waves": 4}], "boss_cells": 7}},
     {"id": "hibiku_wastelands", "name": "Hibiku Wastelands", "index": "2.2", "levels": 3, "enemies": ["yumi_sniper"], "boss": ["baru"], "next": ["moonlit_port"]},

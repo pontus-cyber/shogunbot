@@ -41,12 +41,13 @@ GLYPH_SAMPLES = {
 }
 
 
-def find_bubble(rgb: np.ndarray):
-    """(x0, y0, x1, y1) of the near-white bubble (~233,232,224) or None."""
-    x0, x1, y0, y1 = BUBBLE_REGION
+def find_bubble(rgb: np.ndarray, region=BUBBLE_REGION, min_px: int = 25000):
+    """(x0, y0, x1, y1) of the near-white bubble (~233,232,224) or None. region: x0, x1, y0, y1
+    searched (the shop's statue stands left of the shrine's: shop_screen.BUBBLE_REGION)."""
+    x0, x1, y0, y1 = region
     reg = rgb[y0:y1, x0:x1].astype(np.int16)
     white = (reg.min(axis=2) > 210) & (reg.max(axis=2) - reg.min(axis=2) < 20)
-    if white.sum() < 25000:          # the bubble is a solid block (~32 000 px or more); tooltips are dark
+    if white.sum() < min_px:         # the bubble is a solid block (~32 000 px or more); tooltips are dark
         return None
     band = _runs(white.mean(axis=1) > 0.25, gap=6)
     if not band:

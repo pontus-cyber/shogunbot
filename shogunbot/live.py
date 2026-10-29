@@ -40,6 +40,13 @@ _EVENT_TEXT = {
     "give_up_failed": lambda d: f"give-up failed: {d.get('reason')}",
     "menu": lambda d: f"menu: {d.get('screen')}" + (f" ({d.get('how')})" if d.get("how") else ""),
     "day_select": lambda d: f"camp: Day {d.get('day')} selected ({d.get('clicks')} click(s) on the day arrow)",
+    "start_elsewhere": lambda d: f"run start on the {d.get('screen')} of an earlier run: giving it up first",
+    "shop": lambda d: f"shop: statue {' / '.join(d.get('upgrade_text') or []) or '-'}"
+                      + (f" for {d['upgrade_price']}" if d.get("upgrade_price") is not None else "")
+                      + f", coins {d.get('coins')}; GO",
+    "map_stuck": lambda d: f"map: {d.get('tries')} inputs did not leave the map",
+    "cursor": lambda d: f"click on the {d.get('screen')}: cursor at {d.get('cursor')}, target {d.get('target')}"
+                        + ("" if d.get("ok") else " (missed)"),
     "level_end": lambda d: f"level {d.get('level')} ends at {d.get('hp_end')} HP ({d.get('outcome')})",
     "exception": lambda d: f"error in {d.get('where')}: {d.get('error')}",
     "run_end": lambda d: f"run ended: {d.get('result')}",
@@ -180,7 +187,8 @@ class LiveView:
         except Exception:
             text = kind
         self.events.append({"t": round(time.time() - self._t0, 1), "kind": kind, "text": text})
-        if kind in ("give_up", "give_up_failed", "stall_mode", "item_use", "level_start", "wave_spawn"):
+        if kind in ("give_up", "give_up_failed", "stall_mode", "item_use", "level_start", "wave_spawn",
+                    "start_elsewhere", "shop", "map_stuck"):
             self._write()
 
     def end(self, result: str, summary: dict | None = None) -> None:

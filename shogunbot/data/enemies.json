@@ -67,7 +67,7 @@
      "corrupted": {"traits": ["quick"], "extra_tiles": ["tetsubo"], "text": "Uses Charge + Sword and Summon much more often."},
      "text": "First Bamboo Grove boss. Often Sword or Swirl, then moves toward the player; sometimes Charge + Sword (loaded in two phases [bot]); occasionally summons a Spike Charger. HP is the boss bar."},
     {"id": "rei", "name": "Rei the Ruthless", "hp": null, "hp_day5": null, "traits": [], "region": "bamboo_grove", "tiles": [], "tag": "E", "standard": false, "boss": true, "sim": false,
-     "arena": {"cells": 7}, "text": "Alternate Bamboo Grove boss from Day 2 (after beating the Shogun once)."},
+     "arena": {"cells": 7}, "text": "Alternate Bamboo Grove boss once the Shogun has been beaten. Met on Day 1 in a 7-cell arena [bot: run 20261029-072323, Day 1 selected (f0004), boss name in the HUD (t0067_before)]; 0.23.1 read him as Daisuke (the boss-screen rule)."},
     {"id": "iwao", "name": "Iwao the Impaler", "hp": null, "hp_day5": null, "traits": [], "region": "whispering_caves", "tiles": [], "tag": "J", "standard": false, "boss": true, "sim": false},
     {"id": "baru", "name": "Baru the Barricader", "hp": null, "hp_day5": null, "traits": [], "region": "hibiku_wastelands", "tiles": ["barricade"], "tag": "V", "standard": false, "boss": true, "sim": false},
     {"id": "the_twins", "name": "The Twins", "hp": null, "hp_day5": null, "traits": [], "region": "moonlit_port", "tiles": [], "tag": "2", "standard": false, "boss": true, "sim": false},

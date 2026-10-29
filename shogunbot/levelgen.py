@@ -39,10 +39,17 @@ ONE_LEFT_AGE = (3, 5, 8)    # wave-age buckets (turns since the wave came) for t
 
 
 # ------------------------------------------------------------------ reading recordings
+# Runs on Day 2, which brings elite enemies: the generator learns Day 1, the day the bot plays
+# [user 2026-10-29]. Run 20261029-045856 (0.22) started on the newest day, Day 2 [camp f0003-f0008];
+# since 0.23.1 the bot selects Day 1 and logs it (day_select).
+DAY2_RUNS = frozenset({"20261029-045856"})
+
+
 def recordings(root: str | Path) -> list[Path]:
-    """Folders with an actions.jsonl: runs/*/frames and collect/*."""
+    """Folders with an actions.jsonl: runs/*/frames and collect/*, Day 2 runs left out."""
     root = Path(root)
-    out = [d for d in sorted((root / "runs").glob("2*/frames")) if (d / "actions.jsonl").exists()]
+    out = [d for d in sorted((root / "runs").glob("2*/frames"))
+           if (d / "actions.jsonl").exists() and d.parent.name not in DAY2_RUNS]
     out += [d for d in sorted((root / "collect").glob("2*")) if (d / "actions.jsonl").exists()]
     return out
 
@@ -75,6 +82,10 @@ def frame_waves(folder: str | Path) -> dict:
         p = perceive(np.array(Image.open(f).convert("RGB")), [t.tile for t in tr.kit])
         if p.screen == "map" and seen_boss:
             break                                  # Stage 1 is over
+        if p.screen == "reward":
+            tr.next_level()                        # as the bot does (0.24)
+            if seen_boss:
+                break                              # the boss shrine: Stage 1 is over
         if p.screen not in ("combat", "boss") or p.hero is None:
             continue
         s = tr.state(p)

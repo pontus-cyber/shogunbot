@@ -6,6 +6,7 @@ scan-code SendInput, so the bot sees and presses exactly what the MCP did.
 
 from __future__ import annotations
 
+import ctypes
 import time
 
 import numpy as np
@@ -22,11 +23,27 @@ class GameNotFound(RuntimeError):
     pass
 
 
+class _POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+def cursor_pos() -> tuple[int, int] | None:
+    """The cursor's screen position (physical pixels: the process is DPI-aware), or None."""
+    try:
+        pt = _POINT()
+        if ctypes.windll.user32.GetCursorPos(ctypes.byref(pt)):
+            return int(pt.x), int(pt.y)
+    except Exception:
+        pass
+    return None
+
+
 class GameWindow:
     def __init__(self, title_regex: str = TITLE_REGEX):
         sendinput.set_dpi_awareness()
         self.title_regex = title_regex
         self.cap = CaptureManager()
+        self.last_click = None    # (target x, y, cursor x, y) of the last click, screen pixels
 
     # ---- window ---------------------------------------------------------
     def hwnd(self) -> int:
@@ -89,6 +106,10 @@ class GameWindow:
         time.sleep(0.12)
         sendinput.send(sendinput.mouse_move_input(sx, sy))
         time.sleep(0.15)
+        # where the cursor really is when the button goes down [user review of run
+        # 20261029-072042: clicks where the cursor did not seem to move]
+        cur = cursor_pos()
+        self.last_click = (sx, sy) + (cur if cur is not None else (None, None))
         sendinput.send(sendinput.mouse_button_input("left", True))
         time.sleep(0.1)
         sendinput.send(sendinput.mouse_button_input("left", False))

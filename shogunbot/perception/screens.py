@@ -14,7 +14,9 @@ is unlocked, '< DAY n >' shows at the top while the hero stands at GO, with the 
 its left (Day 2: '- ELITE ENEMIES MAY SPAWN.' in red). It opens on the newest day. An arrow
 that can be used is a brown disc (119,69,59) with a peach chevron (188,143,106); at the end of
 the range it is dark (75,39,45) with a dim chevron (118,68,58): on Day 2 of 2 the right arrow
-was dark. None of the 133 camp frames of the other runs and recordings shows the selector.
+was dark, on Day 1 the left one [run 20261029-072323 f0003, f0004]. 'DAY 2' is white
+(253,250,245), 'DAY 1' gold (246,190,44), and Day 1 shows no rules text. None of the 133 camp
+frames of the earlier runs and recordings shows the selector.
 
 Giving up a run [user 2026-10-28; measured on captures in collect/20261028-121900-giveup]:
   pause   PAUSE MENU is the bottom of the three round HUD buttons (bottom right, disc
@@ -44,6 +46,7 @@ MAP_TRIES = [("click node", MAP_FIRST_NODE), ("click node", MAP_FIRST_NODE),
              ("key enter", "enter")]
 PAUSE_BUTTON = (0.9477, 0.9269)     # centre of the PAUSE MENU disc (1820, 1001)
 DAY_LEFT = (841 / 1920, 252 / 1080)  # the day selector's left arrow (one day earlier)
+SHOP_GO = (1651 / 1920, 755 / 1080)  # the shop's GO pill [run 20261029-072042; collect/20261028-190026 f0180]
 MENU_X = 957 / 1920                 # menu rows are centred here
 
 
@@ -85,11 +88,13 @@ def day_selector(rgb: np.ndarray) -> dict | None:
     """The camp's day selector, or None when it is not on screen (1080p frame; normalize first).
     left / right: that arrow can be used (lit chevron); elite: the red rules text is shown.
     On Day 2 of 2 [run 20261029-045856]: 1,812 white label px, 352 lit px in the left
-    chevron, none in the right, 3,064 red px of rules text."""
+    chevron, none in the right, 3,064 red px of rules text. On Day 1 [run 20261029-072323
+    f0004]: 1,752 gold label px, the left chevron dark, 352 lit px in the right, no red."""
     a = rgb.astype(np.int16)
     label = a[225:280, 880:1060]
     white = int((label.min(axis=2) > 190).sum())
-    if white < 600:
+    gold = int(((label[..., 0] > 200) & (label[..., 1] > 150) & (label[..., 2] < 120)).sum())
+    if white + gold < 600:
         return None
 
     def lit(x0: int, x1: int) -> int:
@@ -101,7 +106,49 @@ def day_selector(rgb: np.ndarray) -> dict | None:
     red = int(((rules[..., 0] > 150) & (rules[..., 1] < 110) & (rules[..., 2] < 100)).sum())
     left, right = lit(805, 875), lit(1050, 1125)
     return {"left": left >= 60, "right": right >= 60, "elite": red >= 800,
-            "px": {"label": white, "left": left, "right": right, "red": red}}
+            "px": {"label": white + gold, "gold": gold, "left": left, "right": right, "red": red}}
+
+
+def shop(rgb: np.ndarray) -> bool:
+    """The shop between regions [run 20261029-072042 unknown_*.png; collect/20261028-190026
+    f0172-f0181, f0931-f0933]: its grey GO pill (81,80,74) fills x 1544-1759, y 724-787
+    (11,248 px; 1,600 lighter px while the cursor is on it), with white 'GO' at x 1620-1679.
+    0.23 read shops as unknown, and one (f0175) as a fight with HP 0; f0931 as the camp.
+    The reward screens' grey SKIP pill sits nearby (6,489 px of this grey in the box on run
+    20261028-044407 f0034): reward screens are tested first, and the pill's edges must be
+    where GO's are."""
+    a = rgb[724:788, 1544:1760].astype(np.int16)
+    grey = (np.abs(a[..., 0] - 81) < 12) & (np.abs(a[..., 1] - 80) < 12) & (np.abs(a[..., 2] - 74) < 12)
+    lit = (np.abs(a[..., 0] - 124) < 12) & (np.abs(a[..., 1] - 122) < 12) & (np.abs(a[..., 2] - 114) < 12)
+    pill = grey | lit
+    if pill.sum() < 9000 and lit.sum() < 1200:
+        return False
+    cols = np.nonzero(pill.mean(axis=0) > 0.3)[0]
+    if not len(cols) or cols.min() > 12 or cols.max() < 200:
+        return False
+    text = rgb[735:776, 1612:1690].astype(np.int16)
+    return int((text.min(axis=2) > 200).sum()) >= 600
+
+
+def death_buttons(rgb: np.ndarray) -> list[tuple[float, float]] | None:
+    """[RESTART, BACK TO CAMP] centres on the death screen, or None (see find_restart)."""
+    a = rgb.astype(int)
+    h, w = rgb.shape[:2]
+    mid = a[380:500, 860:1060]
+    if ((mid[..., 0] > 180) & (mid[..., 1] < 50)).mean() <= 0.05:
+        return None
+    r = a[850:1060, 1400:1900]
+    pill = (np.abs(r[..., 0] - 118) < 12) & (np.abs(r[..., 1] - 68) < 12) & (np.abs(r[..., 2] - 58) < 12)
+    runs = _row_runs(pill.sum(axis=1) > 120, 30, 90)
+    if len(runs) != 2:
+        return None
+    out = []
+    for y0, y1 in runs:
+        xs = np.where(pill[y0:y1].sum(axis=0) > (y1 - y0) // 3)[0]
+        if len(xs) == 0 or not 280 <= xs.max() - xs.min() <= 380:
+            return None
+        out.append(((1400 + (xs.min() + xs.max()) / 2) / w, (850 + (y0 + y1) / 2) / h))
+    return out
 
 
 def find_go(rgb: np.ndarray) -> tuple[float, float] | None:
@@ -239,7 +286,7 @@ def features(rgb: np.ndarray) -> dict:
 
 
 def classify(rgb: np.ndarray) -> str | None:
-    """'map' | 'reward' | 'title' | 'camp' | 'black' | None (not a menu screen)."""
+    """'map' | 'reward' | 'shop' | 'title' | 'camp' | 'black' | None (not a menu screen)."""
     f = features(rgb)
     if f["mean"] < 3:
         return "black"
@@ -247,6 +294,8 @@ def classify(rgb: np.ndarray) -> str | None:
         return "map"
     if find_skip(rgb) is not None:
         return "reward"
+    if shop(rgb):
+        return "shop"
     if f["red"] > 0.5:
         if f["wood"] > 0.08:
             return "camp"

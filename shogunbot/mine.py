@@ -44,16 +44,24 @@ def _version(v: str) -> tuple:
         return (0,)
 
 
+# Left out of the behaviour model [2026-10-29]: Day 2 runs have elite enemies (a Quick one fires
+# right after loading, breaking R1), and the boss of run 20261029-072323 was Rei the Ruthless,
+# whom the bot reads as Daisuke, so his moves would be learned as Daisuke's.
+SKIP_RUNS = {"20261029-045856": "Day 2: elite enemies [camp f0003-f0008]"}
+SKIP_LEVELS = {("20261029-072323", "boss"): "Rei the Ruthless, read as Daisuke [t0067_before]"}
+
+
 def load_runs(root: str | Path, min_version: tuple = MIN_VERSION) -> list[Run]:
-    """Bot runs with turn logs under root/runs (stopped or empty runs, and
-    runs of bots older than min_version, skipped)."""
+    """Bot runs with turn logs under root/runs (stopped or empty runs, runs of bots older
+    than min_version and SKIP_RUNS skipped; the turns of SKIP_LEVELS dropped)."""
     out = []
     for d in sorted((Path(root) / "runs").glob("2*")):
         tf = d / "turns.jsonl"
-        if not tf.exists():
+        if not tf.exists() or d.name in SKIP_RUNS:
             continue
         meta = json.loads((d / "meta.json").read_text()) if (d / "meta.json").exists() else {}
         turns = [json.loads(l) for l in tf.open(encoding="utf-8") if l.strip()]
+        turns = [t for t in turns if (d.name, t.get("level")) not in SKIP_LEVELS]
         ef = d / "events.jsonl"
         events = [json.loads(l) for l in ef.open(encoding="utf-8") if l.strip()] if ef.exists() else []
         version = str(meta.get("bot_version", "?"))

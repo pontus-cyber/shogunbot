@@ -443,6 +443,8 @@ def screen_type(rgb: np.ndarray, cells_: list[dict]) -> str:
     readable board is 'unknown': the bot waits instead of acting on a menu rule."""
     a = rgb.astype(int)
     board = len(cells_) in BOARD_CELLS and any(c["kind"] == "hero" for c in cells_)
+    if a.mean() >= 3 and screens.find_skip(rgb) is None and screens.shop(rgb):
+        return "shop"          # its floor reads as a board, a banner as the fight HUD [run 20261029-072042]
     if a.mean() >= 3 and screens.find_skip(rgb) is None and screens.combat_hud(rgb):
         if not board:
             return "unknown"

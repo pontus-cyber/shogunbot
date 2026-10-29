@@ -118,6 +118,17 @@ def kit_from_faces(kit: Kit, faces: list[dict], notes: list | None = None) -> Ki
     return new
 
 
+STAGE1_LEVELS = ("bamboo-1", "bamboo-2", "boss")
+
+
+def level_name(stage: int, i: int) -> str:
+    """Stage 1 keeps its names; later stages are 'stage<k>-1', 'stage<k>-2', 'stage<k>-boss' until
+    levels are named by region (M4 step 2)."""
+    if stage == 1:
+        return STAGE1_LEVELS[i]
+    return f"stage{stage}-{'boss' if i == 2 else i + 1}"
+
+
 class Tracker:
     def __init__(self, kit: Kit = DEFAULT_KIT) -> None:
         self.kit = kit
@@ -136,6 +147,8 @@ class Tracker:
         self.facing_known = False
         self.facing_disagree = 0
         self.level = ""
+        self.stage, self.level_i = 1, -1   # the run's stage and level within it (-1: no fight yet)
+        self.advance = False               # a reward screen ended the level: the next fight is the next level
         self.notes: list[str] = []
         self.prev: list = []          # enemies of the last state (for facing persistence)
         self.fresh: list = []         # (x, kind, facing) of the units new in the last state
@@ -147,17 +160,37 @@ class Tracker:
         self.swapped_uid_x: int | None = None
 
     # ------------------------------------------------------------------
+    def next_level(self) -> None:
+        """A reward screen ended the current level (bot, replay): the next fight starts the
+        next one. Levels only move forward [user review of run 20261029-072323: Rei the
+        Ruthless's 7-cell arena, read by its width after the boss died, started a new level
+        'bamboo-2' at the boss shrine]."""
+        if self.level_i >= 0:
+            self.advance = True
+
+    def _level(self, screen: str, cells: int) -> str:
+        stage, i = self.stage, self.level_i
+        if self.advance:
+            self.advance = False
+            stage, i = (stage + 1, 0) if i >= 2 else (stage, i + 1)
+        elif i < 0:                          # the run's first fight: by the board
+            i = 2 if screen == "boss" else 1 if cells == 7 and stage == 1 else 0
+        if screen == "boss":                 # the boss bar names this stage's boss
+            i = 2
+        elif stage == 1 and i == 0 and cells == 7:
+            i = 1                            # Bamboo Grove II without its reward screen read
+        elif stage == 1 and i == 1 and cells == 5:
+            i = 2                            # Daisuke's arena shows a turn or two before the boss bar
+        self.stage, self.level_i = stage, i
+        return level_name(stage, i)
+
     def state(self, p) -> State | None:
         """Build a State from a combat/boss Perception. None if no hero."""
         if p.hero is None:
             return None
         self.notes = []
         cells = len(p.cells)
-        if p.screen == "boss" or (cells == 5 and self.level in ("bamboo-2", "boss")):
-            # the boss arena shows a turn or two before the boss bar appears
-            level = "boss"
-        else:
-            level = "bamboo-1" if cells == 5 else "bamboo-2" if cells == 7 else f"cells-{cells}"
+        level = self._level(p.screen, cells)
         if level != self.level:
             # new level: the hand shows every tile, so confirm the kit (a reward may
             # have changed it); every tile starts fully recharged [wiki]
@@ -274,7 +307,7 @@ class Tracker:
             enemies[j].last, enemies[j].fage = behaviour.carry(it, fage)
 
         s = State(cells, hero, enemies, level=level,
-                  wave=1, waves_total=0 if level == "boss" else 99)
+                  wave=1, waves_total=0 if level.endswith("boss") else 99)
         return s
 
     # ------------------------------------------------------------------ queue

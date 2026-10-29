@@ -128,7 +128,7 @@ def test_series_continues_after_a_win_only_when_the_give_up_worked(monkeypatch, 
     seen = []
 
     class FakeBot:
-        def __init__(self, frame_policy, autostart):
+        def __init__(self, frame_policy, autostart, **kw):
             self.gave_up, self.restart_after = None, False
 
         def run(self):
@@ -180,19 +180,26 @@ def _day1(day2):
     return a
 
 
-def test_day_selector_reads_the_recorded_day2_camp():
+DAY1 = "runs/20261029-072323/frames/"
+
+
+def test_day_selector_reads_the_recorded_day2_and_day1_camps():
     from shogunbot.perception import screens as S
     sel = S.day_selector(frame(DAY2 + "f0007_CLICK.png"))
     assert (sel["left"], sel["right"], sel["elite"]) == (True, False, True)
     assert S.day_selector(frame(DAY2 + "f0001_D.png")) is None          # hero not at GO yet
-    one = S.day_selector(_day1(frame(DAY2 + "f0007_CLICK.png")))
-    assert (one["left"], one["right"], one["elite"]) == (False, True, False)
+    # [run 20261029-072323] after one click: 'DAY 1' in gold, the left arrow dark; 0.23.1 looked
+    # for a white label only, saw no selector and so logged no Day 1 (the run was on Day 1)
+    one = S.day_selector(frame(DAY1 + "f0004_D.png"))
+    assert (one["left"], one["right"], one["elite"]) == (False, True, False) and one["px"]["gold"] > 1500
+    syn = S.day_selector(_day1(frame(DAY2 + "f0007_CLICK.png")))
+    assert (syn["left"], syn["right"], syn["elite"]) == (False, True, False)
 
 
 def test_camp_steps_down_to_day1_before_go(tmp_path, monkeypatch):
     from shogunbot import bot as B
     day2 = frame(DAY2 + "f0007_CLICK.png")
-    gw = _GW([(day2, [DAY_LEFT_BOX]), (_day1(day2), [GO_BOX]), (frame(DAY2 + "f0009_CLICK.png"), [])])
+    gw = _GW([(day2, [DAY_LEFT_BOX]), (frame(DAY1 + "f0004_D.png"), [GO_BOX]), (frame(DAY2 + "f0009_CLICK.png"), [])])
     b = make_bot(tmp_path, gw)
     b.rec, b.restart_after = _Rec(), False
     calls = {"n": 0}

@@ -60,6 +60,8 @@ def replay(folder: str | Path, verbose: bool = True) -> dict:
     rows = []
     for i in range(len(recs) - 1):
         p = P(i)
+        if p.screen == "reward":
+            tr.next_level()             # as the bot does: the next fight is the next level (0.24)
         if p.screen not in ("combat", "boss") or not p.enemies:
             continue
         act = to_action(recs[i], p)

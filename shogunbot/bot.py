@@ -1,28 +1,30 @@
-"""Live bot: capture -> perceive -> plan -> act -> log, for Stage 1.
+"""Live bot: capture -> perceive -> plan -> act -> log.
 
-    python -m shogunbot play                 # one run, frames saved on events
+    python -m shogunbot play                 # one run of Stage 1, frames saved on events
     python -m shogunbot play --runs 10       # ten runs in a row, unattended
+    python -m shogunbot play --full          # go on after Stage 1's boss (M4, in progress)
     python -m shogunbot play --frames all    # save every turn's frames
     python -m shogunbot play --no-autostart  # start the run yourself; bot takes over in combat
 
 Hold F8 to stop the bot at the next turn boundary (Ctrl+C also works).
 
 Screens:
+  run start -> anywhere but the camp or the title: the run in progress is given up first
+             (pause menu); the death screen -> BACK TO CAMP (autostart) [user 2026-10-29]
   title   -> click NEW RUN                    (autostart)
-  camp    -> walk right, click GO             (autostart)
-  map     -> click the first node             (autostart)
-  death   -> before the run's first turn: click RESTART, which starts a new run (autostart)
+  camp    -> step the day selector down to Day 1, walk right, click GO (autostart)
+  map     -> click the first node (Stage 1); stops after MAP_TRIES_MAX inputs (autostart)
+  shop    -> read the offers, click GO (perception/shop_screen.py)
   combat  -> plan one action and send it
   reward  -> shrine: read the upgrade; a pure gain is always taken (simulation picks the tile),
              a trade-off is taken unless every tile option is a net loss against skipping;
              tile choice: take the best tile unless both are net losses;
              anything unreadable -> SKIP (rewards.py, perception/reward_screen.py)
   unknown -> wait (banners, transitions); a frame is logged if it lasts
-The run ends on: boss beaten (the reward after the boss fight is taken first),
-hero HP 0 or a death screen, or a screen that stays unknown too long.
-In a series, a won run is given up from the pause menu (the game would go on to
-Stage 2), which leads back to the camp; the next run walks to GO there. After a
-death the next run clicks RESTART on the death screen.
+The run ends on: the final boss beaten (Stage 1's with --stage1, the default; else the boss of
+FULL_LAST_STAGE; the reward after it is taken first), hero HP 0 or a death screen, or a screen
+that stays unknown too long. In a series, a won run is given up from the pause menu, which
+leads back to the camp; the next run walks to GO there.
 """
 
 from __future__ import annotations
@@ -36,31 +38,40 @@ import time
 import numpy as np
 
 from . import rewards
-from .bridge import Tracker, kit_from_faces, match_faces
+from .bridge import Tracker, kit_from_faces, level_name, match_faces
 from .catalogue import CAT
-from .model import DEFAULT_KIT, HERO_MAX_HP
-from .perception import reward_screen, screens
+from .model import DEFAULT_KIT, ENEMY_TILE_DAMAGE, HERO_MAX_HP
+from .perception import reward_screen, screens, shop_screen
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
 from .planner import STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_weights
-from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS
+from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS, free_action, legal_hero_actions, step
 from .live import LiveView
 from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.23.1"
+VERSION = "0.24"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
-# Edamame Brew restores up to 3 HP [catalogue]: drink at 7 or lower, so no healing is wasted
-HEAL_AT = HERO_MAX_HP - CAT.consumable_by_screen("green_potion").effect["amount"]
+# Edamame Brew restores up to 3 HP [catalogue]. It is drunk only [user 2026-10-29]: (a) when a hit
+# this turn or the next would kill the hero or leave HP within one enemy hit of 0, and its HP
+# prevent that; (b) when all of its HP heal (HP <= max - 3); (c) to free its slot for a better
+# item or another potion on the ground (ground items are not read yet, so (c) never applies).
+# It is not part of the last level's 'use it or lose it' pass: items carry over past Stage 1.
+HEAL = CAT.consumable_by_screen("green_potion").effect["amount"]
+RISK_P = 0.1              # an outcome this likely or more counts as a hit that can land
 POISON_MIN_VALUE = 4      # use Mass Poison when it deals at least this much in total
-# The run's last level: items still held there are lost, so each is spent at its first
-# useful moment [user 2026-10-28: "use every consumable"; series 20261028-132238..135635
-# ended five runs holding Mass Ice, Edamame, Cool Up and Kami Brew]. A series gives the run
-# up after the Stage 1 boss; when runs go past Stage 1, keep items and name the run's
-# final level here.
-SPEND_ITEMS_LEVELS = {"boss"}
+# The run's last level, the final boss: items still held there are lost, so each is spent at its
+# first useful moment [user 2026-10-28: "use every consumable"; series 20261028-132238..135635
+# ended five runs holding Mass Ice, Edamame, Cool Up and Kami Brew]. With --stage1 that is Stage
+# 1's boss; a --full run is won, and in a series given up, after the boss of FULL_LAST_STAGE
+# [m4-plan: the bot clears the region 2 boss]. Items carry over between stages [user 2026-10-29].
+FULL_LAST_STAGE = 2
+MAP_TRIES_MAX = 12        # map inputs that leave the map unchanged before the run stops as 'stuck'
+                          # [run 20261029-072042: 18 inputs on a Stage 2 map, none applied]
+START_GIVE_UPS_MAX = 2    # give-ups at a run start that still do not reach the camp: 'stuck'
+SHOP_GO_TRIES = 3         # GO clicks before the run stops as 'stuck' in a shop
 BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink
 BLINK_GAP_S = 0.15
 UNKNOWN_FRAME_S = 6.0     # save a frame when a screen stays unknown this long
@@ -85,6 +96,55 @@ def _stop_requested() -> bool:
 
 def _diff(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.mean(np.abs(a.astype(np.int16) - b.astype(np.int16))))
+
+
+def one_hit(s) -> int:
+    """The most damage one enemy tile on the board deals [catalogue]: HP at or below this is
+    at real risk (Stage 1: Sword and Arrow, 2). Unknown kinds count every enemy tile."""
+    dmg = []
+    for e in s.alive():
+        kind = CAT.enemies.get(e.kind)
+        tiles = list(kind.tiles) if kind is not None and kind.tiles else list(ENEMY_TILE_DAMAGE)
+        dmg += [ENEMY_TILE_DAMAGE.get(t, 0) for t in tiles + list(e.queue)]
+    return max(dmg, default=0) or 1
+
+
+def worst_loss(s, action: str, plies: int = 2, free_left: int = 1) -> int:
+    """HP the hero can lose with `action` this turn and, from each outcome, the least damaging
+    reply on the next turn: the worst outcome that has at least RISK_P probability (the
+    likeliest always counts). Queueing a Free-Play tile does not end the turn (one is followed)."""
+    free = free_left > 0 and free_action(s, action)
+    outs = sorted(step(s, action), key=lambda t: -t[0])
+    worst = 0
+    for i, (p, s2, ev) in enumerate(outs):
+        if i and p < RISK_P:
+            break
+        loss = sum(d for _, _, d in ev.hero_damage)
+        left = plies if free else plies - 1
+        if left > 0 and s2.hero.hp > 0 and s2.alive():
+            loss += min(worst_loss(s2, a, left, free_left - free) for a in legal_hero_actions(s2))
+        worst = max(worst, loss)
+    return worst
+
+
+def edamame_reason(s, action: str, hp_cap: int) -> str | None:
+    """Why to drink Edamame Brew now, or None [user 2026-10-29]: (b) all of its HP heal, and (a) a
+    hit this turn (with the chosen action) or the next (with the least damaging reply) would kill
+    the hero or leave HP within one enemy hit of 0, and the brew prevents that."""
+    hp = s.hero.hp
+    if hp <= 0 or hp > hp_cap - HEAL or not s.alive():
+        return None
+    m = s.clone()
+    m.hero.hp = hp + HEAL            # the hits do not depend on HP; counted without an early death
+    loss = worst_loss(m, action)
+    hit = one_hit(s)
+    without, with_brew = hp - loss, hp + HEAL - loss
+    if loss <= 0 or without > hit:
+        return None                                  # no hit coming, or no real risk
+    if with_brew <= (hit if without > 0 else 0):
+        return None                                  # the brew would not prevent it
+    risk = "kill the hero" if without <= 0 else f"leave {without} HP (one hit: {hit})"
+    return f"a hit this turn or the next could {risk}; with the brew {with_brew} HP"
 
 
 KEY_LABEL = {"a": "A", "d": "D", "w": "W", "s": "S", "space": "SPACE", "enter": "ENTER", "esc": "ESC"}
@@ -134,14 +194,19 @@ class Recorder:
 
 class Bot:
     live = LiveView()   # never started unless __init__ runs: a no-op for tests that build a bare Bot
+    stage1 = True       # the run ends after Stage 1's boss (--stage1); False: it goes on (M4)
+    start_at_camp = False   # every run starts at the camp, giving a leftover run up first (__init__ sets it)
 
-    def __init__(self, frame_policy: str = "events", autostart: bool = True, verbose: bool = True):
+    def __init__(self, frame_policy: str = "events", autostart: bool = True, verbose: bool = True,
+                 stage1: bool = True):
         self.gw = GameWindow()
         self.log = RunLogger("runs", frame_policy)
         self.live = LiveView()            # runs/<id>/live.json for `python -m shogunbot watch`
         self.log.on_event = self.live.event
         self.rec = Recorder()
         self.autostart = autostart
+        self.stage1 = stage1
+        self.start_at_camp = autostart   # [user 2026-10-29: run 20261029-072042 began on a Stage 2 map]
         self.verbose = verbose
         self.restart_after = False   # play() sets it when another run follows this one
         self.gave_up = None          # after a won run: whether the pause-menu give-up worked
@@ -154,8 +219,22 @@ class Bot:
     def click(self, fx: float, fy: float, frame, away: bool = True, **extra) -> None:
         self.rec.record(frame, "CLICK", click=(fx, fy), **extra)
         self.gw.click(fx, fy)
+        self._check_cursor(extra.get("screen"))
         if away:
             self.gw.move_mouse_away()
+
+    CURSOR_TOL = 3     # px between the click's target and the cursor when the button went down
+
+    def _check_cursor(self, screen) -> None:
+        """Log where the cursor was when the button went down: on every map click, and on any
+        click that missed its target by more than CURSOR_TOL px [user review of run
+        20261029-072042: map clicks where the cursor never seemed to move]."""
+        lc = getattr(self.gw, "last_click", None)
+        if not lc or lc[2] is None:
+            return
+        off = max(abs(lc[0] - lc[2]), abs(lc[1] - lc[3]))
+        if off > self.CURSOR_TOL or screen == "map":
+            self.log.event("cursor", screen=screen, target=list(lc[:2]), cursor=list(lc[2:]), ok=off <= self.CURSOR_TOL)
 
     def _park_mouse(self) -> None:
         """Focus the game and park the cursor again. A window that takes the focus (a
@@ -400,13 +479,15 @@ class Bot:
         return False
 
     # ------------------------------------------------------------------ items
-    def _pre_plan_item(self, p, s, tries: dict, spend: bool = False):
-        """Items whose value does not depend on this turn's plan. spend: the run's last
-        level, where a potion heals as soon as any HP is missing."""
+    @property
+    def last_level(self) -> str:
+        """The run's final level: Stage 1's boss with --stage1, else FULL_LAST_STAGE's boss."""
+        return level_name(1 if self.stage1 else FULL_LAST_STAGE, 2)
+
+    def _pre_plan_item(self, p, s, tries: dict):
+        """Items whose value does not depend on this turn's plan (Mass Poison). Edamame Brew
+        depends on the plan since 0.24: see edamame_reason."""
         have = {it["item"] for it in p.items if not it.get("dim")}     # a dimmed item cannot be used
-        heal_at = HERO_MAX_HP - 1 if spend else HEAL_AT
-        if "green_potion" in have and tries.get("green_potion", 0) < 2 and 0 < s.hero.hp <= heal_at:
-            return "green_potion", f"HP {s.hero.hp}" + (" (last level: use it or lose it)" if spend else "")
         if "skull_card" in have and tries.get("skull_card", 0) < 2:
             # Mass Poison: every enemy, 1 damage per turn for 3 turns [catalogue]
             value = sum(min(e.hp, POISON_TICK * POISON_TURNS) for e in s.alive())
@@ -451,7 +532,8 @@ class Bot:
 
     def _spend_item(self, s, d, tr, have: set) -> tuple[str, str] | None:
         """The run's last level: spend each held item at its first useful moment
-        [user 2026-10-28]. One item per pass; the board is read again after each."""
+        [user 2026-10-28]. One item per pass; the board is read again after each. Edamame
+        Brew is not spent here, only by edamame_reason [user 2026-10-29]."""
         hx = s.hero.x
         active = [e for e in s.alive() if e.frozen <= 0]
         armed = [e for e in active if e.armed]
@@ -536,8 +618,9 @@ class Bot:
             self.say(f"   {item} still in its slot; the click may not have registered")
 
     # ------------------------------------------------------------------ series
-    def _give_up(self) -> bool:
-        """End a won run so the next one can start [user 2026-10-28]: after the boss the
+    def _give_up(self, wait_map: bool = True) -> bool:
+        """End a won run so the next one can start [user 2026-10-28], or a run found in
+        progress when a run starts (0.24) [user 2026-10-29]: after the boss the
         game goes on to Stage 2, so the bot opens PAUSE MENU (the bottom of the three
         round buttons, bottom right), picks GIVE UP, then YES: GIVE UP. From the Stage 2
         map that leads straight to the camp [run 20261028-130456, give_up_failed.png];
@@ -549,42 +632,52 @@ class Bot:
         t0 = time.time()
         log.event("give_up", step="start")
         self.live.status("give_up", step="start")
-        self.say("series: giving this run up from the pause menu")
-        # 1. a settled screen with the pause button: the map, or any after half the wait
+        self.say("giving this run up from the pause menu")
+        # 1. a settled screen with the pause button: the map, or any after half the wait (a run
+        #    start does not wait: wait_map False). The pause menu or its confirmation may already
+        #    be open (a run start that finds the game paused): the pause button is hidden then
+        #    [collect/20261028-121900-giveup]
+        m = c = None
         while True:
             if _stop_requested():
                 return self._give_up_failed("stopped (F8)", None)
             frame = gw.grab_stable(settle_s=0.3, timeout_s=3.0)
             f = normalize(frame)
-            if screens.pause_button(f) and (screens.classify(f) == "map"
-                                            or time.time() - t0 > GIVE_UP_WAIT_S / 2):
-                break
+            if screens.pause_button(f):
+                if not wait_map or screens.classify(f) == "map" or time.time() - t0 > GIVE_UP_WAIT_S / 2:
+                    break
+            else:
+                open_menu = screens.menu(f)
+                if open_menu is not None:
+                    m, c = (open_menu, None) if open_menu[0] == "pause" else (None, open_menu)
+                    log.event("give_up", step="menu already open", menu=open_menu[0])
+                    break
             if time.time() - t0 > GIVE_UP_WAIT_S:
                 return self._give_up_failed("pause button not found", frame)
             time.sleep(0.5)
         # 2. open the pause menu (the click is repeated if the menu does not show)
-        m = None
-        for attempt in range(3):
-            self.click(*screens.PAUSE_BUTTON, frame, away=False, screen="give_up", step="pause")
-            time.sleep(1.0)
-            frame = gw.grab_stable(settle_s=0.3, timeout_s=3.0)
-            m = screens.menu(normalize(frame))
-            if m is not None:
-                break
-        if m is None or m[0] != "pause":
-            return self._give_up_failed(f"pause menu not recognised ({m[0] if m else 'nothing'})", frame)
+        if m is None and c is None:
+            for attempt in range(3):
+                self.click(*screens.PAUSE_BUTTON, frame, away=False, screen="give_up", step="pause")
+                time.sleep(1.0)
+                frame = gw.grab_stable(settle_s=0.3, timeout_s=3.0)
+                m = screens.menu(normalize(frame))
+                if m is not None:
+                    break
+            if m is None or m[0] != "pause":
+                return self._give_up_failed(f"pause menu not recognised ({m[0] if m else 'nothing'})", frame)
         # 3. GIVE UP, the third of five rows
-        c = None
-        for attempt in range(2):
-            self.click(*m[1][2], frame, away=False, screen="give_up", step="give_up")
-            time.sleep(1.0)
-            frame = gw.grab_stable(settle_s=0.3, timeout_s=3.0)
-            c = screens.menu(normalize(frame))
-            if c is None or c[0] != "pause":
-                break
-            m = c
-        if c is None or c[0] != "confirm":
-            return self._give_up_failed(f"confirmation not recognised ({c[0] if c else 'nothing'})", frame)
+        if c is None:
+            for attempt in range(2):
+                self.click(*m[1][2], frame, away=False, screen="give_up", step="give_up")
+                time.sleep(1.0)
+                frame = gw.grab_stable(settle_s=0.3, timeout_s=3.0)
+                c = screens.menu(normalize(frame))
+                if c is None or c[0] != "pause":
+                    break
+                m = c
+            if c is None or c[0] != "confirm":
+                return self._give_up_failed(f"confirmation not recognised ({c[0] if c else 'nothing'})", frame)
         # 4. YES: GIVE UP, the second of two rows; then wait for where the game goes:
         #    the camp, the title, or the death screen
         self.click(*c[1][1], frame, away=True, screen="give_up", step="yes")
@@ -612,6 +705,45 @@ class Bot:
         self.say(f"   could not give the run up: {reason}; stopping the series here")
         return False
 
+    # ------------------------------------------------------------------ shop
+    def _shop(self, frame) -> bool:
+        """The shop between regions [user 2026-10-29: read the offers and prices; at first just
+        leave]: what perception/shop_screen.py reads (the statue's upgrade and price, the counter's
+        prices, the coins) is logged, then GO. True once the shop has gone."""
+        self.shop_n += 1
+        self._park_mouse()                    # a hover tooltip can cover a price [f0175]
+        time.sleep(0.3)
+        frame = self.gw.grab_stable(settle_s=0.25, timeout_s=3.0)
+        try:
+            offer = shop_screen.read(normalize(frame))
+        except Exception as e:                # reading must never keep the bot in the shop
+            self.log.exception("shop_read", e, frame=frame)
+            offer = {}
+        self.log.save_frame(frame, f"shop_{self.shop_n}")
+        self.log.event("shop", n=self.shop_n, **offer)
+        self.live.status("shop", **{k: offer.get(k) for k in ("upgrade", "coins")})
+        self.say(f"shop: {shop_screen.describe(offer)}; GO")
+        for attempt in range(1, SHOP_GO_TRIES + 1):
+            self.click(*screens.SHOP_GO, frame, screen="shop", attempt=attempt)
+            time.sleep(1.5)
+            frame = self.gw.grab_stable(settle_s=0.25, timeout_s=3.0)
+            if not screens.shop(normalize(frame)):
+                return True
+        self.log.save_frame(frame, "shop_stuck")
+        return False
+
+    def _start_elsewhere(self, scr: str, p, frame) -> str | None:
+        """A run start that finds the game anywhere but the camp or the title [user 2026-10-29]:
+        'wait' (the last run's hero dying; its death screen follows), 'gave_up' (the run in
+        progress was given up), or None when that failed."""
+        if scr in ("combat", "boss") and p.hero and p.hero.get("hp_max") and p.hero.get("hp", 1) <= 0:
+            time.sleep(0.5)
+            return "wait"
+        self.say(f"run start: the game shows the {scr} of an earlier run; giving it up to reach the camp")
+        self.log.event("start_elsewhere", screen=scr)
+        self.log.save_frame(frame, f"start_{scr}")
+        return "gave_up" if self._give_up(wait_map=False) else None
+
     # ------------------------------------------------------------------ run
     def run(self) -> str:
         gw, log = self.gw, self.log
@@ -624,14 +756,17 @@ class Bot:
         self.live.start(log.run_dir, run_id, VERSION)
         self.say(f"run {run_id} started; recording to runs/{run_id}/frames; hold F8 to stop")
         tr = Tracker()
-        self.reward_n = 0
+        self.reward_n = self.shop_n = 0
         self.gave_up = None
         death_since = None
         progress, last_progress = None, 0     # stall rule: see planner.stall_weights
         hp_cap = HERO_MAX_HP                  # most HP pips seen in one read this run
         turn = 0
         level = None
-        seen_boss = False
+        final = self.last_level
+        seen_final = False                    # the run's final boss level was reached
+        started = not self.start_at_camp      # the camp (or the title) was seen [user 2026-10-29]
+        start_give_ups = 0
         waves = Waves()
         last_hp = 10
         unknown_since = None
@@ -664,9 +799,46 @@ class Bot:
                 if scr not in ("combat", "boss"):
                     self.live.status({"unknown": "waiting"}.get(scr, scr))
 
+                # ---------------- run start [user 2026-10-29]: every run starts at the camp, where
+                # Day 1 is chosen. Run 20261029-072042 began on the Stage 2 map a single run had
+                # left (a lone run is not given up), repeated its Stage 1 map inputs 18 times and
+                # read the shop as a fight. Anywhere else the run in progress is given up first;
+                # the death screen goes BACK TO CAMP (RESTART would keep the last run's day).
+                if not started:
+                    if scr in ("camp", "title"):
+                        started = True
+                    elif scr == "death":
+                        death_since = death_since or time.time()
+                        if time.time() - death_since > DEATH_SCREEN_MAX_S:
+                            result = "stuck"           # BACK TO CAMP unreadable or not reacting
+                            log.save_frame(frame, "stuck_death_screen")
+                            break
+                        btn = screens.death_buttons(normalize(frame))
+                        if btn is not None:
+                            self.say("death screen: BACK TO CAMP")
+                            log.event("menu", screen="death", back_to_camp=[round(v, 4) for v in btn[1]])
+                            self.click(*btn[1], frame, screen="death")
+                            time.sleep(3.0)
+                        else:
+                            time.sleep(0.5)            # the buttons fade in after the kanji
+                        continue
+                    elif scr in ("map", "shop", "reward", "combat", "boss"):
+                        if start_give_ups >= START_GIVE_UPS_MAX:
+                            result = "stuck"
+                            log.save_frame(frame, "stuck_start")
+                            break
+                        how = self._start_elsewhere(scr, p, frame)
+                        if how is None:
+                            result = "stuck"
+                            break
+                        start_give_ups += how == "gave_up"
+                        continue
+                    # 'unknown' and 'black' wait below
+
                 # ---------------- rewards (M2: taken when the planner values them above skipping)
                 if scr == "reward":
-                    log.save_frame(frame, "win" if seen_boss else f"reward_seen_{self.reward_n + 1}")
+                    log.save_frame(frame, "win" if seen_final else f"reward_seen_{self.reward_n + 1}")
+                    log.level_end(last_hp, "cleared")      # a reward screen ends the level
                     try:
                         self._reward(frame, tr, level or "bamboo-1", last_hp)
                     except Exception as e:   # a reward must never end the run: fall back to SKIP
@@ -677,16 +849,25 @@ class Bot:
                         if pos is not None:
                             self.click(*pos, frame, screen="reward")
                             time.sleep(1.0)
-                    if seen_boss:
-                        result = "win"   # the reward after the boss fight ends Stage 1
+                    # the next fight is the next level [user review of run 20261029-072323: the
+                    # boss shrine was logged as a new level 'bamboo-2' after Rei's 7-cell arena]
+                    tr.next_level()
+                    if seen_final:
+                        result = "win"   # the reward after the final boss ends the run
                         break
                     continue
 
                 # ---------------- end conditions
-                if seen_boss and scr == "map":
+                if seen_final and scr == "map":
                     result = "win"
                     log.save_frame(frame, "win")
                     break
+                if scr == "shop":
+                    if not self._shop(frame):
+                        self.say("shop: GO did not leave the shop; stopping")
+                        result = "stuck"
+                        break
+                    continue
                 if scr == "death" and turn == 0:
                     # the last run's death screen (a death, or a run given up in a fight): RESTART
                     # starts this one [run 20261027-182223 ended after 1 s on that screen]
@@ -765,6 +946,13 @@ class Bot:
                             self.click(*screens.CAMP_GO, frame, screen="camp")
                             time.sleep(2.0)
                     elif scr == "map":
+                        if map_tries >= MAP_TRIES_MAX:
+                            # [run 20261029-072042] no input left this map: stop instead of looping
+                            self.say(f"map: {map_tries} inputs did not leave the map; stopping")
+                            log.event("map_stuck", tries=map_tries)
+                            log.save_frame(frame, "map_stuck")
+                            result = "stuck"
+                            break
                         # [run 20261027-175511] a click followed by an instant mouse move did not
                         # register; keep the cursor on the node, then try other inputs in turn
                         how = screens.MAP_TRIES[map_tries % len(screens.MAP_TRIES)]
@@ -826,8 +1014,9 @@ class Bot:
                     log.level_start(level, s.hero.hp, p.wave[1] if p.wave else LEVEL_WAVES.get(level, 0))
                     log.event("kit", level=level, kit=tr.kit.to_list())
                     self.say(f"level {level}, HP {s.hero.hp}")
-                if level == "boss":
-                    seen_boss = True
+                if level == final:
+                    seen_final = True
+                if level.endswith("boss"):
                     s.wave = 0
                 elif s.alive():
                     # the HUD counter, else a rise in living enemies (shogunbot.waves); before
@@ -867,13 +1056,11 @@ class Bot:
                         log.save_frame(frame, f"item_{it['item']}")
                         log.event("item_seen", item=it["item"], fy=round(float(it["fy"]), 3), dim=bool(it.get("dim")))
                 # ---- items before planning (all cost no turn [obs]; effects from the wiki)
-                spend = level in SPEND_ITEMS_LEVELS
-                use = self._pre_plan_item(p, s, item_tries, spend)
+                spend = level == final
+                use = self._pre_plan_item(p, s, item_tries)
                 if use:
                     item, reason = use
                     self._use_item(item, p, s, frame, turn, reason, tr, item_tries)
-                    if item == "green_potion":
-                        potion_check = (s.hero.hp, "green_potion")
                     continue
                 last_hp = s.hero.hp if p.hero["hp_max"] else last_hp
                 if not s.alive():
@@ -926,6 +1113,14 @@ class Bot:
                     if item:
                         self._use_item(item, p, s, frame, turn,
                                        f"expected {best['exp_damage']:.1f} damage on every move", tr, item_tries)
+                        continue
+                if "green_potion" in have:
+                    # [user 2026-10-29] only against a hit that would kill or leave HP within one
+                    # enemy hit of 0, and only when all of its HP heal (edamame_reason)
+                    why = edamame_reason(s, d.action, hp_cap)
+                    if why:
+                        self._use_item("green_potion", p, s, frame, turn, why, tr, item_tries)
+                        potion_check = (s.hero.hp, "green_potion")
                         continue
                 if spend:
                     use = self._spend_item(s, d, tr, have)
@@ -987,8 +1182,8 @@ class Bot:
         return result
 
 
-def play(runs: int = 1, frame_policy: str = "events", autostart: bool = True) -> None:
-    bot = Bot(frame_policy, autostart)
+def play(runs: int = 1, frame_policy: str = "events", autostart: bool = True, stage1: bool = True) -> None:
+    bot = Bot(frame_policy, autostart, stage1=stage1)
     rewards.warm_pool()    # the valuation's workers start now, not at the first reward screen
     results = []
     for i in range(runs):
