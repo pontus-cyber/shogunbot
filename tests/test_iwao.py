@@ -136,9 +136,16 @@ def test_his_summon_brings_a_yari_master():
 
 
 def test_his_loads_follow_the_distance():
+    # learned from the logged Iwao fights (mine leaves out the 0.27.1 run 20261029-124921): next to the player
+    # Earth Impale (2 of 2); at 2 cells Earth Impale, Spear and the Summon once each, weighed by his loads at
+    # every distance (Earth Impale 3 of 6). 0.30's data held run 20261029-154200 alone (Spear 1 of 1 at 2
+    # cells); run -184142 added the rest (0.31) [wiki: he mostly uses Earth Impale]
     e = _iwao(4, intent="queue")
     opts = dict((a[1], p) for p, a in _boss_queue(_board(e, 2), e, None))
-    assert set(opts) == {"spear", "summon", "earth_impale"} and opts["spear"] > opts["earth_impale"]
+    assert set(opts) == {"spear", "summon", "earth_impale"} and min(opts.values()) > 0.15
+    e = _iwao(3, intent="queue")
+    near = dict((a[1], p) for p, a in _boss_queue(_board(e, 2), e, None))
+    assert max(near, key=near.get) == "earth_impale"
 
 
 # ---- bubbles a few px off their unit [user review of run 20261029-124921, point 5] ------------

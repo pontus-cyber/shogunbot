@@ -19,14 +19,19 @@ def test_values_match_the_013_constants():
     assert {k: v for k, v in ENEMY_KINDS.items() if k in stage1} == {
         "ashigaru": (3, "sword"), "tachi": (2, "swirl"), "charger": (1, "charge"), "daisuke": (15, "sword")}
     # 0.26: the Yari Master; 0.27: Rei the Ruthless (13 HP; Dragon Punch, Back Charge, the red bell);
-    # 0.28: Iwao the Impaler (25 HP; Earth Impale, Swirl, Spear, Summon)
-    assert set(ENEMY_KINDS) - stage1 == {"yari_master", "rei", "iwao"}
+    # 0.28: Iwao the Impaler (25 HP; Earth Impale, Swirl, Spear, Summon); 0.31: Moonlit Port's Guardian
+    # (5 HP, Sword) and Ashigaru Archer (2 HP, Arrow), and The Twins (35 HP between them)
+    assert set(ENEMY_KINDS) - stage1 == {"yari_master", "rei", "iwao", "guardian", "ashigaru_archer", "the_twins"}
     assert ENEMY_KINDS["yari_master"] == (4, "spear") and ENEMY_KINDS["rei"] == (13, "dragon_punch")
     assert ENEMY_KINDS["iwao"] == (25, "earth_impale")
+    assert ENEMY_KINDS["guardian"] == (5, "sword") and ENEMY_KINDS["ashigaru_archer"] == (2, "arrow")
+    assert ENEMY_KINDS["the_twins"] == (35, "spear")
     assert ENEMY_TILE_DAMAGE == {"sword": 2, "swirl": 2, "charge": 1, "summon": 0, "spear": 2,
-                                 "dragon_punch": 1, "back_charge": 1, "summon_double": 0, "earth_impale": 2}
+                                 "dragon_punch": 1, "back_charge": 1, "summon_double": 0, "earth_impale": 2,
+                                 "arrow": 2, "tetsubo": 4, "shadow_dash": 1, "dash": 0, "swap_toss": 0}
     assert ENEMY_TILE_COOLDOWN == {"sword": 2, "swirl": 3, "charge": 4, "summon": 6, "spear": 5,
-                                   "dragon_punch": 4, "back_charge": 3, "summon_double": 6, "earth_impale": 4}
+                                   "dragon_punch": 4, "back_charge": 3, "summon_double": 6, "earth_impale": 4,
+                                   "arrow": 5, "tetsubo": 7, "shadow_dash": 5, "dash": 6, "swap_toss": 7}
 
 
 def test_ready_values_reproduce_the_013_weights():

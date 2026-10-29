@@ -30,6 +30,22 @@ def _sig(s) -> dict:
             "enemies": sorted((e.x, e.kind, e.hp) for e in s.alive())}
 
 
+def matches(pred: dict, alts: dict, obs: dict) -> bool:
+    """A predicted next state against the observed one: the hero's cell and HP, and every predicted
+    unit seen on its cell with its HP (new units in the observed frame are spawns or summons, not
+    model errors). A unit's kind must match unless the simulator lacks the observed kind (it is
+    planned as a stand-in, Tracker.state, so it is scored on its cell and HP: the Moonlit Port
+    Guardian before 0.31 [M4: collect/20261028-190026 with its route, f0604-f1799]) or the observed
+    kind is the unit's alt, the other kind it was planned as: a 2-pip unit without a readable tile is
+    planned as Tachi and Archer, and its Arrow showing on the next frame names it (0.31) [collect/
+    20261028-190026 f0352, f0372, f0444; -160032 f0471]. alts: (cell, kind) -> alt of predicted units."""
+    if pred["hero"] != obs["hero"]:
+        return False
+    return all(any(ox == x and oh == h and (ok == k or ok == alts.get((x, k)) or ok not in ENEMY_KINDS)
+                   for ox, ok, oh in obs["enemies"])
+               for x, k, h in pred["enemies"])
+
+
 def to_action(rec: dict, p) -> str | None:
     a = rec.get("action")
     if a in KEY_ACTION:
@@ -78,10 +94,11 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
     route = list(route or ["bamboo_grove"])
 
     tr = Tracker()
+    tr.route = list(route)          # levels per region: Moonlit Port has three before its boss
 
     def regions():
         # the stage of the next fight: a reward after a boss starts the next stage
-        stage = tr.stage + (1 if tr.advance and tr.level_i >= 2 else 0)
+        stage = tr.stage + (1 if tr.advance and tr.level_i >= tr.boss_index() else 0)
         return tuple(route[:max(1, stage)])
 
     def P(i):
@@ -121,21 +138,10 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
         for prob, s2, ev in outs:
             sg = _sig(s2)
             sg["enemies"] = sorted((x, k, h if k not in BOSS_KINDS else None) for x, k, h in sg["enemies"])
-            preds.append((prob, sg))
+            preds.append((prob, sg, {(e.x, e.kind): e.alt for e in s2.alive() if e.alt}))
         n += 1
-        def seen(x, k, h):
-            # a kind the simulator lacks is planned as a stand-in (Tracker.state: an Ashigaru), so it
-            # is scored on its cell and HP: the Moonlit Port Guardian, or an Ashigaru Archer read as
-            # a Tachi until its Arrow shows, would otherwise fail on the name alone [M4: collect/
-            # 20261028-190026 with its route, f0604-f1799]
-            return any(ox == x and oh == h and (ok == k or ok not in ENEMY_KINDS)
-                       for ox, ok, oh in obs_sig["enemies"])
-
-        def same(sg):
-            # new enemies in the observed frame are spawns/summons, not model errors
-            return sg["hero"] == obs_sig["hero"] and all(seen(*e) for e in sg["enemies"])
-        hit = [pr for pr, sg in preds if same(sg)]
-        top = same(preds[0][1])
+        hit = [pr for pr, sg, alts in preds if matches(sg, alts, obs_sig)]
+        top = matches(preds[0][1], preds[0][2], obs_sig)
         ok_any += bool(hit)
         ok_top += top
         scored.append([recs[i]["frame"], bool(top)])

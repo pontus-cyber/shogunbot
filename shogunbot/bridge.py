@@ -21,7 +21,8 @@ BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
 # sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
 # symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
 # left on all 40 turns, and his sprite read 'facing right' on 12 of them, flipping 12 times
-FRONT_FACING = ("charger", "iwao")
+FRONT_FACING = ("charger", "iwao", "the_twins")   # the Twins' facing read '?' on most of their frames
+                                                # [rec: collect/20261028-190026 f0544-f0580]
 # hero tiles whose queue bubble shows another tile's art: a queued Katana has the enemy
 # Sword's icon [run 20261028-092419 t117-t150: read as Sword or Spear, the bot thought
 # Katana was still in the hand and tried to queue it 47 times]
@@ -95,7 +96,7 @@ def kit_from_faces(kit: Kit, faces: list[dict], notes: list | None = None) -> Ki
             notes.append(f"{kt.label}: read {dmg}/{cd} L{used}/{levels}, kit had "
                          f"{kt.damage}/{kt.cooldown} L{kt.used}/{kt.levels}")
             tiles[i] = KitTile(kt.label, kt.tile, dmg, cd, kt.enchant, levels, used)
-    new = Kit(tiles)
+    new = Kit(tiles, kit.skills)          # the hand shows tiles only: the skills stay
     seen = set(id(f) for f in matched.values())
     extra = [f for f in faces if f.get("tile") and id(f) not in seen and f["tile"] in CAT.tiles]
     if len(faces) <= len(kit):
@@ -125,12 +126,20 @@ def kit_from_faces(kit: Kit, faces: list[dict], notes: list | None = None) -> Ki
 STAGE1_LEVELS = ("bamboo-1", "bamboo-2", "boss")
 
 
-def level_name(stage: int, i: int) -> str:
-    """Stage 1 keeps its names; later stages are 'stage<k>-1', 'stage<k>-2', 'stage<k>-boss' until
-    levels are named by region (M4 step 2)."""
+def level_name(stage: int, i: int, boss_i: int = 2) -> str:
+    """Stage 1 keeps its names; later stages are 'stage<k>-1', 'stage<k>-2', ... and 'stage<k>-boss'
+    (boss_i: the boss level's index in its region, 2 for a region of three levels)."""
     if stage == 1:
         return STAGE1_LEVELS[i]
-    return f"stage{stage}-{'boss' if i == 2 else i + 1}"
+    return f"stage{stage}-{'boss' if i >= boss_i else i + 1}"
+
+
+def region_boss_index(region: str | None) -> int:
+    """The boss level's index in a region: its level count from the catalogue less one (Moonlit Port
+    has three wave levels before The Twins [rec: collect/20261028-190026, -20261029-160032]); 2 when
+    the region is not known."""
+    reg = CAT.regions.get(region) if region else None
+    return max(1, int(reg["levels"]) - 1) if reg and reg.get("levels") else 2
 
 
 class Tracker:
@@ -152,6 +161,7 @@ class Tracker:
         self.facing_disagree = 0
         self.level = ""
         self.stage, self.level_i = 1, -1   # the run's stage and level within it (-1: no fight yet)
+        self.route: list[str] = ["bamboo_grove"]   # the run's regions in order (bot, replay)
         self.advance = False               # a reward screen ended the level: the next fight is the next level
         self.notes: list[str] = []
         self.prev: list = []          # enemies of the last state (for facing persistence)
@@ -172,21 +182,27 @@ class Tracker:
         if self.level_i >= 0:
             self.advance = True
 
+    def boss_index(self, stage: int | None = None) -> int:
+        """The boss level's index in a stage's region (the route: the regions the run travels, set by
+        the bot as it goes and by the replay from the recording's route)."""
+        stage = self.stage if stage is None else stage
+        return region_boss_index(self.route[stage - 1] if 0 < stage <= len(self.route) else None)
+
     def _level(self, screen: str, cells: int) -> str:
         stage, i = self.stage, self.level_i
         if self.advance:
             self.advance = False
-            stage, i = (stage + 1, 0) if i >= 2 else (stage, i + 1)
+            stage, i = (stage + 1, 0) if i >= self.boss_index(stage) else (stage, i + 1)
         elif i < 0:                          # the run's first fight: by the board
-            i = 2 if screen == "boss" else 1 if cells == 7 and stage == 1 else 0
+            i = self.boss_index(stage) if screen == "boss" else 1 if cells == 7 and stage == 1 else 0
         if screen == "boss":                 # the boss bar names this stage's boss
-            i = 2
+            i = self.boss_index(stage)
         elif stage == 1 and i == 0 and cells == 7:
             i = 1                            # Bamboo Grove II without its reward screen read
         elif stage == 1 and i == 1 and cells == 5:
             i = 2                            # Daisuke's arena shows a turn or two before the boss bar
         self.stage, self.level_i = stage, i
-        return level_name(stage, i)
+        return level_name(stage, i, self.boss_index(stage))
 
     def state(self, p) -> State | None:
         """Build a State from a combat/boss Perception. None if no hero."""
@@ -205,6 +221,8 @@ class Tracker:
                 if self.kit != before:
                     self.notes.append(f"kit at level start: {self.kit}")
             self.charge = {t.label: t.cooldown for t in self.kit}
+            if self.kit.fx.get("start_shield"):
+                self.shield = True        # Fortress: every fight starts with a shield [wiki]
             self.queue_track = []
             self.level = level
             self.facing_known = False
@@ -253,7 +271,8 @@ class Tracker:
                 self.notes.append(f"{lb} is not in the hand and not queued; planned as recharging")
 
         hp = h["hp"] if h["hp_max"] else 0
-        swap_charge = SWAP_COOLDOWN - min(SWAP_COOLDOWN, h.get("swap_red", 0))
+        # the red ticks under the hero count the turns his swap still needs (Quick Recovery shortens it)
+        swap_charge = kit.swap_cooldown - min(kit.swap_cooldown, h.get("swap_red", 0))
         hero = Hero(h["x"], facing, hp=hp, queue=queue, charge=plan_charge, swap_charge=swap_charge,
                     shield=self.shield, kit=kit)
 
@@ -293,7 +312,9 @@ class Tracker:
             en.cursed = self.cursed
             enemies.append(en)
         bosses = [en for en in enemies if en.kind in BOSS_KINDS]
-        if len(bosses) > 1:
+        if len(bosses) > 1 and len(bosses) <= CAT.enemy(bosses[0].kind).pair and len({b.kind for b in bosses}) == 1:
+            pass                              # The Twins: two units, one HP bar [wiki]
+        elif len(bosses) > 1:
             # one boss only: keep the read nearest his last known cell, the rest are
             # summoned units whose pips were hidden [run 20261028-053637: Chargers]
             last = next((q[1] for q in self.prev if q[0] in BOSS_KINDS), None)
@@ -406,8 +427,11 @@ class Tracker:
         telegraph shows it [0.20.1, user review of the 0.20 series].
         """
         toward = 1 if hero_x > e["x"] else -1
-        directional = kind in ("ashigaru", "charger") or (
-            kind in BOSS_KINDS and queue and queue[0] in ("sword", "charge", "dragon_punch", "spear"))
+        # the Moonlit Port units (0.31) load like the Ashigaru: Sword and Arrow strike ahead; the Twins' loads
+        # all point at the hero (Tetsubo, Shadow Dash, the Dash and Swap Toss with the hero next to them)
+        directional = kind in ("ashigaru", "charger", "guardian", "ashigaru_archer") or (
+            kind in BOSS_KINDS and queue and queue[0] in ("sword", "charge", "dragon_punch", "spear", "tetsubo",
+                                                          "shadow_dash", "dash", "swap_toss"))
         if directional and (queue or intent == "fire") and self.swapped_uid_x != e["x"]:
             return toward
         if intent == "turn":

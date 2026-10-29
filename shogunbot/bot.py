@@ -54,7 +54,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.30"
+VERSION = "0.31"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -72,7 +72,7 @@ POISON_MIN_VALUE = 4      # use Mass Poison when it deals at least this much in 
 # ended five runs holding Mass Ice, Edamame, Cool Up and Kami Brew]. With --stage1 that is Stage
 # 1's boss; a --full run is won, and in a series given up, after the boss of FULL_LAST_STAGE
 # [m4-plan: the bot clears the region 2 boss]. Items carry over between stages [user 2026-10-29].
-FULL_LAST_STAGE = 2
+FULL_LAST_STAGE = 3       # Moonlit Port, The Twins [user 2026-10-29: extend --full to region 3]
 MAP_TRIES_MAX = 12        # map inputs that leave the map unchanged before the run stops as 'stuck'
                           # [run 20261029-072042: 18 inputs on a Stage 2 map, none applied]
 START_GIVE_UPS_MAX = 2    # give-ups at a run start that still do not reach the camp: 'stuck'
@@ -81,7 +81,8 @@ SHOP_GO_TRIES = 3         # GO clicks before the run stops as 'stuck' in a shop
 # turns it on, the up/down arrows move the mark among the reachable nodes, Enter travels there, and
 # any mouse click turns it off again (perception/map_screen.py). Regions in order of preference;
 # a shop is always taken (both shops after Bamboo Grove led to both regions).
-MAP_REGIONS = ("whispering_caves",)   # [user 2026-10-28: Whispering Caves first]
+MAP_REGIONS = ("whispering_caves", "moonlit_port")   # [user 2026-10-28: Whispering Caves first; 2026-10-29:
+                                                     # region 3, the one region after the Caves]
 MAP_LOOKS_MAX = 4         # arrow presses spent looking for a preferred region before taking the mark
 MOUSE_MODE_SPOT = (0.97, 0.27)   # an empty spot: a click there turns keyboard-only mode off
 BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink
@@ -510,7 +511,7 @@ class Bot:
     @property
     def last_level(self) -> str:
         """The run's final level: Stage 1's boss with --stage1, else FULL_LAST_STAGE's boss."""
-        return level_name(1 if self.stage1 else FULL_LAST_STAGE, 2)
+        return level_name(1, 2) if self.stage1 else level_name(FULL_LAST_STAGE, 99)
 
     def _pre_plan_item(self, p, s, tries: dict):
         """Items whose value does not depend on this turn's plan (Mass Poison). Edamame Brew
@@ -955,7 +956,9 @@ class Bot:
                        why=why, seen=look.get("seen", []))
         self.log.save_frame(frame, "map_travel")
         if sel and sel["kind"] == "region" and sel["region"] not in self.regions:
-            self.regions = list(self.regions) + [sel["region"]]   # its enemies can appear from now on
+            if not isinstance(self.regions, list):
+                self.regions = list(self.regions)
+            self.regions.append(sel["region"])   # its enemies can appear from now on; the tracker counts its levels
         self.key("enter", frame, screen="map", step="travel")
         look.clear()
         time.sleep(2.5)
@@ -1003,6 +1006,7 @@ class Bot:
         tr = Tracker()
         self.reward_n = self.shop_n = 0
         self.regions, self.day = ["bamboo_grove"], None
+        tr.route = self.regions               # the same list: the map appends each region travelled to
         self.gave_up = None
         death_since = None
         progress, last_progress = None, 0     # stall rule: see planner.stall_weights

@@ -291,7 +291,7 @@ def play_level(seed: int, level_i: int, lp: LevelPlan, s: State, depth: int, w: 
 
 def boss(seed: int, level_i: int, lp: LevelPlan, hp: int, depth: int, w: dict, kit: Kit = DEFAULT_KIT,
          telegraphs: bool = True, max_turns: int = 300, trace: list | None = None) -> tuple[State, bool]:
-    s = State(lp.cells, Hero(lp.hero_x, 1, hp=hp, kit=kit),
+    s = State(lp.cells, Hero(lp.hero_x, 1, hp=hp, kit=kit, shield=bool(kit.fx.get("start_shield"))),
               [Enemy(_BOSS.id, 3, -1, enemy_hp(_BOSS.id, lp.day5), [], uid=99)], level="boss")
     stall = _Stall()
     for t in range(max_turns):
@@ -315,7 +315,8 @@ def run_once(seed: int, depth: int = 3, w: dict = WEIGHTS, kit: Kit = DEFAULT_KI
         if lp.boss:
             s, ok = boss(seed, i, lp, hp, depth, w, kit, telegraphs, trace=trace)
         else:
-            s = State(lp.cells, Hero(lp.hero_x, 1, hp=hp, kit=kit), [], level=lp.name)
+            s = State(lp.cells, Hero(lp.hero_x, 1, hp=hp, kit=kit, shield=bool(kit.fx.get("start_shield"))), [],
+                      level=lp.name)   # Fortress: a shield at every fight's start [wiki]
             s, ok = play_level(seed, i, lp, s, depth, w, telegraphs=telegraphs, trace=trace)
         if trace is not None:
             trace.append(_frame(s, "cleared" if ok else "died" if s.hero.hp <= 0 else "stalled"))

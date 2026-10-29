@@ -259,6 +259,11 @@ def decide_kind(pips: int, tile_kind: str | None, sprite_kind: str | None, elite
     base = next(k for k, b in bonus.items() if b == 0)
     if alt is None and sprite_kind in bonus and sprite_kind != base:
         alt = sprite_kind
+    if alt is None:
+        # two kinds of the route with these pips and no tile to tell them apart: the Moonlit Port
+        # Ashigaru Archer and the Tachi both have 2 [catalogue], and the Archer read as a Tachi until its
+        # Arrow showed (collect/20261028-190026 f0346-f0380): plan it as both (0.31)
+        alt = next((k for k, b in bonus.items() if b == 0 and k != base), None)
     return base, alt
 
 
