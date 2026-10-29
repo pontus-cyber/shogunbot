@@ -1,7 +1,7 @@
 {
   "_meta": {
     "source": "Shogun Showdown wiki, Regions and Bamboo Grove pages (shogunshowdown.wiki.gg), fetched 2026-10-28, CC BY-SA 4.0; spawn details from the Stage 1 domain model.",
-    "observed_day1": "Regions played in the full-game recording (collect/20261028-190026, Day 1, won): each wave level's width from the board reader and its wave count from the HUD counter, in play order, and the boss arena's width; null where the board could not be read (Moonlit Port is too dark for 0.21). Hideyoshi's Keep had one wave level, not the three the wiki's level count implies [rec: progress track at f1383]."
+    "observed_day1": "Regions played in the full-game recording (collect/20261028-190026, Day 1, won): each wave level's width from the board reader and its wave count from the HUD counter, in play order, and the boss arena's width; null where the board could not be read. Moonlit Port's widths come from the dark-board reader of 0.30 and were the same in the second recording (collect/20261029-160032, f0462-f0778). Hideyoshi's Keep had one wave level, not the three the wiki's level count implies [rec: progress track at f1383]."
   },
   "rules": {
     "cells": "Each level is 5, 7 or 9 cells wide [wiki].",
@@ -27,7 +27,7 @@
      ]},
     {"id": "whispering_caves", "name": "Whispering Caves", "index": "2.1", "levels": 3, "enemies": ["yari_master"], "boss": ["iwao"], "next": ["moonlit_port"], "observed_day1": {"levels": [{"cells": 5, "waves": 3}, {"cells": 7, "waves": 4}], "boss_cells": 7}},
     {"id": "hibiku_wastelands", "name": "Hibiku Wastelands", "index": "2.2", "levels": 3, "enemies": ["yumi_sniper"], "boss": ["baru"], "next": ["moonlit_port"]},
-    {"id": "moonlit_port", "name": "Moonlit Port", "index": "3", "levels": 4, "enemies": ["ashigaru_archer", "guardian"], "boss": ["the_twins"], "next": ["spirit_gateway", "forsaken_grounds"], "observed_day1": {"levels": [{"cells": null, "waves": 5}, {"cells": null, "waves": 5}, {"cells": null, "waves": 5}], "boss_cells": null}},
+    {"id": "moonlit_port", "name": "Moonlit Port", "index": "3", "levels": 4, "enemies": ["ashigaru_archer", "guardian"], "boss": ["the_twins"], "next": ["spirit_gateway", "forsaken_grounds"], "observed_day1": {"levels": [{"cells": 7, "waves": 5}, {"cells": 5, "waves": 5}, {"cells": 9, "waves": 5}], "boss_cells": 7}},
     {"id": "spirit_gateway", "name": "Spirit Gateway", "index": "4.1", "levels": 4, "enemies": ["grappler", "shinobi"], "boss": ["the_statue"], "next": ["hot_springs"], "observed_day1": {"levels": [{"cells": 7, "waves": 5}, {"cells": 7, "waves": 5}, {"cells": 9, "waves": 6}], "boss_cells": 7}},
     {"id": "forsaken_grounds", "name": "Forsaken Grounds", "index": "4.2", "levels": 4, "enemies": ["warden", "strider"], "boss": ["fumiko"], "next": ["theatre_of_illusions"]},
     {"id": "hot_springs", "name": "Hot Springs", "index": "5.1", "levels": 4, "enemies": ["shielder"], "boss": ["kowa"], "next": ["hideyoshis_keep", "nobunagas_fortress"], "observed_day1": {"levels": [{"cells": 7, "waves": 5}, {"cells": 5, "waves": 15}, {"cells": 9, "waves": 6}], "boss_cells": 7}},

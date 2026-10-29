@@ -91,7 +91,7 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
         return percs[i]
 
     n = ok_any = ok_top = skipped = 0
-    rows = []
+    rows, scored = [], []
     for i in range(len(recs) - 1):
         p = P(i)
         if p.screen == "reward":
@@ -138,13 +138,16 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
         top = same(preds[0][1])
         ok_any += bool(hit)
         ok_top += top
+        scored.append([recs[i]["frame"], bool(top)])
         if not top:
             rows.append({"frame": recs[i]["frame"], "action": act, "board": s.render(),
                          "intents": [(e.x, e.intent) for e in s.enemies],
                          "pred_top": preds[0][1], "observed": obs_sig,
                          "matched_other": bool(hit)})
+    # scored: every scored turn's frame and whether the top prediction matched, so two versions can be
+    # compared on the turns both score when perception changes which frames are fights (0.30)
     res = {"turns": n, "top_match": ok_top, "any_match": ok_any, "skipped_off_kit": skipped,
-           "mismatches": rows}
+           "mismatches": rows, "scored": scored}
     if verbose:
         print(f"turns scored {n}; top prediction matched {ok_top}; some outcome matched {ok_any}; "
               f"skipped (off-kit action) {skipped}")

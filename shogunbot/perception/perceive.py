@@ -27,7 +27,7 @@ import numpy as np
 from ..catalogue import CAT
 from ..model import DEFAULT_KIT
 from . import hud, screens
-from .board import cells as find_cells
+from .board import cells as find_cells, is_board
 
 ASSETS = Path(__file__).parent / "assets"
 _spr = np.load(ASSETS / "sprites.npz")
@@ -492,8 +492,6 @@ def read_hand(rgb: np.ndarray, kit_tiles=None) -> list[dict]:
 
 
 # ---------------------------------------------------------------- screen
-BOARD_CELLS = (5, 7, 9)   # level widths [wiki]; 9 cells first seen in Hot Springs and the Castle
-                          # [collect/20261028-190026]
 
 
 def screen_type(rgb: np.ndarray, cells_: list[dict]) -> str:
@@ -503,7 +501,7 @@ def screen_type(rgb: np.ndarray, cells_: list[dict]) -> str:
     as map [user review of collect/20261028-190026]. A frame with the fight HUD but no
     readable board is 'unknown': the bot waits instead of acting on a menu rule."""
     a = rgb.astype(int)
-    board = len(cells_) in BOARD_CELLS and any(c["kind"] == "hero" for c in cells_)
+    board = is_board(cells_)
     if a.mean() >= 3 and screens.find_skip(rgb) is None and screens.shop(rgb):
         return "shop"          # its floor reads as a board, a banner as the fight HUD [run 20261029-072042]
     if a.mean() >= 3 and screens.find_skip(rgb) is None and screens.combat_hud(rgb):
