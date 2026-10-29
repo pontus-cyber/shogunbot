@@ -1,0 +1,59 @@
+{
+  "_meta": {
+    "source": "Shogun Showdown wiki, Shop & Skills page (shogunshowdown.wiki.gg/wiki/Shop_%26_Skills), fetched 2026-10-29, CC BY-SA 4.0; tooltip texts as the game prints them [rec2: collect/20261029-160032, frames named per skill].",
+    "fields": {
+      "shop": "which shop's counter sells it: warring, combo, guarding, dancer, every (all shops), astronomer (Moonlit Port's shop sells every skill)",
+      "coins": "price at level 1 [wiki]; a SALE badge halves it [wiki] [rec2 f0789: Dynamic Boost level 2 for 7]",
+      "skulls": "skulls that unlock it for the shops (0: available from the start) [wiki]",
+      "max_level": "a copy of an owned skill raises its level, up to 3 [wiki]; Combo Recharge stops at 2 and Monomancer does not stack [wiki]; the wiki says some others cannot stack without naming them",
+      "tooltip": "the tooltip's lines as the game prints them, upper case, where a recorded frame shows it",
+      "effect": "machine-readable effect for the simulator; per level where it scales",
+      "sim": "true when the simulator models it"
+    }
+  },
+  "rules": {
+    "levels": "Buying a copy of an owned skill raises its level by one, up to its max level; the tooltip then shows the next level's text (QUICK RECOVERY 'LEVEL 2: -2 COOLDOWN FOR SPECIAL MOVE (SWAP).' [rec2 f0457]) [wiki]",
+    "counter": "A shop's counter has one skill slot open; skulls unlock a 'service' slot (blood services) or a 'consumable' slot, one per shop (SHOP UPGRADE tooltip 'UNLOCK SLOT / PERMANENTLY ADD A 'SERVICE' SLOT TO THIS SHOP' [rec2 f0182], 'CONSUMABLE' [rec2 f1141]) [wiki]",
+    "buy": "Clicking an offer on the counter buys it: the coins drop by its price and the slot empties [rec2 f0181-f0182: Combo Recharge, 31 -> 11]",
+    "sell": "Hovering an item in the consumable column shows a coin button 'SELL <ITEM> FOR N COINS'; clicking it sells [rec2 f0178 'SELL EDAMAME BREW FOR 4 COINS', f0179 'SELL LUCKY DIE FOR 2 COINS', 31 coins after 29]",
+    "blood_services": "Priced in hearts (HP): REROLL 'BLOOD SERVICE / REROLL AND RESTOCK THIS SHOP' for 1, then 2 [rec2 f0185, f0457]; 'Blood Exchange' gains 5 coins for 2 HP [wiki] (1 on SALE [rec2 review])"
+  },
+  "skills": [
+    {"id": "big_pockets", "name": "Big Pockets", "shop": "every", "coins": 10, "skulls": 0, "max_level": 3, "effect": {"type": "consumable_slots", "amount": 1}, "sim": false},
+    {"id": "rogue_retail", "name": "Rogue Retail", "shop": "every", "coins": 10, "skulls": 30, "max_level": 3, "effect": {"type": "sell_anywhere", "bonus": 1}, "sim": false},
+    {"id": "back_stabber", "name": "Back Stabber", "shop": "warring", "coins": 15, "skulls": 0, "max_level": 3, "effect": {"type": "damage_from_behind", "amount": 1}, "sim": false},
+    {"id": "sniper", "name": "Sniper", "shop": "warring", "coins": 15, "skulls": 0, "max_level": 3, "effect": {"type": "damage_far", "amount": 1, "min_distance": 4}, "sim": false},
+    {"id": "unfriendly_fire", "name": "Unfriendly Fire", "shop": "warring", "coins": 10, "skulls": 0, "max_level": 3, "effect": {"type": "enemy_friendly_fire", "amount": 1}, "sim": false},
+    {"id": "mindfulness", "name": "Mindfulness", "shop": "warring", "coins": 20, "skulls": 0, "max_level": 3, "effect": {"type": "wait_recharge", "amount": 1}, "sim": false},
+    {"id": "monomancer", "name": "Monomancer", "shop": "warring", "coins": 20, "skulls": 15, "max_level": 1, "effect": {"type": "damage_single_queue", "amount": 1}, "sim": false},
+    {"id": "close_combat", "name": "Close Combat", "shop": "warring", "coins": 20, "skulls": 3, "max_level": 3, "effect": {"type": "damage_adjacent", "amount": 1}, "sim": false},
+    {"id": "central_dominion", "name": "Central Dominion", "shop": "warring", "coins": 10, "skulls": 30, "max_level": 3, "effect": {"type": "damage_from_centre", "amount": 1}, "sim": false},
+    {"id": "odd_curse", "name": "Odd Curse", "shop": "warring", "coins": 10, "skulls": 20, "max_level": 3, "effect": {"type": "curse_odd_waves"}, "sim": false},
+    {"id": "combo_coin", "name": "Combo Coin", "shop": "combo", "coins": 15, "skulls": 0, "max_level": 3, "tooltip": ["COMBO COIN", "SKILL", "ENEMIES DROP AN EXTRA COIN WHEN COMBO KILLED."], "tooltip_frame": "rec2 f1134", "effect": {"type": "combo_coin", "amount": 1}, "sim": false},
+    {"id": "combo_recharge", "name": "Combo Recharge", "shop": "combo", "coins": 20, "skulls": 0, "max_level": 2, "tooltip": ["COMBO RECHARGE", "SKILL", "TILES PERFORMING A COMBO KILL HAVE THEIR COOLDOWN RECHARGED BY 4."], "tooltip_frame": "rec2 f0177", "effect": {"type": "combo_recharge", "amount": [4, 8]}, "sim": false},
+    {"id": "triple_combo_heal", "name": "Triple-Combo Heal", "shop": "combo", "coins": 20, "skulls": 0, "max_level": 3, "effect": {"type": "triple_combo_heal", "amount": 1}, "sim": false},
+    {"id": "combo_curse", "name": "Combo Curse", "shop": "combo", "coins": 15, "skulls": 0, "max_level": 3, "effect": {"type": "combo_curse"}, "sim": false},
+    {"id": "combo_deal", "name": "Combo Deal", "shop": "combo", "coins": 10, "skulls": 20, "max_level": 3, "effect": {"type": "combo_deal"}, "sim": false},
+    {"id": "kobushi_combo", "name": "Kobushi Combo", "shop": "combo", "coins": 15, "skulls": 25, "max_level": 3, "effect": {"type": "combo_recharge_hand"}, "sim": false},
+    {"id": "combo_boon", "name": "Combo Boon", "shop": "combo", "coins": 15, "skulls": 30, "max_level": 3, "effect": {"type": "combo_card", "chance": 0.2}, "sim": false},
+    {"id": "chilling_combo", "name": "Chilling Combo", "shop": "combo", "coins": 20, "skulls": 6, "max_level": 3, "effect": {"type": "combo_freeze"}, "sim": false},
+    {"id": "healthy", "name": "Healthy", "shop": "guarding", "coins": 15, "skulls": 0, "max_level": 3, "tooltip": ["HEALTHY", "SKILL", "+2 MAX HP."], "tooltip_frame": "rec2 f0784", "effect": {"type": "max_hp", "amount": 2}, "sim": false},
+    {"id": "fortress", "name": "Fortress", "shop": "guarding", "coins": 20, "skulls": 0, "max_level": 3, "effect": {"type": "start_shield", "max_hp": -2}, "sim": false},
+    {"id": "reactive_shield", "name": "Reactive Shield", "shop": "guarding", "coins": 20, "skulls": 0, "max_level": 3, "effect": {"type": "shield_on_damage"}, "sim": false},
+    {"id": "shield_retention", "name": "Shield Retention", "shop": "guarding", "coins": 15, "skulls": 0, "max_level": 3, "effect": {"type": "shield_keeps"}, "sim": false},
+    {"id": "karma", "name": "Karma", "shop": "guarding", "coins": 10, "skulls": 20, "max_level": 3, "effect": {"type": "return_damage"}, "sim": false},
+    {"id": "chilling_blood", "name": "Chilling Blood", "shop": "guarding", "coins": 15, "skulls": 30, "max_level": 3, "effect": {"type": "freeze_on_damage"}, "sim": false},
+    {"id": "iron_skin", "name": "Iron Skin", "shop": "guarding", "coins": 20, "skulls": 10, "max_level": 3, "effect": {"type": "damage_taken", "amount": -1, "min": 1, "max_hp": -3}, "sim": false},
+    {"id": "overflow_guard", "name": "Overflow Guard", "shop": "guarding", "coins": 15, "skulls": 25, "max_level": 3, "effect": {"type": "overheal_shield"}, "sim": false},
+    {"id": "two_way_move", "name": "Two-Way Move", "shop": "dancer", "coins": 15, "skulls": 0, "max_level": 3, "tooltip": ["TWO-WAY MOVE", "SKILL", "ALLOWS EXECUTING YOUR SPECIAL MOVE (SWAP) IN BOTH DIRECTIONS."], "tooltip_frame": "rec2 f0459", "effect": {"type": "special_both_ways"}, "sim": false},
+    {"id": "quick_recovery", "name": "Quick Recovery", "shop": "dancer", "coins": 15, "skulls": 0, "max_level": 3, "tooltip": ["QUICK RECOVERY", "SKILL", "-1 COOLDOWN FOR SPECIAL MOVE (SWAP)."], "tooltip_frame": "rec2 f0446 (level 2: f0457)", "effect": {"type": "special_cooldown", "amount": [-1, -2, -3], "min": 1}, "sim": false},
+    {"id": "damaging_move", "name": "Damaging Move", "shop": "dancer", "coins": 15, "skulls": 0, "max_level": 3, "effect": {"type": "special_damage", "amount": 1}, "sim": false},
+    {"id": "dynamic_boost", "name": "Dynamic Boost", "shop": "dancer", "coins": 15, "skulls": 0, "max_level": 3, "tooltip": ["DYNAMIC BOOST", "SKILL", "+1 DAMAGE TO ATTACKS IF YOU MOVED WITH A TILE IN THE SAME TURN."], "tooltip_frame": "rec2 f0448 (level 2: f0790)", "effect": {"type": "damage_if_moved", "amount": [1, 2, 3]}, "sim": false},
+    {"id": "cursing_move", "name": "Cursing Move", "shop": "dancer", "coins": 15, "skulls": 25, "max_level": 3, "effect": {"type": "special_curse"}, "sim": false},
+    {"id": "chikara_crush", "name": "Chikara Crush", "shop": "dancer", "coins": 15, "skulls": 20, "max_level": 3, "effect": {"type": "collision_damage", "amount": 1}, "sim": false},
+    {"id": "mamushi_move", "name": "Mamushi Move", "shop": "dancer", "coins": 20, "skulls": 6, "max_level": 3, "effect": {"type": "special_poison", "special_cooldown": 1}, "sim": false},
+    {"id": "two_faced_dancer", "name": "Two-Faced Dancer", "shop": "dancer", "coins": 20, "skulls": 30, "max_level": 3, "effect": {"type": "free_turn"}, "sim": false},
+    {"id": "fenghuangs_feather", "name": "Fenghuang's Feather", "shop": "astronomer", "coins": 20, "skulls": 99, "max_level": 3, "effect": {"type": "revive", "hp": "half"}, "sim": false},
+    {"id": "seiryus_scale", "name": "Seiryu's Scale", "shop": "astronomer", "coins": 20, "skulls": 99, "max_level": 3, "effect": {"type": "free_reroll"}, "sim": false}
+  ]
+}

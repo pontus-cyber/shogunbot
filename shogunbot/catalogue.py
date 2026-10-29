@@ -153,6 +153,28 @@ class Upgrade:
 
 
 @dataclass(frozen=True)
+class Skill:
+    """A skill sold on a shop's counter (data/skills.json) [wiki: Shop & Skills]."""
+    id: str
+    name: str
+    shop: str                 # warring | combo | guarding | dancer | every | astronomer
+    coins: int
+    skulls: int
+    max_level: int
+    effect: dict = field(compare=False, hash=False)
+    tooltip: tuple = ()       # the tooltip's lines, upper case, where a recorded frame shows them
+    sim: bool = False
+
+    def amount(self, level: int, key: str = "amount"):
+        """The effect's value at this level: a list gives one value per level; a single number grows
+        with the level (two Snipers give +2 damage [wiki])."""
+        v = self.effect.get(key)
+        if isinstance(v, list):
+            return v[max(1, min(level, len(v))) - 1]
+        return v * level if isinstance(v, (int, float)) and not isinstance(v, bool) else v
+
+
+@dataclass(frozen=True)
 class Hero:
     id: str
     name: str
@@ -219,6 +241,15 @@ class Catalogue:
         self.levels = {lv["id"]: dict(lv, region=reg["id"])
                        for reg in r["regions"] for lv in reg.get("level_list", [])}
 
+        k = load("skills.json")
+        self.skill_rules = k["rules"]
+        self.skills: dict[str, Skill] = {}
+        for d in k["skills"]:
+            self.skills[d["id"]] = Skill(
+                id=d["id"], name=d["name"], shop=d["shop"], coins=d["coins"], skulls=d.get("skulls", 0),
+                max_level=d.get("max_level", 3), effect=d.get("effect", {}), tooltip=tuple(d.get("tooltip", ())),
+                sim=bool(d.get("sim")))
+
         h = load("heroes.json")
         self.hero_rules = h["rules"]
         self.heroes: dict[str, Hero] = {}
@@ -243,6 +274,17 @@ class Catalogue:
 
     def consumable_by_screen(self, screen_id: str) -> Consumable | None:
         return next((c for c in self.consumables.values() if c.screen_id == screen_id), None)
+
+    def skill(self, sid: str) -> Skill:
+        return self.skills[sid]
+
+    def skill_by_name(self, name: str) -> Skill | None:
+        """The skill a tooltip title names ('QUICK RECOVERY'), ignoring case, spaces and hyphens."""
+        key = "".join(ch for ch in name.upper() if ch.isalnum())
+        for sk in self.skills.values():
+            if "".join(ch for ch in sk.name.upper() if ch.isalnum()) == key:
+                return sk
+        return None
 
     def upgrade(self, uid: str) -> Upgrade:
         return self.upgrades[uid]
