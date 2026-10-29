@@ -43,7 +43,7 @@
   "ashigaru": {
    "away": 111,
    "p_toward": 0.51,
-   "toward": 115
+   "toward": 114
   },
   "charger": {
    "away": 54,
@@ -149,16 +149,15 @@
    "cell_counts": {
     "free": {
      "1": 296,
-     "2": 263,
+     "2": 262,
      "3": 216,
      "4": 87,
      "5": 40,
      "6": 9
     },
     "spawned": {
-     "0": 1,
-     "1": 66,
-     "2": 140,
+     "1": 65,
+     "2": 139,
      "3": 120,
      "4": 36,
      "5": 23,
@@ -166,16 +165,13 @@
     }
    },
    "cell_weight_by_distance": {
-    "1": 0.39,
-    "2": 0.93,
+    "1": 0.38,
+    "2": 0.92,
     "3": 0.97,
     "4": 0.72,
     "5": 1.0
    },
-   "dropped_as_misread": {
-    "ashigaru+ashigaru+charger+tachi": 1,
-    "charger+tachi+tachi+tachi": 1
-   },
+   "dropped_as_misread": {},
    "templates": {
     "1": [
      {
@@ -378,18 +374,18 @@
       "seen": 6,
       "units": [
        "ashigaru",
+       "charger"
+      ]
+     },
+     {
+      "seen": 6,
+      "units": [
+       "ashigaru",
        "ashigaru"
       ]
      },
      {
       "seen": 5,
-      "units": [
-       "ashigaru",
-       "charger"
-      ]
-     },
-     {
-      "seen": 4,
       "units": [
        "charger",
        "tachi",
@@ -420,7 +416,7 @@
   }
  },
  "next_wave": {
-  "none_left": "the next wave comes at once [obs: 193 waves came with no older enemy on the board]",
+  "none_left": "the next wave comes at once [obs: 192 waves came with no older enemy on the board]",
   "one_left_before": {
    "3": {
     "p": 0.0,
@@ -449,9 +445,9 @@
   },
   "two_left": {
    "12+": {
-    "p": 0.1,
-    "turns": 20,
-    "waves": 2
+    "p": 0.143,
+    "turns": 21,
+    "waves": 3
    },
    "<12": {
     "p": 0.0,
