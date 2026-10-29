@@ -20,6 +20,11 @@ confidence 0.15-0.8); his Swirl, stacked on an Earth Impale, read as Spear 7 tim
 once; his Spear is the Yari Master's drawing (read as Spear at 0.1-1.0, and on the Yari Master as
 Sword 12 of 14 times). 'swirl' and 'spear' are Stage 1 labels too: the builder owns the templates
 it added (array B), not whole labels, so the Stage 1 templates stay.
+
+The Twins' icons (0.31) [rec: collect/20261028-190026 f0544-f0580, collect/20261029-160032 f0727-f0775]:
+Tetsubo, a '4' and a spiked club (read as Spear or Sword before); Shadow Dash, a '1' and a ghost with an
+arrow (read as Charge); Phantom Leap, the Dash tile, a white bird under Swap Toss's two circling arrows
+(both read as the red Summon, or Earth Impale). Their Spear and Swirl read right with the existing ones.
 """
 
 from __future__ import annotations
@@ -117,6 +122,45 @@ SAMPLES = {   # label: [(frame relative to ROOT, the unit's centre x at 1080p, s
         ("collect/20261028-190026/f0310_W.png", 536, 0),
         ("collect/20261028-190026/f0313_idle.png", 536, 0),
         ("collect/20261028-190026/f0315_CLICK.png", 536, 0),
+    ],
+    "tetsubo": [   # The Twins' Tetsubo, a '4' and a spiked club (0.31) [rec: read as Sword or Spear before]
+        ("collect/20261028-190026/f0570_W.png", 920, 0),
+        ("collect/20261028-190026/f0571_CLICK.png", 920, 0),
+        ("collect/20261029-160032/f0730_SPACE.png", 544, 0),
+        ("collect/20261029-160032/f0731_idle.png", 444, 0),
+        ("collect/20261029-160032/f0732_idle.png", 444, 0),
+        ("collect/20261029-160032/f0733_D.png", 444, 0),
+        ("collect/20261029-160032/f0734_W.png", 536, 0),
+    ],
+    "shadow_dash": [   # The Twins' Shadow Dash, a '1' and a ghost with an arrow [rec: read as Charge before]
+        ("collect/20261028-190026/f0562_CLICK.png", 1012, 0),
+        ("collect/20261028-190026/f0563_CLICK.png", 1012, 0),
+        ("collect/20261028-190026/f0564_CLICK.png", 1012, 0),
+        ("collect/20261028-190026/f0579_SPACE.png", 920, 0),
+        ("collect/20261029-160032/f0755_CLICK.png", 1100, 0),
+        ("collect/20261029-160032/f0757_idle.png", 1100, 0),
+        ("collect/20261029-160032/f0758_CLICK.png", 1100, 0),
+        ("collect/20261029-160032/f0759_SPACE.png", 1100, 0),
+    ],
+    "dash": [   # The Twins' Phantom Leap (the Dash tile), a white bird, under Swap Toss [rec: read as the red Summon]
+        ("collect/20261029-160032/f0739_CLICK.png", 1096, 0),
+        ("collect/20261029-160032/f0740_SPACE.png", 1096, 0),
+        ("collect/20261029-160032/f0741_idle.png", 1096, 0),
+        ("collect/20261029-160032/f0742_idle.png", 1096, 0),
+        ("collect/20261029-160032/f0743_A.png", 1096, 0),
+        ("collect/20261029-160032/f0767_idle.png", 1004, 0),
+        ("collect/20261029-160032/f0768_CLICK.png", 1004, 0),
+        ("collect/20261029-160032/f0769_CLICK.png", 1004, 0),
+        ("collect/20261029-160032/f0770_SPACE.png", 1004, 0),
+    ],
+    "swap_toss": [   # The Twins' Swap Toss, two circling arrows, over the Dash [rec: read as the red Summon or Earth Impale]
+        ("collect/20261029-160032/f0740_SPACE.png", 1096, 1),
+        ("collect/20261029-160032/f0741_idle.png", 1096, 1),
+        ("collect/20261029-160032/f0742_idle.png", 1096, 1),
+        ("collect/20261029-160032/f0743_A.png", 1096, 1),
+        ("collect/20261029-160032/f0769_CLICK.png", 1004, 1),
+        ("collect/20261029-160032/f0770_SPACE.png", 1004, 1),
+        ("collect/20261029-160032/f0771_idle.png", 1004, 1),
     ],
 }
 

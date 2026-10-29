@@ -74,3 +74,31 @@ def test_what_the_twins_load():
     assert CAT.enemy("the_twins").combo_next(["dash"], 1) == "swap_toss"
     s = _twins(0, 6, 3)                                   # between them: melee
     assert {a[1] for _, a in _pair_load(s, s.enemies[0], b)} == {"spear", "tetsubo", "swirl"}
+
+
+def test_two_pip_units_on_the_moonlit_port_route_are_planned_as_tachi_or_archer():
+    # the Ashigaru Archer read as a Tachi until its Arrow showed [rec1 f0346-f0380]
+    from shogunbot.perception.perceive import decide_kind, roster_tables
+    base, by_tile = roster_tables(("bamboo_grove", "whispering_caves", "moonlit_port"))
+    assert base["guardian"] == 5 and base["ashigaru_archer"] == 2 and by_tile["arrow"] == "ashigaru_archer"
+    assert decide_kind(2, None, None, False, base, elites=False) == ("tachi", "ashigaru_archer")
+    assert decide_kind(2, "ashigaru_archer", None, False, base, elites=False) == ("ashigaru_archer", None)
+    assert decide_kind(5, None, None, False, base, elites=False) == ("guardian", None)
+    # Stage 1 and the Caves are unchanged: every pip count names one kind
+    b2, _ = roster_tables(("bamboo_grove", "whispering_caves"))
+    assert decide_kind(2, None, None, False, b2, elites=False) == ("tachi", None)
+
+
+def test_the_twins_bubbles_read_with_their_own_icons():
+    # 0.30 read Tetsubo as Spear or Sword, Shadow Dash as Charge, the Dash and Swap Toss as the red Summon
+    import numpy as np
+    from test_bot_flow import frame
+    from shogunbot.perception.perceive import perceive
+    R = ("bamboo_grove", "whispering_caves", "moonlit_port")
+    def reads(rel):
+        p = perceive(frame(rel), regions=R, day=1)
+        return p.screen, {e["x"]: (e["kind"], e["queue"]) for e in p.enemies}
+    assert reads("collect/20261028-190026/f0562_CLICK.png") == ("boss", {3: ("the_twins", ["shadow_dash"]), 6: ("the_twins", ["spear"])})
+    assert reads("collect/20261028-190026/f0570_W.png")[1][2] == ("the_twins", ["tetsubo"])
+    assert reads("collect/20261029-160032/f0740_SPACE.png")[1] == {0: ("the_twins", ["spear"]), 5: ("the_twins", ["dash", "swap_toss"])}
+    assert reads("collect/20261028-190026/f0548_idle.png")[1] == {0: ("the_twins", ["spear"]), 6: ("the_twins", ["swirl"])}
