@@ -78,10 +78,11 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
     route = list(route or ["bamboo_grove"])
 
     tr = Tracker()
+    tr.route = list(route)          # levels per region: Moonlit Port has three before its boss
 
     def regions():
         # the stage of the next fight: a reward after a boss starts the next stage
-        stage = tr.stage + (1 if tr.advance and tr.level_i >= 2 else 0)
+        stage = tr.stage + (1 if tr.advance and tr.level_i >= tr.boss_index() else 0)
         return tuple(route[:max(1, stage)])
 
     def P(i):

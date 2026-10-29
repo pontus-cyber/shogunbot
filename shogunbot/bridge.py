@@ -125,12 +125,20 @@ def kit_from_faces(kit: Kit, faces: list[dict], notes: list | None = None) -> Ki
 STAGE1_LEVELS = ("bamboo-1", "bamboo-2", "boss")
 
 
-def level_name(stage: int, i: int) -> str:
-    """Stage 1 keeps its names; later stages are 'stage<k>-1', 'stage<k>-2', 'stage<k>-boss' until
-    levels are named by region (M4 step 2)."""
+def level_name(stage: int, i: int, boss_i: int = 2) -> str:
+    """Stage 1 keeps its names; later stages are 'stage<k>-1', 'stage<k>-2', ... and 'stage<k>-boss'
+    (boss_i: the boss level's index in its region, 2 for a region of three levels)."""
     if stage == 1:
         return STAGE1_LEVELS[i]
-    return f"stage{stage}-{'boss' if i == 2 else i + 1}"
+    return f"stage{stage}-{'boss' if i >= boss_i else i + 1}"
+
+
+def region_boss_index(region: str | None) -> int:
+    """The boss level's index in a region: its level count from the catalogue less one (Moonlit Port
+    has three wave levels before The Twins [rec: collect/20261028-190026, -20261029-160032]); 2 when
+    the region is not known."""
+    reg = CAT.regions.get(region) if region else None
+    return max(1, int(reg["levels"]) - 1) if reg and reg.get("levels") else 2
 
 
 class Tracker:
@@ -152,6 +160,7 @@ class Tracker:
         self.facing_disagree = 0
         self.level = ""
         self.stage, self.level_i = 1, -1   # the run's stage and level within it (-1: no fight yet)
+        self.route: list[str] = ["bamboo_grove"]   # the run's regions in order (bot, replay)
         self.advance = False               # a reward screen ended the level: the next fight is the next level
         self.notes: list[str] = []
         self.prev: list = []          # enemies of the last state (for facing persistence)
@@ -172,21 +181,27 @@ class Tracker:
         if self.level_i >= 0:
             self.advance = True
 
+    def boss_index(self, stage: int | None = None) -> int:
+        """The boss level's index in a stage's region (the route: the regions the run travels, set by
+        the bot as it goes and by the replay from the recording's route)."""
+        stage = self.stage if stage is None else stage
+        return region_boss_index(self.route[stage - 1] if 0 < stage <= len(self.route) else None)
+
     def _level(self, screen: str, cells: int) -> str:
         stage, i = self.stage, self.level_i
         if self.advance:
             self.advance = False
-            stage, i = (stage + 1, 0) if i >= 2 else (stage, i + 1)
+            stage, i = (stage + 1, 0) if i >= self.boss_index(stage) else (stage, i + 1)
         elif i < 0:                          # the run's first fight: by the board
-            i = 2 if screen == "boss" else 1 if cells == 7 and stage == 1 else 0
+            i = self.boss_index(stage) if screen == "boss" else 1 if cells == 7 and stage == 1 else 0
         if screen == "boss":                 # the boss bar names this stage's boss
-            i = 2
+            i = self.boss_index(stage)
         elif stage == 1 and i == 0 and cells == 7:
             i = 1                            # Bamboo Grove II without its reward screen read
         elif stage == 1 and i == 1 and cells == 5:
             i = 2                            # Daisuke's arena shows a turn or two before the boss bar
         self.stage, self.level_i = stage, i
-        return level_name(stage, i)
+        return level_name(stage, i, self.boss_index(stage))
 
     def state(self, p) -> State | None:
         """Build a State from a combat/boss Perception. None if no hero."""
