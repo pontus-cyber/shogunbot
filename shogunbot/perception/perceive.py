@@ -18,6 +18,7 @@ Every threshold here was measured on recorded frames; see tests/test_perception.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
@@ -85,11 +86,29 @@ def classify_sprite(crop: np.ndarray) -> tuple[str, int, float]:
 HERO_KIT = tuple(t.tile for t in DEFAULT_KIT)  # tiles the hero starts with (catalogue); the bot passes its live kit
 # hand faces are matched among the kit and the reward pool, so a newly taken tile reads as itself
 BASE_POOL = frozenset(t.id for t in CAT.base_pool())
-# Stage 1 enemies told apart by HP pips and by the tile in their bubble (catalogue)
+# Enemies told apart by HP pips and by the tile in their bubble (catalogue), among the standard
+# enemies of the regions the run has reached: a region's waves also bring the earlier regions'
+# enemies [rec: collect/20261028-190026, Whispering Caves I and II had Ashigaru, Twin Tachi and
+# Spike Chargers besides the Yari Master]. The bot passes the regions of its route (M4).
 REGION = "bamboo_grove"
+ROSTER = (REGION,)
 KIND_BY_HP = CAT.kinds_by_hp(REGION)        # {3: ashigaru, 2: tachi, 1: charger}
 KIND_BY_TILE = CAT.kinds_by_tile(REGION)    # {sword: ashigaru, swirl: tachi, charge: charger}
 BASE_HP = {k: hp for hp, k in KIND_BY_HP.items()}
+
+
+@lru_cache(maxsize=16)
+def roster_tables(regions: tuple[str, ...] = ROSTER) -> tuple[dict, dict]:
+    """(BASE_HP, KIND_BY_TILE) for the standard enemies of these regions, in route order. Kinds
+    that share an HP (Hibiku Wastelands' Yumi Sniper and the Ashigaru, 3) are told apart by the
+    tile in their bubble; without one the earlier region's kind is taken."""
+    base, by_tile = {}, {}
+    for r in regions:
+        for e in CAT.region_enemies(r):
+            base.setdefault(e.id, e.hp)
+            if e.tile:
+                by_tile.setdefault(e.tile, e.id)
+    return base, by_tile
 # Elite variants (Day 2 on) have extra HP [wiki: Quick, Heavy, Reactive Shield +1, Double-Striker +2]
 ELITE_BONUS = tuple(sorted({t["hp_bonus"] for t in CAT.elite_traits.values() if t.get("hp_bonus")}))
 # ... and an emblem at the top centre of their plate. Emblem-coloured pixels (brown-gold: R 150-230,
@@ -171,7 +190,8 @@ def elite_pixels(rgb: np.ndarray, cx: int) -> int:
     return int(((r >= 150) & (r <= 230) & (g >= 85) & (g <= 150) & (b < 45) & (r - g >= 40) & (r - g <= 80)).sum())
 
 
-def decide_kind(pips: int, tile_kind: str | None, sprite_kind: str | None, elite: bool) -> tuple[str | None, str | None]:
+def decide_kind(pips: int, tile_kind: str | None, sprite_kind: str | None, elite: bool,
+                base_hp: dict | None = None, elites: bool = True) -> tuple[str | None, str | None]:
     """(kind, alt) of a Stage 1 unit from its HP pips, the tile in its bubble, its sprite and
     the elite emblem. alt is a kind the read could not rule out (None when the evidence agrees).
 
@@ -181,14 +201,22 @@ def decide_kind(pips: int, tile_kind: str | None, sprite_kind: str | None, elite
     loaded with Swirl as an Ashigaru (turns 16 and 21), swapped with it for the swap trick and
     took 2 damage twice [user review]. Now the tile icon decides whenever its kind fits the pips
     with or without an elite bonus, an elite (emblem, or pips no base kind has) is named by its
-    sprite, and a sprite that names another kind the pips allow is kept as alt."""
-    allowed = (0,) + ELITE_BONUS
-    bonus = {k: pips - hp for k, hp in BASE_HP.items() if pips - hp in allowed}
+    sprite, and a sprite that names another kind the pips allow is kept as alt.
+
+    base_hp: the kinds of the run's regions (roster_tables). elites False (Day 1, chosen at the
+    camp): no unit has extra pips, so the pips alone name the kind [M4: in Whispering Caves the
+    Yari Master's spear icon read as a Sword on 18 of 30 reads, which named the 4-pip unit an elite
+    Ashigaru; collect/20261028-190026 f0186-f0280]."""
+    allowed = (0,) + (ELITE_BONUS if elites else ())
+    bonus = {k: pips - hp for k, hp in (base_hp or BASE_HP).items() if pips - hp in allowed}
     if not bonus:
         return None, None
     if tile_kind in bonus:
         return tile_kind, None
-    alt = tile_kind if tile_kind in BASE_HP else None      # a tile no kind with these pips carries
+    # a tile no kind with these pips carries: kept as alt while elites can change the pips; on
+    # Day 1 it is an icon misread [M4: the 4-pip Yari Master's spear read as a Sword named an
+    # Ashigaru alt on 18 of 30 Caves reads, collect/20261028-190026 f0191-f0273]
+    alt = tile_kind if elites and tile_kind in (base_hp or BASE_HP) else None
     if elite or 0 not in bonus.values():
         cands = [k for k, b in bonus.items() if b > 0] or list(bonus)
         if sprite_kind in cands:
@@ -494,8 +522,11 @@ class Perception:
                  "confidence")}
 
 
-def perceive(rgb: np.ndarray, kit_tiles=None) -> Perception:
-    """kit_tiles: the hero's tile ids (catalogue), for reading the hand."""
+def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER, day: int | None = None) -> Perception:
+    """kit_tiles: the hero's tile ids (catalogue), for reading the hand. regions: the regions of the
+    run's route so far (whose enemies can appear). day: the day the run is on, when known (Day 1
+    has no elites)."""
+    base_hp, by_tile_kind = roster_tables(tuple(regions))
     rgb = normalize(rgb)
     cs = find_cells(rgb)
     screen = screen_type(rgb, cs)
@@ -543,13 +574,14 @@ def perceive(rgb: np.ndarray, kit_tiles=None) -> Perception:
                 # among the kinds the pips allow (decide_kind). Daisuke is the only unit without
                 # HP pips (his HP is the boss bar); pips win over his sprite: a summoned Charger in
                 # the boss arena was read as a second Daisuke [run 20261028-053637, turns 101-161]
-                by_tile = KIND_BY_TILE.get(tiles[0]["tile"]) if tiles else None
-                elite = elite_pixels(rgb, cx) >= ELITE_PX
+                by_tile = by_tile_kind.get(tiles[0]["tile"]) if tiles else None
+                elite = day != 1 and elite_pixels(rgb, cx) >= ELITE_PX     # Day 1 has no elites
                 alt = None
                 if screen == "boss" and (g + r) == 0:
                     kind = "daisuke"
                 else:
-                    by_pips, alt = decide_kind(g + r, by_tile, kind if kc >= SPRITE_KIND_CONF else None, elite)
+                    by_pips, alt = decide_kind(g + r, by_tile, kind if kc >= SPRITE_KIND_CONF else None, elite,
+                                               base_hp, elites=day != 1)
                     if by_pips:
                         kind = by_pips
                     elif by_tile:

@@ -85,7 +85,7 @@ def read_hand(rgb: np.ndarray, kit_tiles=None, dots: bool = False) -> list[dict]
     """Hand tiles left to right: tile, damage, cooldown, charge, ready, click spot
     (and level dots on reward screens). `kit_tiles` restricts the icon match."""
     out = []
-    for b in T.find_faces(rgb, 560, 1360, *T.HAND_ROW):
+    for b in T.find_faces(rgb, 560, 1360, *T.HAND_ROW, tinted=True):
         g = T.grid(rgb, b)
         tid, dist, conf = T.classify(g, kit_tiles)
         dmg, dconf = T.read_digit(g)

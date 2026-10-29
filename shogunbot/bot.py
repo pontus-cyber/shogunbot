@@ -52,7 +52,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.25"
+VERSION = "0.26"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -220,6 +220,14 @@ class Bot:
         self.verbose = verbose
         self.restart_after = False   # play() sets it when another run follows this one
         self.gave_up = None          # after a won run: whether the pause-menu give-up worked
+
+    regions = ("bamboo_grove",)   # the run's route so far: whose enemies can appear (perceive)
+    day = None                    # the day the run is on, once the camp's selector was read
+
+    def _see(self, frame, tr=None):
+        """perceive() with the run's kit, route and day."""
+        return perceive(frame, [t.tile for t in tr.kit] if tr is not None else None,
+                        regions=tuple(self.regions), day=self.day)
 
     # every input goes through these two, so every input is recorded
     def key(self, name: str, frame, **extra) -> None:
@@ -511,7 +519,7 @@ class Bot:
         over the hero hid two pips for one frame: read 8 of 8 pips, then 10 of 10. A false
         drop could trigger the heal, the stall rule or a wrong plan."""
         time.sleep(HP_CONFIRM_S)
-        p2 = perceive(self.gw.grab(), [t.tile for t in tr.kit])
+        p2 = self._see(self.gw.grab(), tr)
         h2 = p2.hero or {}
         second = h2.get("hp") if h2.get("hp_max") else None
         if second is not None and second < last_hp and h2.get("hp_max") >= hp_cap:
@@ -526,11 +534,10 @@ class Bot:
         series]. Read again every SPAWN_POLL_S until the flames clear, at most
         SPAWN_WAIT_S; the game waits for the hero's move meanwhile."""
         t0 = time.time()
-        kit = [t.tile for t in tr.kit]
         while time.time() - t0 < SPAWN_WAIT_S:
             time.sleep(SPAWN_POLL_S)
             f2 = self.gw.grab()
-            p2 = perceive(f2, kit)
+            p2 = self._see(f2, tr)
             if p2.screen not in ("combat", "boss"):
                 break
             frame, p = f2, p2
@@ -608,7 +615,7 @@ class Bot:
         self.log.event("item_use", item=item, name=name, reason=reason, hp=s.hero.hp, turn=turn, attempt=tries[item])
         self.click(slot["fx"], slot["fy"], frame, item=item)
         time.sleep(1.0)
-        after = perceive(self.gw.grab_stable(settle_s=0.2, timeout_s=2.0))
+        after = self._see(self.gw.grab_stable(settle_s=0.2, timeout_s=2.0))
         still = sum(1 for it in after.items if it["item"] == item) >= sum(1 for it in p.items if it["item"] == item)
         self.log.event("item_result", item=item, consumed=not still)
         if not still:
@@ -813,6 +820,8 @@ class Bot:
         self.log.event("map_travel", node=name, node_kind=sel and sel["kind"], region=sel and sel["region"],
                        why=why, seen=look.get("seen", []))
         self.log.save_frame(frame, "map_travel")
+        if sel and sel["kind"] == "region" and sel["region"] not in self.regions:
+            self.regions = list(self.regions) + [sel["region"]]   # its enemies can appear from now on
         self.key("enter", frame, screen="map", step="travel")
         look.clear()
         time.sleep(2.5)
@@ -837,6 +846,7 @@ class Bot:
         self.say(f"run {run_id} started; recording to runs/{run_id}/frames; hold F8 to stop")
         tr = Tracker()
         self.reward_n = self.shop_n = 0
+        self.regions, self.day = ["bamboo_grove"], None
         self.gave_up = None
         death_since = None
         progress, last_progress = None, 0     # stall rule: see planner.stall_weights
@@ -870,7 +880,7 @@ class Bot:
                     break
                 frame = gw.grab_stable(settle_s=0.2, timeout_s=3.0)
                 t0 = time.time()
-                p = perceive(frame, [t.tile for t in tr.kit])
+                p = self._see(frame, tr)
                 perceive_ms = (time.time() - t0) * 1000
                 scr = p.screen
 
@@ -1011,6 +1021,8 @@ class Bot:
                             continue
                         if sel is not None:
                             day_done = True
+                            # perception reads without elites only when the selector shows none
+                            self.day = None if sel["elite"] else 1
                             self.say("camp: Day 1" + (" (the elite rule still shows)" if sel["elite"] else ""))
                             log.event("day_select", day=1, clicks=day_clicks, **sel)
                             log.save_frame(frame, "camp_day1")

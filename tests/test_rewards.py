@@ -241,6 +241,28 @@ def test_sparkle_after_a_recharge_is_not_a_cooldown_mark():
         assert {h["tile"]: h["cooldown"] for h in hand} == {"swirl": 3, "arrow": 5}, rel
 
 
+FREEPLAY = "runs/20261029-100218/frames/"     # Arrow with Free-Play (cooldown 8) from the bamboo-2 shrine
+
+
+def test_a_free_play_face_is_read_in_the_hand():
+    # its maroon face was no face to 0.25: the Arrow was never found and the bot sent 16
+    # inputs that failed in the boss fight [run 20261029-100218, t0060-t0143]
+    from shogunbot.perception.perceive import read_hand
+    kit = ["swirl", "arrow", "shuriken"]
+    reads = {rel: [(h["tile"], h["damage"], h["ready"], round(h["fx"] * 1920)) for h in read_hand(frame(FREEPLAY + rel), kit)]
+             for rel in ("t0060_before.png", "t0068_before.png", "t0079_before.png", "t0089_before.png")}
+    assert reads == {"t0060_before.png": [("swirl", 2, True, 900), ("arrow", 2, True, 1020)],
+                     "t0068_before.png": [("arrow", 2, True, 900), ("shuriken", 1, True, 1020)],
+                     "t0079_before.png": [("arrow", 2, True, 840), ("shuriken", 1, True, 960), ("swirl", 2, True, 1080)],
+                     "t0089_before.png": [("arrow", 2, True, 960)]}
+
+
+def test_the_tint_rule_leaves_grey_faces_alone():
+    from shogunbot.perception import tiles as T
+    rgb = frame("runs/20261028-061420/frames/f0023_CLICK.png")
+    assert T.find_faces(rgb, 560, 1360, *T.HAND_ROW, tinted=True) == T.find_faces(rgb, 560, 1360, *T.HAND_ROW)
+
+
 # ---- tracker: kit tiles the hand does not show [review of 0.15] ----------------------
 def face(tile, charged=None, **kw):
     t = CAT.tiles[tile]

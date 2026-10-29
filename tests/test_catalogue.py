@@ -14,10 +14,13 @@ from shogunbot.model import (
 def test_values_match_the_013_constants():
     assert HERO_MAX_HP == 10 and SWAP_COOLDOWN == 4 and QUEUE_MAX == 3
     assert [(t.label, t.damage, t.cooldown) for t in DEFAULT_KIT] == [("swirl", 2, 3), ("arrow", 2, 5)]
-    assert ENEMY_KINDS == {"ashigaru": (3, "sword"), "tachi": (2, "swirl"), "charger": (1, "charge"),
-                           "daisuke": (15, "sword")}
-    assert ENEMY_TILE_DAMAGE == {"sword": 2, "swirl": 2, "charge": 1, "summon": 0}
-    assert ENEMY_TILE_COOLDOWN == {"sword": 2, "swirl": 3, "charge": 4, "summon": 6}
+    # Stage 1 as in 0.13; the Yari Master of Whispering Caves is simulated since 0.26 (M4)
+    stage1 = {"ashigaru", "tachi", "charger", "daisuke"}
+    assert {k: v for k, v in ENEMY_KINDS.items() if k in stage1} == {
+        "ashigaru": (3, "sword"), "tachi": (2, "swirl"), "charger": (1, "charge"), "daisuke": (15, "sword")}
+    assert set(ENEMY_KINDS) - stage1 == {"yari_master"} and ENEMY_KINDS["yari_master"] == (4, "spear")
+    assert ENEMY_TILE_DAMAGE == {"sword": 2, "swirl": 2, "charge": 1, "summon": 0, "spear": 2}
+    assert ENEMY_TILE_COOLDOWN == {"sword": 2, "swirl": 3, "charge": 4, "summon": 6, "spear": 5}
 
 
 def test_ready_values_reproduce_the_013_weights():

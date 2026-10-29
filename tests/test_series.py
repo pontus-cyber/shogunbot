@@ -214,6 +214,7 @@ def test_camp_steps_down_to_day1_before_go(tmp_path, monkeypatch):
     assert (1315, 677) in gw.clicks and gw.i == 2          # then GO, onto the map
     ev = [json.loads(l) for l in open(b.log.run_dir / "events.jsonl", encoding="utf-8")]
     assert any(e["event"] == "day_select" and e["clicks"] == 1 for e in ev)
+    assert b.day == 1                                      # perception reads without elites (0.26)
 
 
 def test_camp_stops_when_the_day_selector_does_not_react(tmp_path, monkeypatch):

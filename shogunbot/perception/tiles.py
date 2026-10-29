@@ -24,11 +24,22 @@ ASSETS = Path(__file__).parent / "assets"
 HAND_ROW = (880, 1030)          # y band of the hand faces (top y 900; 888 while hovered)
 PEDESTAL_ROW = (380, 560)       # y band of tile-choice pedestal faces (top y 408)
 _FILL_MIN, _FILL_MAX = 12, 70   # face background: dark grey (24-42 per channel), not black, not wood
+_TINT_MIN = 0.05                # share of tinted px that marks an enchanted face
 
 
-def _fill(a: np.ndarray) -> np.ndarray:
+def _tint(a: np.ndarray) -> np.ndarray:
+    """The maroon of a Free-Play face: interior (34,20,30), marks band (57,26,38), red-speckled
+    border. Its band fails the grey rule (spread 32), so 0.25 cut the face 24 px short and lost it:
+    the freeplay Arrow was never read in the hand and the bot could not play it (16 failed inputs
+    in the boss fight of run 20261029-100218, t0060-t0143). Wood has B < G, grey faces R < B + 10."""
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    return (a.max(axis=2) < _FILL_MAX) & (g >= _FILL_MIN) & (b >= g + 6) & (r >= b + 10) & (r - g < 45)
+
+
+def _fill(a: np.ndarray, tinted: bool = False) -> np.ndarray:
     mx, mn = a.max(axis=2), a.min(axis=2)
-    return (mx < _FILL_MAX) & (mn >= _FILL_MIN) & (mx - mn < 26)
+    grey = (mx < _FILL_MAX) & (mn >= _FILL_MIN) & (mx - mn < 26)
+    return grey | _tint(a) if tinted else grey
 
 
 def _runs(mask) -> list[tuple[int, int]]:
@@ -44,14 +55,21 @@ def _runs(mask) -> list[tuple[int, int]]:
     return out
 
 
-def find_faces(rgb: np.ndarray, x0: int, x1: int, y0: int, y1: int) -> list[tuple[int, int, int, int]]:
+def find_faces(rgb: np.ndarray, x0: int, x1: int, y0: int, y1: int,
+               tinted: bool = False) -> list[tuple[int, int, int, int]]:
     """Face boxes (x0, y0, x1, y1) inside a region, left to right.
 
     Columns of a face always hold some background pixels (its top and bottom
     rows); the wood or scene between faces holds none, so column runs
-    separate the faces. Each run is then cut to the face height by rows."""
+    separate the faces. Each run is then cut to the face height by rows.
+    tinted: also find enchanted (Free-Play) faces; used for the hand, where the
+    wood and the black around it hold no such colour [0.26: of 5,490 recorded frames
+    only the Free-Play faces of run 20261029-100218 changed, besides four JPEG map
+    captures (collect/20261029-kbd-map, where the hand is not read) whose compression
+    noise moved the boxes 11 px]."""
     a = rgb[y0:y1, x0:x1].astype(np.int16)
-    d = _fill(a)
+    d = _fill(a, tinted)
+    tint = _tint(a) if tinted else None
     m = d.mean(axis=0)
     out = []
     for c0, c1 in _runs(m > 0.03):
@@ -71,6 +89,8 @@ def find_faces(rgb: np.ndarray, x0: int, x1: int, y0: int, y1: int) -> list[tupl
                 continue
             for r0, r1 in _runs(d[:, cc0:cc1].mean(axis=1) > 0.25):
                 if FACE_H - 12 <= r1 - r0 <= FACE_H + 8:
+                    if tint is not None and r1 - r0 < FACE_H and tint[r0:r1, cc0:cc1].mean() > _TINT_MIN:
+                        r0 = r1 - FACE_H      # an enchanted face's speckled top border is no fill
                     out.append((x0 + cc0, y0 + r0, x0 + cc0 + FACE_W, y0 + r0 + FACE_H))
     return out
 

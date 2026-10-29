@@ -104,7 +104,7 @@ def test_a_reward_ends_the_level_as_cleared(tmp_path, monkeypatch):
     b.log.start_run = start_in_a_level
     monkeypatch.setattr(B.Bot, "_reward", lambda self, *a, **k: "taken")
     screens = iter(["reward"] + ["unknown"] * 50)
-    monkeypatch.setattr(B, "perceive", lambda fr, kit=None: SimpleNamespace(
+    monkeypatch.setattr(B, "perceive", lambda fr, kit=None, **kw: SimpleNamespace(
         screen=next(screens), hero=None, enemies=[], items=[], cells=[], hand=[], wave=None, confidence={}))
     _stop_after(monkeypatch, 3)
     b.run()
@@ -301,6 +301,21 @@ def test_map_after_a_boss_looks_for_the_preferred_region(tmp_path):
     assert gw.clicks == [(1820, 843)] and gw.keys == ["down", "up", "enter"]
     travel = next(e for e in _events(b) if e["event"] == "map_travel")
     assert travel["region"] == "whispering_caves" and len(travel["seen"]) == 2
+    # its enemies can appear from now on: perception reads with the Caves roster (0.26)
+    assert list(b.regions) == ["bamboo_grove", "whispering_caves"]
+    assert [e["kind"] for e in b._see(frame(FULL + "f0204_CLICK.png")).enemies] == \
+        ["yari_master", "ashigaru", "yari_master"]
+    # a spear read as a Sword fits an elite Ashigaru (4 = 3 + 1) unless the day rules elites out
+    assert b._see(frame(FULL + "f0198_idle.png")).enemies[0]["kind"] == "ashigaru"
+    b.day = 1
+    assert b._see(frame(FULL + "f0198_idle.png")).enemies[0]["kind"] == "yari_master"
+
+
+def test_a_run_starts_with_the_stage_1_roster_and_an_unknown_day(tmp_path):
+    gw = KeyGW([(frame(FULL + "f0204_CLICK.png"), [])])
+    b = make_bot(tmp_path, gw)
+    assert tuple(b.regions) == ("bamboo_grove",) and b.day is None
+    assert [e["kind"] for e in b._see(gw.grab()).enemies] == ["ashigaru", "ashigaru", "ashigaru"]
 
 
 def test_map_takes_a_shop_at_once(tmp_path):

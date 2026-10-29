@@ -18,6 +18,7 @@ import numpy as np
 from PIL import Image
 
 from .bridge import Tracker
+from .model import ENEMY_KINDS
 from .perception.perceive import perceive
 from .rules import step, legal_hero_actions
 
@@ -43,17 +44,30 @@ def to_action(rec: dict, p) -> str | None:
     return None
 
 
-def replay(folder: str | Path, verbose: bool = True) -> dict:
+def replay(folder: str | Path, verbose: bool = True, route: list | None = None, day: int | None = None) -> dict:
+    """route: the regions of the run in order, and day: its day, as the bot passes them to
+    perception (M4). By default from route.json in the folder ({"route": [...], "day": 1}) when
+    there is one, else Bamboo Grove only and the day unknown."""
     folder = Path(folder)
     recs = [json.loads(l) for l in open(folder / "actions.jsonl", encoding="utf-8")]
     percs = {}
+    meta = folder / "route.json"
+    if route is None and meta.exists():
+        info = json.loads(meta.read_text(encoding="utf-8"))
+        route, day = info.get("route"), info.get("day", day)
+    route = list(route or ["bamboo_grove"])
 
     tr = Tracker()
+
+    def regions():
+        # the stage of the next fight: a reward after a boss starts the next stage
+        stage = tr.stage + (1 if tr.advance and tr.level_i >= 2 else 0)
+        return tuple(route[:max(1, stage)])
 
     def P(i):
         if i not in percs:
             percs[i] = perceive(np.array(Image.open(folder / recs[i]["frame"]).convert("RGB")),
-                                [t.tile for t in tr.kit])
+                                [t.tile for t in tr.kit], regions=regions(), day=day)
         return percs[i]
 
     n = ok_any = ok_top = skipped = 0
@@ -89,9 +103,17 @@ def replay(folder: str | Path, verbose: bool = True) -> dict:
             sg["enemies"] = sorted((x, k, h if k != "daisuke" else None) for x, k, h in sg["enemies"])
             preds.append((prob, sg))
         n += 1
+        def seen(x, k, h):
+            # a kind the simulator lacks is planned as a stand-in (Tracker.state: an Ashigaru), so it
+            # is scored on its cell and HP: the Moonlit Port Guardian, or an Ashigaru Archer read as
+            # a Tachi until its Arrow shows, would otherwise fail on the name alone [M4: collect/
+            # 20261028-190026 with its route, f0604-f1799]
+            return any(ox == x and oh == h and (ok == k or ok not in ENEMY_KINDS)
+                       for ox, ok, oh in obs_sig["enemies"])
+
         def same(sg):
             # new enemies in the observed frame are spawns/summons, not model errors
-            return sg["hero"] == obs_sig["hero"] and all(e in obs_sig["enemies"] for e in sg["enemies"])
+            return sg["hero"] == obs_sig["hero"] and all(seen(*e) for e in sg["enemies"])
         hit = [pr for pr, sg in preds if same(sg)]
         top = same(preds[0][1])
         ok_any += bool(hit)
