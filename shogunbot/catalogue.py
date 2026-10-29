@@ -94,6 +94,7 @@ class EnemyKind:
     boss_cell: int | None = None        # where the boss and the hero start in it [wiki]
     hero_cell: int | None = None
     behaviour: dict = field(default_factory=dict, compare=False, hash=False)   # a boss's opening, combos, loads
+    pair: int = 1                       # units that share the boss's HP bar (The Twins: 2) [wiki]
 
     @property
     def tile(self) -> str | None:
@@ -209,7 +210,8 @@ class Catalogue:
                 tag=d.get("tag", "?"), standard=bool(d.get("standard")), boss=bool(d.get("boss")),
                 sim=bool(d.get("sim")), summons=d.get("summons"), text=d.get("text", ""),
                 arena_cells=(d.get("arena") or {}).get("cells"), boss_cell=(d.get("arena") or {}).get("boss_cell"),
-                hero_cell=(d.get("arena") or {}).get("hero_cell"), behaviour=d.get("behaviour") or {})
+                hero_cell=(d.get("arena") or {}).get("hero_cell"), behaviour=d.get("behaviour") or {},
+                pair=d.get("pair", 1))
 
         c = load("consumables.json")
         self.consumable_rules = c["rules"]

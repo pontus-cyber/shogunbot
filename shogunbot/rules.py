@@ -23,6 +23,7 @@ from .model import (
 )
 
 MOVES = ("left", "right", "turn", "wait")
+PAIRED = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).pair > 1)   # bosses whose units share one HP bar
 HERO_ACTIONS = MOVES + DEFAULT_KIT.queue_actions + ("attack",)   # default kit; see hero_actions()
 POISON_TICK = next(c.effect["damage"] for c in CAT.consumables.values() if c.effect["type"] == "poison_all")
 POISON_TURNS = next(c.effect["turns"] for c in CAT.consumables.values() if c.effect["type"] == "poison_all")
@@ -148,6 +149,14 @@ def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events, cannot_
     ev.enemy_damage.append((e.kind, e.uid, dmg, source))
     if e.hp <= 0:
         ev.kills.append((e.kind, e.uid, source))
+    if e.kind in PAIRED:
+        # The Twins share one HP bar: a hit on either takes it from both, and both die at 0 [wiki]
+        # [rec: collect/20261028-190026 f0580, collect/20261029-160032 f0775]
+        for o in s.enemies:
+            if o is not e and o.kind == e.kind and o.hp > 0:
+                o.hp = e.hp
+                if o.hp <= 0:
+                    ev.kills.append((o.kind, o.uid, source))
 
 
 def _push(s: State, u, d: int, ev: Events, collision: int, src: str, by: Enemy | None,
@@ -257,6 +266,12 @@ def _hero_attack(s: State, kt, ev: Events, boost: int = 0, dyn: int = 0) -> bool
                 moved = h.x != u.x - d
                 h.x = u.x - d
                 recharge |= _hero_hit(s, u, kt, spec, ev, moved, max(boost, dyn) if moved else boost)
+        elif k == "dash":
+            # the Dash: forward as far as possible [wiki: Tiles]
+            while s.in_bounds(h.x + d) and s.unit_at(h.x + d) is None:
+                h.x += d
+        elif k == "swap_toss":
+            _swap_cells(s, h.x + h.facing, h.x - h.facing)
         elif k == "dash_through":
             # HYP: passes every unit of the first group ahead, lands on the
             # first empty cell behind them and strikes each one it passed
@@ -506,6 +521,9 @@ def _boss_queue(s: State, e: Enemy, move_or_wait) -> list[tuple[float, tuple]]:
     nxt = kind.combo_next(e.queue, 1)
     if nxt:
         return [(1.0, ("queue", nxt))]
+    pair = _pair_load(s, e, b) if not e.queue else None
+    if pair:
+        return pair
     m = behaviour.model() if BEHAVIOUR == "learned" else None
     learned = m.boss_tile(abs(e.x - s.hero.x), e.queue, e.kind) if m else None
     if learned:
@@ -523,6 +541,28 @@ def _boss_queue(s: State, e: Enemy, move_or_wait) -> list[tuple[float, tuple]]:
         dopts = [(0.4, ("queue", "sword")), (0.4, ("queue", "swirl")), (0.2, ("queue", "summon"))]
     tot = sum(p for p, _ in dopts)
     return [(p / tot, a) for p, a in dopts]
+
+
+def _pair_load(s: State, e: Enemy, b: dict) -> list[tuple[float, tuple]] | None:
+    """The Twins' loads (catalogue 'behaviour') [wiki: The Twins] [rec: both recordings' fights]: with
+    both on one side of the hero the rear one loads Spear, and the front one, next to him, Shadow Dash,
+    or the Dash (Phantom Leap) followed by Swap Toss when he stands on the wall's cell; with the hero
+    between them each loads a melee tile in the recorded proportions."""
+    if "outside" not in b:
+        return None
+    mates = [o for o in s.alive() if o is not e and o.kind == e.kind]
+    if not mates:
+        return None
+    hx, o = s.hero.x, mates[0]
+    if (e.x - hx) * (o.x - hx) > 0:                       # both on one side of the hero
+        if abs(e.x - hx) > abs(o.x - hx):
+            return [(1.0, ("queue", b["outside"]["rear"]))]
+        if abs(e.x - hx) == 1:
+            at_wall = hx in (0, s.cells - 1)
+            return [(1.0, ("queue", (b["outside"]["front_at_wall"] if at_wall else b["outside"]["front"])[0]))]
+        return None
+    tot = sum(b["between"].values())
+    return [(n / tot, ("queue", t)) for t, n in sorted(b["between"].items())]
 
 
 def _boss_options(s, e, d, dist, facing_hero, move_or_wait):
@@ -607,6 +647,16 @@ def _enemy_hit(s: State, e: Enemy, u, dmg: int, tile: str, ev: Events) -> None:
         _damage_enemy(s, u, dmg + s.hero.kit.fx.get("enemy_friendly_fire", 0), f"{e.kind}:{tile}", ev)
 
 
+def _swap_cells(s: State, a: int, b: int) -> None:
+    """Swap Toss: whatever stands on cells a and b changes places (a cell off the board holds nothing)."""
+    ua = s.unit_at(a) if s.in_bounds(a) else None
+    ub = s.unit_at(b) if s.in_bounds(b) else None
+    if ua is not None and s.in_bounds(b):
+        ua.x = b
+    if ub is not None and s.in_bounds(a):
+        ub.x = a
+
+
 def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
     h = s.hero
     if e.alt is not None:
@@ -645,6 +695,29 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
                 # his Charge away from him and ends at the wall, 25 of 25 logged times [bot: Daisuke
                 # and Rei, runs 20261028-044407 t94 ... 20261029-100218 t135]
                 e.x = s.cells - 1 if dd > 0 else 0
+        elif k == "dash_through":
+            # Shadow Dash: through the units ahead to the first empty cell behind them, 1 damage to
+            # each; nothing happens without an empty cell [wiki: Tiles] [rec: the Twins carried the
+            # front one through the hero, collect/20261028-190026 f0562-f0565, -160032 f0755-f0761]
+            dd = e.facing * spec.get("dir", 1)
+            nx, passed = e.x + dd, []
+            while s.in_bounds(nx) and s.unit_at(nx) is not None and s.unit_at(nx) is not e:
+                passed.append(s.unit_at(nx))
+                nx += dd
+            if passed and s.in_bounds(nx):
+                e.x = nx
+                for u in passed:
+                    _enemy_hit(s, e, u, dmg, tile, ev)
+        elif k == "dash":
+            # the Dash (the Twins' Phantom Leap): forward as far as possible [wiki: Tiles]; HYP: it
+            # stops at the first unit or the wall
+            dd = e.facing * spec.get("dir", 1)
+            while s.in_bounds(e.x + dd) and s.unit_at(e.x + dd) is None:
+                e.x += dd
+        elif k == "swap_toss":
+            # Swap Toss: the contents of the cells ahead and behind change places [wiki: Tiles]; the
+            # hero next to a Twin landed behind it [rec: collect/20261029-160032 f0770-f0772]
+            _swap_cells(s, e.x + e.facing, e.x - e.facing)
         elif k == "summon":
             # the summoner's unit (Daisuke: Spike Chargers, Rei: Twin Tachi) [wiki]; HYP: random
             # cells, the planner assumes those farthest from the hero

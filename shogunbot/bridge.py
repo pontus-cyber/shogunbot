@@ -21,7 +21,8 @@ BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
 # sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
 # symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
 # left on all 40 turns, and his sprite read 'facing right' on 12 of them, flipping 12 times
-FRONT_FACING = ("charger", "iwao")
+FRONT_FACING = ("charger", "iwao", "the_twins")   # the Twins' facing read '?' on most of their frames
+                                                # [rec: collect/20261028-190026 f0544-f0580]
 # hero tiles whose queue bubble shows another tile's art: a queued Katana has the enemy
 # Sword's icon [run 20261028-092419 t117-t150: read as Sword or Spear, the bot thought
 # Katana was still in the hand and tried to queue it 47 times]
@@ -311,7 +312,9 @@ class Tracker:
             en.cursed = self.cursed
             enemies.append(en)
         bosses = [en for en in enemies if en.kind in BOSS_KINDS]
-        if len(bosses) > 1:
+        if len(bosses) > 1 and len(bosses) <= CAT.enemy(bosses[0].kind).pair and len({b.kind for b in bosses}) == 1:
+            pass                              # The Twins: two units, one HP bar [wiki]
+        elif len(bosses) > 1:
             # one boss only: keep the read nearest his last known cell, the rest are
             # summoned units whose pips were hidden [run 20261028-053637: Chargers]
             last = next((q[1] for q in self.prev if q[0] in BOSS_KINDS), None)
@@ -424,8 +427,11 @@ class Tracker:
         telegraph shows it [0.20.1, user review of the 0.20 series].
         """
         toward = 1 if hero_x > e["x"] else -1
-        directional = kind in ("ashigaru", "charger") or (
-            kind in BOSS_KINDS and queue and queue[0] in ("sword", "charge", "dragon_punch", "spear"))
+        # the Moonlit Port units (0.31) load like the Ashigaru: Sword and Arrow strike ahead; the Twins' loads
+        # all point at the hero (Tetsubo, Shadow Dash, the Dash and Swap Toss with the hero next to them)
+        directional = kind in ("ashigaru", "charger", "guardian", "ashigaru_archer") or (
+            kind in BOSS_KINDS and queue and queue[0] in ("sword", "charge", "dragon_punch", "spear", "tetsubo",
+                                                          "shadow_dash", "dash", "swap_toss"))
         if directional and (queue or intent == "fire") and self.swapped_uid_x != e["x"]:
             return toward
         if intent == "turn":
