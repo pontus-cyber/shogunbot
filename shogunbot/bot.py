@@ -48,7 +48,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.22"
+VERSION = "0.23"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -70,6 +70,7 @@ DEATH_SCREEN_MAX_S = 30.0 # a death screen without a readable RESTART ends the n
 HP_CONFIRM_S = 0.35       # a second look before an HP drop counts [run 20261028-132952 t77, t82]
 SPAWN_WAIT_S = 2.5        # wait at most this long for spawn flames to clear before reading facing
 SPAWN_POLL_S = 0.25
+CONSOLE_FEED_S = 5.0      # during a reward valuation, a progress line in the console this often
 
 
 def _stop_requested() -> bool:
@@ -225,27 +226,54 @@ class Bot:
                        layout=rs.kind, **{k: v for k, v in rs.to_dict().items() if k not in ("hand", "kind")},
                        hand=[{k: h.get(k) for k in ("tile", "damage", "cooldown", "levels", "used", "conf")}
                              for h in rs.hand])
+        offer = self._offer(rs, tr, level, hp)
         if rs.kind not in ("tile_choice", "shrine") or (rs.kind == "shrine" and not rs.upgrade):
             why = "upgrade text not read" if rs.kind == "shrine" else f"layout {rs.kind}"
             self.say(f"reward ({rs.kind}): {why}; SKIP")
             self.live.reward({"layout": rs.kind, "upgrade": None, "level": level, "hp": hp, "choice": "skip",
                               "rule": why, "options": []})
-            return self._skip(frame, rs, why)
+            self.live.valuation({**offer, "phase": "decided", "options": [], "choice": "skip", "rule": why,
+                                 "click": "SKIP"}, reset=True)
+            out = self._skip(frame, rs, why)
+            self.live.valuation({"phase": "done", "outcome": out})
+            return out
         self.say(f"reward ({rs.kind}{': ' + rs.upgrade if rs.upgrade else ''}): valuing the options "
-                 f"on {len(rewards.SEEDS)} simulated fights if needed ...")
+                 f"on up to {len(rewards.SEEDS)} simulated fights if needed ...")
+        self.live.valuation({**offer, "phase": "starting"}, reset=True)
+        printed = [time.time()]
+
+        def feed(st):
+            """rewards.evaluate's running state: to the viewer at every call, and a line in
+            this window every CONSOLE_FEED_S seconds [user 2026-10-29]."""
+            self.live.valuation(st)
+            if st.get("phase") == "running" and time.time() - printed[0] >= CONSOLE_FEED_S:
+                printed[0] = time.time()
+                self.say("   " + rewards.progress_line(st))
         if rs.kind == "tile_choice":
-            dec = rewards.decide_tile(tr.kit, rs.offers, hp)
+            dec = rewards.decide_tile(tr.kit, rs.offers, hp, progress=feed)
         else:
-            dec = rewards.decide_upgrade(tr.kit, rs.upgrade, hp)
-        best, opts, secs = dec.best, dec.options, dec.seconds
+            dec = rewards.decide_upgrade(tr.kit, rs.upgrade, hp, progress=feed)
+        best, opts, secs, st = dec.best, dec.options, dec.seconds, dec.stats or {}
         self.log.event("reward_decision", layout=rs.kind, upgrade=rs.upgrade, level=level, hp=hp, seconds=secs,
-                       workers=rewards.WORKERS, choice=best.name, rule=dec.rule, options=[o.summary() for o in opts])
+                       workers=rewards.WORKERS, choice=best.name, rule=dec.rule, options=[o.summary() for o in opts],
+                       fights=st.get("fights"), seeds=st.get("seeds"), seeds_max=st.get("of"),
+                       feed_ms=round(1000 * st.get("feed_s", 0.0)), feeds=st.get("feeds"))
         self.live.reward({"layout": rs.kind, "upgrade": rs.upgrade, "level": level, "hp": hp, "seconds": round(secs, 1),
-                          "choice": best.name, "rule": dec.rule, "options": [o.summary() for o in opts]})
+                          "choice": best.name, "rule": dec.rule, "options": [o.summary() for o in opts],
+                          "fights": st.get("fights"), "seeds_max": st.get("of")})
+        click = self._click_text(rs, best)
+        self.live.valuation({"phase": "decided", "choice": best.name, "rule": dec.rule, "seconds": round(secs, 1),
+                             "click": click, **({} if st else {"options": [{"name": o.name} for o in opts]})})
         scored = [o for o in opts if o.scores]
-        self.say("   " + (", ".join(f"{o.name} {o.value:+.2f}" for o in sorted(scored, key=lambda o: -o.value))
-                          or "no simulation needed")
-                 + f"  ({secs:.0f}s) -> {best.name}  [{dec.rule}]")
+        self.say("   " + (", ".join(f"{o.name} {o.value:+.2f} ({len(o.scores)})"
+                                    for o in sorted(scored, key=lambda o: -o.value)) or "no simulation needed")
+                 + f"  ({secs:.0f}s{', ' + str(st['fights']) + ' fights' if st.get('fights') else ''})"
+                 + f" -> {best.name}  [{dec.rule}]")
+        out = self._take(frame, rs, best, tr, dec)
+        self.live.valuation({"phase": "done", "outcome": out})
+        return out
+
+    def _take(self, frame, rs, best, tr, dec) -> str:
         if best.name == "skip":
             return self._skip(frame, rs, dec.rule)
         if rs.kind == "tile_choice":
@@ -265,6 +293,27 @@ class Bot:
             return "taken"
         self._skip(frame, rs2, f"{best.name} did not register")
         return "failed"
+
+    @staticmethod
+    def _offer(rs, tr, level: str, hp: int) -> dict:
+        """The reward screen for the live viewer: layout, offered tiles or the upgrade text, kit."""
+        up = CAT.upgrades.get(rs.upgrade) if rs.kind == "shrine" and rs.upgrade else None
+        return {"layout": rs.kind, "level": level, "hp": hp, "upgrade": rs.upgrade,
+                "upgrade_text": up.name if up else None,
+                "offers": [{"tile": o.get("tile"), "damage": o.get("damage"), "cooldown": o.get("cooldown"),
+                            "levels": o.get("levels")} for o in rs.offers] if rs.kind == "tile_choice" else [],
+                "kit": [f"{t.label} {t.damage}/{t.cooldown}" for t in tr.kit]}
+
+    @staticmethod
+    def _click_text(rs, best) -> str:
+        """The click that follows the decision, in words."""
+        if best.name == "skip":
+            return "SKIP"
+        if rs.kind == "tile_choice":
+            o = rs.offers[best.detail["offer"]]
+            name = CAT.tile(o["tile"]).name if o.get("tile") in CAT.tiles else o.get("tile")
+            return f"the {name} pedestal ({'left' if o.get('fx', 0.5) < 0.5 else 'right'})"
+        return f"{best.detail['label']} from the hand into the statue, then UPGRADE"
 
     def _skip(self, frame, rs, why: str) -> str:
         pos = rs.skip or screens.find_skip(normalize(frame))
@@ -914,6 +963,7 @@ class Bot:
 
 def play(runs: int = 1, frame_policy: str = "events", autostart: bool = True) -> None:
     bot = Bot(frame_policy, autostart)
+    rewards.warm_pool()    # the valuation's workers start now, not at the first reward screen
     results = []
     for i in range(runs):
         # each run starts where the last one ended: a won run is given up from the pause

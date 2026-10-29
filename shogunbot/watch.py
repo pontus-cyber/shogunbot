@@ -6,6 +6,8 @@
 
 Serves http://127.0.0.1:8765 with the standard library only. The page polls
 /live.json twice a second; the bot writes runs/<id>/live.json (shogunbot/live.py).
+During a reward decision the 'Reward valuation' panel replaces the board until
+combat resumes (0.23); the last decision stays in the 'Reward decision' box.
 """
 
 from __future__ import annotations
@@ -157,6 +159,22 @@ PAGE = r"""<!doctype html>
   ul.reason { margin: 0; padding-left: 18px; } ul.reason li { margin-bottom: 4px; }
   .muted { color: var(--dim); font-size: 12px; }
   .stale { color: var(--amber); }
+  .wide { grid-column: 1 / -1; }
+  .seedbar { display: inline-block; vertical-align: middle; width: 70px; height: 6px; margin-left: 6px;
+             background: var(--line); border-radius: 3px; overflow: hidden; }
+  .seedbar i { display: block; height: 100%; background: var(--blue); }
+  .seedbar i.done { background: var(--dim); }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 11px; background: var(--line); }
+  .tag.lead { background: #23402e; color: #a7e3bb; } .tag.loss { background: var(--red); color: #fff; }
+  .tag.stop { background: #2b2e37; color: var(--dim); }
+  .valhead { font-size: 15px; } .valline { margin-top: 6px; }
+  .rpctl { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 6px 0 8px; }
+  .rpctl input[type=range] { flex: 1; min-width: 160px; }
+  .rpctl button, .rpctl select { background: var(--line); color: var(--text); border: 1px solid #3a3e4a;
+                                 border-radius: 5px; padding: 3px 10px; font: inherit; cursor: pointer; }
+  .rpgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+  .rpcol { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: #16181d; }
+  .rpboard { font-family: var(--mono); font-size: 17px; white-space: pre; margin: 6px 0 4px; overflow-x: auto; }
 </style>
 </head>
 <body>
@@ -172,14 +190,15 @@ PAGE = r"""<!doctype html>
   <span class="stat" id="age"></span>
 </header>
 <main>
-  <div>
+  <section id="valbox" class="wide" hidden><h2>Reward valuation</h2><div id="valuation"></div><div id="replay"></div></section>
+  <div id="combat">
     <section><h2>Board</h2><div id="board" class="board"></div><div id="tiles" class="tiles"></div>
       <div id="boardnote" class="muted"></div></section>
     <section><h2>Options, best first</h2><div id="options"></div></section>
     <section><h2>Why this move</h2><ul id="reason" class="reason"></ul></section>
   </div>
-  <div>
-    <section><h2>Plan: the likely line</h2><ol id="plan" class="plan"></ol></section>
+  <div id="side">
+    <section id="plansec"><h2>Plan: the likely line</h2><ol id="plan" class="plan"></ol></section>
     <section><h2>Last 10 turns: predicted vs actual</h2><div id="history"></div></section>
     <section id="rewardbox" hidden><h2>Reward decision</h2><div id="reward"></div></section>
     <section><h2>Events</h2><div id="events" class="muted"></div></section>
@@ -282,13 +301,138 @@ function reward(r) {
   if (!r) { box.hidden = true; return; }
   box.hidden = false;
   const opts = (r.options || []).slice().sort((a, b) => (b.value ?? -1e9) - (a.value ?? -1e9));
-  el.innerHTML = `<div>after <b>${esc(r.level)}</b> · ${esc(r.layout)}${r.upgrade ? " · " + esc(r.upgrade) : ""} · HP ${r.hp ?? "–"}${r.seconds ? " · " + r.seconds + " s" : ""}</div>` +
-    (opts.length ? `<table style="margin-top:6px"><tr><th>Option</th><th class="num">Score</th><th class="num">vs skip</th><th class="num">Wins</th><th></th></tr>` +
+  el.innerHTML = `<div>after <b>${esc(r.level)}</b> · ${esc(r.layout)}${r.upgrade ? " · " + esc(r.upgrade) : ""} · HP ${r.hp ?? "–"}${r.seconds ? " · " + r.seconds + " s" : ""}${r.fights ? " · " + r.fights + " fights" : ""}</div>` +
+    (opts.length ? `<table style="margin-top:6px"><tr><th>Option</th><th class="num">Seeds</th><th class="num">Score</th><th class="num">vs skip</th><th class="num">Wins</th><th></th></tr>` +
       opts.map(o => `<tr class="${o.name === r.choice ? "chosen" : ""}"><td>${esc(o.name)}${o.name === r.choice ? " ✓" : ""}</td>
+        <td class="num">${o.seeds ?? "–"}</td>
         <td class="num">${o.scored ? o.value.toFixed(2) : "–"}</td>
         <td class="num">${o.diff != null ? (o.diff >= 0 ? "+" : "") + o.diff.toFixed(2) + " ± " + (o.se ?? 0).toFixed(2) : "–"}</td>
-        <td class="num">${o.scored ? o.wins : "–"}</td><td>${o.net_loss ? '<span class="bad">net loss</span>' : ""}</td></tr>`).join("") + `</table>` : "") +
+        <td class="num">${o.scored ? o.wins : "–"}</td><td>${o.net_loss ? '<span class="bad">net loss</span>' : o.stopped ? '<span class="muted">stopped</span>' : ""}</td></tr>`).join("") + `</table>` : "") +
     `<div style="margin-top:6px">choice <b>${esc(r.choice)}</b> · rule: ${esc(r.rule)}</div>`;
+}
+
+const PHASE = {starting: "starting the fights", running: "playing the fights", valued: "valued",
+               decided: "decided", done: "done"};
+const pm = (x, s) => x == null ? "–" : (x >= 0 ? "+" : "") + x.toFixed(2) + (s != null ? " ± " + s.toFixed(2) : "");
+
+function fight(f, sc) {
+  if (!f) return '<span class="dim">–</span>';
+  const how = f.win ? `<span class="ok">won</span>, ${f.hp} HP` : f.timeout ? `<span class="stale">stalled</span>, ${f.hp} HP`
+    : `<span class="bad">died</span> ${f.died === "stress-boss" ? "against " + esc((sc && sc.boss) || "the boss") : "on the board"}`;
+  return `${how}, ${f.turns} turns`;
+}
+
+function valuation(v, show) {
+  const box = document.getElementById("valbox"), el = document.getElementById("valuation");
+  if (!v || !show) { box.hidden = true; return; }
+  box.hidden = false;
+  const tc = v.layout === "tile_choice";
+  const what = tc ? (v.offers || []).map(o => `${esc(o.tile ?? "unread")} ${o.damage ?? "?"}/${o.cooldown ?? "?"}${o.levels ? " · " + o.levels + " slots" : ""}`).join("  |  ")
+                  : esc(v.upgrade_text || v.upgrade || "upgrade not read");
+  const sc = v.scenario || {};
+  const rows = v.options || [];
+  const stats = rows.some(o => o.seeds != null);
+  let html = `<div class="valhead"><b>${tc ? "Tile choice" : v.layout === "shrine" ? "Shrine upgrade" : esc(v.layout)}</b>: ${what}</div>
+    <div class="muted">after ${esc(v.level)} · HP ${v.hp ?? "–"} · kit ${esc((v.kit || []).join(", "))} · options: ${esc(rows.map(o => o.name).join(", ") || "none")}</div>`;
+  if (stats || v.phase === "starting") {
+    html += `<div class="valline">${PHASE[v.phase] || esc(v.phase)} · <b>${(v.elapsed ?? 0).toFixed(1)} s</b> · ${v.workers ?? "?"} worker${v.workers === 1 ? "" : "s"} · ${v.fights ?? 0} fights played` +
+      `${v.fights_max ? " (at most " + v.fights_max + ")" : ""}${v.looked ? " · compared after " + v.looked + " seeds" : ""}</div>`;
+  }
+  if (stats) {
+    html += `<table style="margin-top:6px"><tr><th>Option</th><th>Seeds</th><th class="num">Mean ± SE</th><th class="num">vs skip ± SE</th><th class="num">Wins</th><th>Status</th><th>Example fight${v.example_seed ? " (seed " + v.example_seed + ")" : ""}</th></tr>` +
+      rows.map(o => {
+        const chosen = v.choice && o.name === v.choice;
+        const tags = (o.name === v.leader && !v.choice ? '<span class="tag lead">leader</span> ' : "") +
+          (o.net_loss ? '<span class="tag loss">net loss</span> ' : "") +
+          (o.stopped ? `<span class="tag stop">stopped</span> <span class="muted">${esc(o.stopped)}</span>` : o.playing && !v.choice ? '<span class="muted">playing</span>' : "");
+        return `<tr class="${chosen ? "chosen" : ""}"><td>${esc(o.name)}${chosen ? " ✓" : ""}</td>
+          <td class="mono">${o.seeds}/${o.of}<span class="seedbar"><i class="${o.playing ? "" : "done"}" style="width:${o.of ? 100 * o.seeds / o.of : 0}%"></i></span></td>
+          <td class="num">${o.mean == null ? "–" : o.mean.toFixed(2) + (o.se != null ? " ± " + o.se.toFixed(2) : "")}</td>
+          <td class="num">${o.name === "skip" ? "" : pm(o.diff, o.diff_se)}</td>
+          <td class="num">${o.seeds ? o.wins + "/" + o.seeds : "–"}</td>
+          <td style="white-space:normal">${tags}</td><td>${fight(o.example, sc)}</td></tr>`;
+      }).join("") + `</table>`;
+  }
+  if (sc.name) {
+    html += `<div class="valline muted">Scenario: ${esc(sc.name)}${sc.board ? " · " + esc(sc.board) : ""}${sc.waves ? " · " + sc.waves + " waves at " + esc(sc.enemy_hp) + " enemy HP" : ""}` +
+      `${sc.boss ? " · then " + esc(sc.boss) + " at " + sc.boss_hp + " HP" : ""} · planner depth ${sc.depth}${sc.score ? " · score: " + esc(sc.score) : ""}</div>`;
+    if (v.example_waves) html += `<div class="muted">Example seed ${v.example_seed} (where the options differ most so far): waves ${esc(v.example_waves.join(", "))} (A Ashigaru, T Twin Tachi, C Spike Charger)</div>`;
+    if (v.stop_z) html += `<div class="muted">Stops an option once it is ${v.stop_z} SE behind the leader or below skipping, and skipping once every option left is ${v.stop_z} SE above it; compared after ${esc((v.looks || []).join(", "))} seeds. Net loss: more than 2 SE below skipping.</div>`;
+  }
+  if (v.choice) {
+    html += `<div class="valline">choice <b>${esc(v.choice)}</b> · rule: ${esc(v.rule)}</div>` +
+      `<div class="valline">click: <b>${esc(v.click || "–")}</b>${v.outcome ? " · " + esc(v.outcome) : v.phase === "decided" ? " · clicking now" : ""}${v.seconds != null ? " · decided in " + v.seconds + " s" : ""}</div>`;
+  }
+  el.innerHTML = html;
+}
+
+// replay of the example seed's fight for every option, turn by turn [user 2026-10-29]. The player
+// keeps its place across the twice-a-second updates and waits for the end of a playback before it
+// moves to a newer example seed.
+const rp = {key: null, seed: null, cols: [], sc: {}, i: 0, n: 0, playing: true, ended: false, speed: 1, timer: null};
+
+function rpCols(v) {
+  return (v.options || []).filter(o => o.example && o.example.trace && o.example.seed === v.example_seed)
+    .map(o => ({name: o.name, ex: o.example, tr: o.example.trace}));
+}
+
+function replay(v, show) {
+  const el = document.getElementById("replay");
+  if (!show || !v) { el.innerHTML = ""; rp.key = rp.seed = null; rp.playing = true; rp.ended = false; rpSchedule(); return; }
+  const cols = rpCols(v);
+  if (!cols.length) return;
+  const key = v.example_seed + "|" + cols.map(c => c.name + ":" + c.tr.length).join(",");
+  if (key === rp.key) return;
+  const newSeed = v.example_seed !== rp.seed;
+  if (newSeed && rp.seed !== null && !rp.ended) return;   // the fight being watched first (playing or paused)
+  if (newSeed) { rp.i = 0; rp.playing = true; rp.ended = false; }
+  rp.key = key; rp.seed = v.example_seed; rp.cols = cols; rp.sc = v.scenario || {};
+  rp.n = Math.max(...cols.map(c => c.tr.length));
+  el.innerHTML = `<div class="valline"><b>Replay, seed ${v.example_seed}</b> <span class="muted">the same fight for every option, turn by turn ·
+      H you, A Ashigaru, T Twin Tachi, C Spike Charger, D Daisuke; the digit is HP, * loaded, &lt; &gt; facing</span></div>
+    <div class="rpctl"><button id="rpplay"></button><input id="rpslider" type="range" min="0" max="${rp.n - 1}">
+      <span id="rpturn" class="mono"></span>
+      <select id="rpspeed"><option value="1">4 turns/s</option><option value="2">8 turns/s</option><option value="4">16 turns/s</option></select></div>
+    <div class="rpgrid">${cols.map((c, k) => `<div class="rpcol"><div><b>${esc(c.name)}</b> · ${fight(c.ex, rp.sc)}</div><div id="rpcell${k}"></div></div>`).join("")}</div>`;
+  document.getElementById("rpplay").onclick = () => {
+    rp.playing = !rp.playing;
+    if (rp.playing && rp.i >= rp.n - 1) rp.i = 0;
+    rp.ended = false;
+    rpSchedule(); rpDraw();
+  };
+  document.getElementById("rpslider").oninput = e => { rp.i = +e.target.value; rp.ended = false; rpDraw(); };
+  const sp = document.getElementById("rpspeed");
+  sp.value = String(rp.speed);
+  sp.onchange = e => { rp.speed = +e.target.value; rpSchedule(); };
+  rpSchedule(); rpDraw();
+}
+
+function rpSchedule() {
+  if (rp.timer) { clearInterval(rp.timer); rp.timer = null; }
+  if (rp.playing && rp.key) rp.timer = setInterval(() => {
+    if (rp.i >= rp.n - 1) { rp.playing = false; rp.ended = true; rpSchedule(); rpDraw(); return; }  // a newer example may follow
+    rp.i++; rpDraw();
+  }, 250 / rp.speed);
+}
+
+function rpDraw() {
+  const btn = document.getElementById("rpplay");
+  if (!btn) return;
+  btn.textContent = rp.playing ? "❚❚ pause" : "▶ play";
+  document.getElementById("rpslider").value = rp.i;
+  document.getElementById("rpturn").textContent = `turn ${rp.i + 1} / ${rp.n}`;
+  rp.cols.forEach((c, k) => {
+    const j = Math.min(rp.i, c.tr.length - 1), r = c.tr[j], prev = j > 0 ? c.tr[j - 1] : r;
+    const [lv, wave, board, hp, act, tele, queue] = r;
+    const where = lv === "boss" ? (rp.sc.boss || "boss") : "stress board" + (wave ? ", wave " + wave : "");
+    const lost = hp < prev[3] ? ` <span class="dmg">−${prev[3] - hp}</span>` : "";
+    const over = rp.i > c.tr.length - 1 ? ' · <span class="muted">fight over</span>' : "";
+    document.getElementById("rpcell" + k).innerHTML =
+      `<div class="muted">${esc(where)} · HP <b>${hp}</b>${lost}${over}</div>
+       <div class="rpboard">${esc(board)}</div>
+       <div class="muted">${["cleared", "died", "stalled"].includes(act) ? "level " + esc(act) : "move: <b>" + esc(act) + "</b>"}` +
+      `${tele ? " · telegraphs " + esc(tele) : ""}${queue ? " · queue " + esc(queue) : ""}</div>`;
+  });
 }
 
 function render(doc) {
@@ -302,6 +446,13 @@ function render(doc) {
   document.getElementById("wave").textContent = doc.board ? (wt && wt < 20 ? `${doc.board.wave}/${wt}` : (doc.board.wave || "\u2013")) : "\u2013";
   document.getElementById("turn").textContent = doc.turn ?? "–";
   document.getElementById("hp").textContent = doc.board ? doc.board.hero.hp : "–";
+  // during a reward decision the valuation replaces the board, until combat resumes
+  const v = doc.valuation, showVal = !!(v && (v.at ?? 0) >= (doc.turn_at ?? -1));
+  valuation(v, showVal);
+  replay(v, showVal);
+  document.getElementById("combat").hidden = showVal;
+  document.getElementById("plansec").hidden = showVal;
+  document.getElementById("side").classList.toggle("wide", showVal);
   board(doc.board); options(doc.decision); plan(doc.decision); reason(doc.decision);
   history(doc.history); reward(doc.reward);
   document.getElementById("events").innerHTML = (doc.events || []).slice().reverse()

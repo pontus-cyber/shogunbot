@@ -17,22 +17,40 @@ Scoring: each option plays the 'stress' scenario (selfplay.py) on the same
 48 seeds with common random numbers, so a seed is the same fight for every
 option. A run scores the HP left minus 0.02 per turn (faster wins count
 when HP ends equal), -10 for a death, HP - 3 for a stalled run.
+
+Sequential valuation (0.23) [user review of run 20261029-045856: a decision
+took 45-73 s, about 2.5 of the 8 minutes of a Stage 1 run]. The options play
+the seeds in order, every option the same seed. At LOOKS (after 24, 32 and 40
+seeds) an option stops once it is settled: more than STOP_Z (3)
+standard errors behind the leader, so it cannot be the best, or that far
+below skipping, a net loss. Skipping stops once every option left is that far
+above it. The decision ends when one option is left and settled against
+skipping, or after the 48th seed, where the rules above decide on the seeds
+played. An option that stopped behind the leader is not chosen. Pure gains
+use the same test: a cap at 16 seeds changed 1 of the 46 logged choices (the
+boss shrine of run 20261028-155955: at 16 seeds Arrow, Swirl and Spear were
+tied; at 48 Spear won, Swirl and Arrow each died once), and a faster decision
+is not worth a worse one [user 2026-10-29]. The worker processes start once
+and stay for the bot's lifetime (pool()); each decision used to start seven
+new ones.
 """
 
 from __future__ import annotations
 
+import atexit
 import math
 import multiprocessing as mp
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from .catalogue import CAT
 from .model import HERO_MAX_HP, Kit, KitTile
-from .selfplay import run_once
+from .selfplay import STRESS_WAVES, LEVELS, enemy_hp, plan_levels, run_once
 
-SEEDS = tuple(range(9000, 9048))  # fixed: the same 48 simulated fights score every option
+SEEDS = tuple(range(9000, 9048))  # fixed: the same 48 simulated fights score every option, in this order
 DEPTH = 3                         # planner depth inside the valuation (live play uses 4-6). Depth 2
                                   # undervalued the dash tiles against depth 3 [valuation study 2026-10-28]
 SCENARIO = "stress"               # harder than the rest of Stage 1, where every option won at ~full HP
@@ -40,6 +58,13 @@ WORKERS = max(1, min(8, (os.cpu_count() or 2) - 1))
 TURN_COST = 0.02                  # per simulated turn
 STALL_PENALTY = 3.0               # a simulated run that hit the turn limit alive: HP kept, minus this
 NOISE_Z = 2.0                     # a net loss is worse than skipping by more than 2 standard errors
+LOOKS = (24, 32, 40)              # seeds after which the options are compared (and after the last seed).
+                                  # From 8 seeds, 3 of 950 random seed orders changed a logged choice;
+                                  # from 24, 1 of 3,000 [0.23 re-decision of the logged decisions]
+STOP_Z = 3.0                      # an option stops once its gap to the leader or to skip exceeds this many SE
+SD_FLOOR = 0.5                    # HP: the spread of one seed's difference is taken as at least this, so a
+                                  # few seeds that happen to agree exactly cannot stop an option
+FEED_S = 0.5                      # while fights run, the progress feed (live viewer) at least this often
 
 
 @dataclass
@@ -52,6 +77,10 @@ class Option:
     diff: float | None = None   # mean paired difference to skipping
     se: float | None = None     # its standard error
     detail: dict = field(default_factory=dict)
+    fights: list = field(default_factory=list, repr=False)   # per seed played: _job's result
+    stopped: str | None = None  # why it stopped before the last seed
+    out: bool = False           # stopped as not the best option: never chosen
+    above: bool = False         # settled above skipping
 
     @property
     def net_loss(self) -> bool:
@@ -59,6 +88,10 @@ class Option:
 
     def summary(self) -> dict:
         d = {"name": self.name, "scored": bool(self.scores), "value": self.value, "wins": self.wins}
+        if self.scores:
+            d["seeds"] = len(self.scores)
+        if self.stopped:
+            d["stopped"] = self.stopped
         if self.diff is not None:
             d.update(diff=self.diff, se=self.se, net_loss=self.net_loss)
         return d
@@ -70,6 +103,7 @@ class Decision:
     options: list
     rule: str
     seconds: float = 0.0
+    stats: dict = field(default_factory=dict)   # the valuation: fights, seeds, feed time
 
 
 def score(res) -> float:
@@ -136,60 +170,376 @@ def upgrade_options(kit: Kit, upgrade_id: str) -> list[Option]:
     return opts
 
 
+# ---------------------------------------------------------------- worker processes
+_POOL: ProcessPoolExecutor | None = None
+_POOL_WORKERS = 0
+
+
+def _warm() -> int:
+    """Runs in a new worker: importing this module loads the simulator once."""
+    return os.getpid()
+
+
+def pool(workers: int = WORKERS) -> ProcessPoolExecutor | None:
+    """The valuation's worker processes, started on first use and kept for the bot's
+    lifetime (a series too). spawn: the same on Windows (the PC) and in tests."""
+    global _POOL, _POOL_WORKERS
+    if workers <= 1:
+        return None
+    if _POOL is None or _POOL_WORKERS != workers:
+        close_pool()
+        try:
+            _POOL, _POOL_WORKERS = ProcessPoolExecutor(workers, mp_context=mp.get_context("spawn")), workers
+        except Exception:
+            _POOL = None
+    return _POOL
+
+
+def warm_pool(workers: int = WORKERS) -> None:
+    """Start the workers now, so the first reward decision does not wait for them (play())."""
+    p = pool(workers)
+    if p is not None:
+        try:
+            for _ in range(workers):
+                p.submit(_warm)
+        except Exception:
+            close_pool()
+
+
+def close_pool() -> None:
+    global _POOL
+    if _POOL is not None:
+        try:
+            _POOL.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+    _POOL = None
+
+
+atexit.register(close_pool)
+
+
 # ---------------------------------------------------------------- simulation
 def _job(args):
+    """One simulated fight: (score, win, hp left, turns, stalled, level reached, its turns for the
+    viewer's replay)."""
     kit_list, hp, seed, depth, scenario = args
-    r = run_once(seed, depth, kit=Kit.from_list(kit_list), hp=hp, scenario=scenario, start="bamboo-2")
-    return score(r), r.win
+    trace: list = []
+    r = run_once(seed, depth, kit=Kit.from_list(kit_list), hp=hp, scenario=scenario, start="bamboo-2",
+                 trace=trace)
+    return score(r), r.win, r.hp, r.turns, r.timeout, r.reached, trace
 
 
-def evaluate(opts: list[Option], hp: int, seeds=SEEDS, depth: int = DEPTH, workers: int = WORKERS,
-             scenario: str = SCENARIO) -> None:
-    """Fill each option's per-seed scores, mean, wins, and its paired
-    difference to 'skip' (when skip is among the options)."""
-    seeds = tuple(seeds)
-    hp = max(1, min(HERO_MAX_HP, hp))
-    jobs = [(o.kit.to_list(), hp, s, depth, scenario) for o in opts for s in seeds]
-    results = None
-    if workers > 1 and len(jobs) > len(seeds):
-        try:
-            # spawn: the same on Windows (the PC) and in tests
-            with ProcessPoolExecutor(workers, mp_context=mp.get_context("spawn")) as ex:
-                results = list(ex.map(_job, jobs, chunksize=max(1, len(jobs) // (workers * 4))))
-        except Exception:
-            results = None   # fall back to one process
-    if results is None:
-        results = [_job(j) for j in jobs]
-    n = len(seeds)
-    for i, o in enumerate(opts):
-        part = results[i * n:(i + 1) * n]
-        o.scores = [v for v, _ in part]
-        o.value = round(sum(o.scores) / n, 3)
-        o.wins = sum(w for _, w in part)
-    paired(opts)
+def _pair(a: list, b: list) -> tuple[float, float]:
+    """Mean and standard error of a[i] - b[i] over the seeds both played."""
+    n = min(len(a), len(b))
+    if n == 0:
+        return 0.0, 0.0
+    d = [a[i] - b[i] for i in range(n)]
+    m = sum(d) / n
+    var = sum((x - m) ** 2 for x in d) / max(1, n - 1)
+    return m, math.sqrt(var / n)
 
 
 def paired(opts: list[Option]) -> None:
+    """Each option's mean difference to skipping, over the seeds both played."""
     base = next((o for o in opts if o.name == "skip" and o.scores), None)
     if base is None:
         return
     for o in opts:
-        if o is base or len(o.scores) != len(base.scores):
+        if o is base or not o.scores:
             continue
-        d = [a - b for a, b in zip(o.scores, base.scores)]
-        m = sum(d) / len(d)
-        var = sum((x - m) ** 2 for x in d) / max(1, len(d) - 1)
-        o.diff, o.se = round(m, 3), round(math.sqrt(var / len(d)), 3)
+        m, se = _pair(o.scores, base.scores)
+        o.diff, o.se = round(m, 3), round(se, 3)
 
 
 def _best(cands: list[Option]) -> Option:
-    """Highest mean; on a tie the first (kit order, or the first offer)."""
-    return max(cands, key=lambda o: (o.value, -cands.index(o)))
+    """Highest mean; on a tie the first (kit order, or the first offer). Options that
+    stopped behind the leader are never chosen."""
+    left = [o for o in cands if not o.out] or cands
+    return max(left, key=lambda o: (o.value, -left.index(o)))
+
+
+@lru_cache(maxsize=64)
+def _waves(seed: int, scenario: str) -> tuple:
+    """The seed's waves on the scenario's board, e.g. ('AAC', 'TT', ...)."""
+    lp = plan_levels(seed, scenario=scenario)[0]
+    return tuple("".join(CAT.enemy(k).tag for k, _, _ in w) for w in lp.waves)
+
+
+def scenario_info(scenario: str = SCENARIO) -> dict:
+    """The simulated fights in words, for the live viewer."""
+    if scenario != "stress":
+        return {"name": scenario, "board": "the rest of Stage 1", "depth": DEPTH}
+    name, cells = LEVELS[-1][0], LEVELS[-1][1]
+    lv = CAT.levels[name]
+    title = f"{CAT.regions[lv['region']]['name']} {'I' * lv['n']}"
+    boss = CAT.levels["boss"]["boss"]
+    return {"name": "stress", "board": f"{title} ({cells} cells)", "waves": STRESS_WAVES, "enemy_hp": "Day 5+",
+            "boss": CAT.enemy(boss).name, "boss_hp": enemy_hp(boss, True), "depth": DEPTH,
+            "score": f"HP left - {TURN_COST} per turn; a death -{HERO_MAX_HP}; a stalled run HP - {STALL_PENALTY:g}"}
+
+
+def _fight(seed: int, f, trace: bool = False) -> dict:
+    sc, win, hp, turns, timeout, reached = f[:6]
+    d = {"seed": seed, "score": round(sc, 2), "win": bool(win), "hp": hp, "turns": turns,
+         "timeout": bool(timeout), "died": None if (win or timeout) else reached}
+    if trace and len(f) > 6 and f[6]:
+        d["trace"] = f[6]
+    return d
+
+
+class _Valuation:
+    """One sequential valuation (module docstring): which fights to play next, the looks,
+    and the running state for the progress feed."""
+
+    def __init__(self, opts, seeds, hp, depth, scenario, marks, stop_z, workers, progress, job):
+        self.opts, self.seeds, self.hp, self.depth, self.scenario = opts, seeds, hp, depth, scenario
+        self.marks, self.stop_z, self.workers, self.progress, self.job = marks, stop_z, workers, progress, job
+        self.skip = next((o for o in opts if o.name == "skip"), None)
+        self.got = {id(o): {} for o in opts}       # option -> {seed index: fight}
+        self.playing = list(opts)                 # options still being played, in option order
+        self.k = 0                                 # the next look
+        self.looked = 0                            # seeds at the last look
+        self.fights = 0
+        self.t0 = time.time()
+        self.feed_s, self.feeds, self.last_feed = 0.0, 0, 0.0
+        for o in opts:
+            o.scores, o.fights, o.stopped, o.out, o.above = [], [], None, False, False
+
+    # ---- order and looks
+    def next_job(self, sent: set):
+        for i in range(len(self.seeds)):
+            for o in self.playing:
+                if (id(o), i) not in sent and i not in self.got[id(o)]:
+                    return o, i
+        return None
+
+    def ready(self) -> bool:
+        n = self.marks[self.k]
+        return all(all(i in self.got[id(o)] for i in range(n)) for o in self.playing)
+
+    def _take(self, o: Option, n: int) -> None:
+        g = self.got[id(o)]
+        o.fights = [g[i] for i in range(n)]
+        o.scores = [f[0] for f in o.fights]
+        o.value = round(sum(o.scores) / n, 3) if n else 0.0
+        o.wins = sum(1 for f in o.fights if f[1])
+
+    def look(self) -> bool:
+        """Compare the options on the first n seeds; True when the decision is settled."""
+        n = self.marks[self.k]
+        self.k += 1
+        self.looked = n
+        for o in self.playing:
+            self._take(o, n)
+        if self.k == len(self.marks) or self.stop_z is None:
+            return True
+        z, floor = self.stop_z, SD_FLOOR / math.sqrt(n)
+        skip = self.skip if self._playing(self.skip) else None
+        cands = [o for o in self.playing if o is not self.skip]
+        if skip is not None:
+            for o in cands:
+                m, se = _pair(o.scores, skip.scores)
+                if m + z * max(se, floor) < 0:
+                    o.out, o.stopped = True, f"a net loss, {m:+.2f} +- {se:.2f} HP against skipping after {n} seeds"
+                elif m - z * max(se, floor) > 0:
+                    o.above = True
+        left = [o for o in cands if not o.out]
+        if left:
+            lead = _best(left)
+            for o in left:
+                if o is not lead:
+                    m, se = _pair(lead.scores, o.scores)
+                    if m > z * max(se, floor):
+                        o.out, o.stopped = True, f"{m:.2f} +- {se:.2f} HP behind {lead.name} after {n} seeds"
+        left = [o for o in cands if not o.out]
+        stop = [o for o in cands if o.out]
+        need_skip = skip is not None and bool(left) and not all(o.above for o in left)
+        if skip is not None and left and not need_skip:
+            skip.stopped = f"settled after {n} seeds: every option left beats it by more than {z:g} SE"
+            stop.append(skip)
+        self.playing = [o for o in self.playing if not any(o is x for x in stop)]
+        return not left or (len(left) == 1 and not need_skip)
+
+    def _playing(self, o) -> bool:
+        return o is not None and any(o is x for x in self.playing)
+
+    # ---- playing the fights
+    def run(self) -> None:
+        self.feed(force=True)
+        if self.workers > 1 and len(self.opts) > 1:
+            for _ in range(2):            # a broken pool is replaced once, then this process plays
+                p = pool(self.workers)
+                if p is None:
+                    break
+                try:
+                    if self._run_pool(p):
+                        return
+                    break
+                except Exception:
+                    close_pool()
+        self._run_here()
+
+    def _settle(self) -> bool:
+        while self.k < len(self.marks) and self.ready():
+            if self.look():
+                return True
+        return False
+
+    def _run_pool(self, p) -> bool:
+        inflight: dict = {}
+        sent: set = set()
+        try:
+            while True:
+                if self._settle():
+                    return True
+                while len(inflight) < self.workers:
+                    nj = self.next_job(sent)
+                    if nj is None:
+                        break
+                    o, i = nj
+                    sent.add((id(o), i))
+                    f = p.submit(self.job, (o.kit.to_list(), self.hp, self.seeds[i], self.depth, self.scenario))
+                    inflight[f] = (o, i)
+                if not inflight:
+                    return False
+                done, _ = wait(list(inflight), timeout=FEED_S, return_when=FIRST_COMPLETED)
+                for f in done:
+                    o, i = inflight.pop(f)
+                    self.got[id(o)][i] = f.result()
+                    self.fights += 1
+                self.feed()
+        finally:
+            for f in inflight:            # fights of options that stopped: not waited for
+                f.cancel()
+
+    def _run_here(self) -> None:
+        while not self._settle():
+            nj = self.next_job(set())
+            if nj is None:
+                return
+            o, i = nj
+            self.got[id(o)][i] = self.job((o.kit.to_list(), self.hp, self.seeds[i], self.depth, self.scenario))
+            self.fights += 1
+            self.feed()
+
+    # ---- progress feed
+    def feed(self, force: bool = False, phase: str = "running") -> None:
+        if self.progress is None:
+            return
+        t = time.time()
+        if not force and t - self.last_feed < FEED_S:
+            return
+        t1 = time.perf_counter()
+        try:
+            self.progress(self.state(phase))
+        except Exception:
+            pass                          # the viewer must never stop the valuation
+        self.feed_s += time.perf_counter() - t1
+        self.feeds += 1
+        self.last_feed = t
+
+    def state(self, phase: str = "running") -> dict:
+        """Running results: per option the seeds played in order so far, mean +- SE, the
+        difference to skipping +- SE, whether it stopped and why, and one example fight:
+        the seed where the options differ most so far (the same fight for every option)."""
+        pre = {}
+        for o in self.opts:
+            if self._playing(o):
+                g, k = self.got[id(o)], 0
+                while k < len(self.seeds) and k in g:
+                    k += 1
+                pre[id(o)] = [g[i] for i in range(k)]
+            else:
+                pre[id(o)] = o.fights
+        common = min(len(v) for v in pre.values())
+        ex = None
+        if common:
+            ex = max(range(common), key=lambda i: (max(pre[id(o)][i][0] for o in self.opts)
+                                                   - min(pre[id(o)][i][0] for o in self.opts), -i))
+        sk = [f[0] for f in pre[id(self.skip)]] if self.skip is not None else []
+        rows, lead, lead_v = [], None, None
+        for o in self.opts:
+            f = pre[id(o)]
+            sc = [x[0] for x in f]
+            n = len(sc)
+            mean = sum(sc) / n if n else None
+            se = math.sqrt(sum((x - mean) ** 2 for x in sc) / (n - 1) / n) if n > 1 else None
+            row = {"name": o.name, "seeds": n, "of": len(self.seeds), "mean": None if mean is None else round(mean, 2),
+                   "se": None if se is None else round(se, 2), "wins": sum(1 for x in f if x[1]),
+                   "playing": self._playing(o), "stopped": o.stopped, "out": o.out}
+            if o is not self.skip and sk and n:
+                m, s = _pair(sc, sk)
+                if min(n, len(sk)) > 1:
+                    row.update(diff=round(m, 2), diff_se=round(s, 2), net_loss=m + NOISE_Z * s < 0)
+            if f:
+                i = ex if ex is not None and ex < n else n - 1
+                row["example"] = _fight(self.seeds[i], f[i], trace=i == ex)   # the replay: that seed only
+            if o is not self.skip and not o.out and mean is not None and (lead_v is None or mean > lead_v):
+                lead, lead_v = o.name, mean
+            rows.append(row)
+        st = {"phase": phase, "elapsed": round(time.time() - self.t0, 1), "workers": self.workers,
+              "seeds": len(self.seeds), "looked": self.looked, "fights": self.fights,
+              "fights_max": len(self.opts) * len(self.seeds), "leader": lead, "options": rows,
+              "looks": list(self.marks), "stop_z": self.stop_z, "scenario": scenario_info(self.scenario)}
+        if ex is not None:
+            st["example_seed"] = self.seeds[ex]
+            try:
+                st["example_waves"] = list(_waves(self.seeds[ex], self.scenario))
+            except Exception:
+                pass
+        return st
+
+
+def progress_line(st: dict) -> str:
+    """The running state in one console line (the bot prints it every few seconds)."""
+    parts = []
+    for r in st.get("options", []):
+        t = f"{r['name']} {r['seeds']}/{r['of']}"
+        if r.get("mean") is not None:
+            t += f" {r['mean']:.2f}"
+        if r.get("diff") is not None:
+            t += f" ({r['diff']:+.2f}+-{r['diff_se']:.2f}{', net loss' if r.get('net_loss') else ''})"
+        if r.get("stopped"):
+            t += " stopped"
+        elif r["name"] == st.get("leader"):
+            t += " leader"
+        parts.append(t)
+    return f"{st.get('elapsed', 0):.0f}s, {st.get('fights', 0)} fights: " + " | ".join(parts)
+
+
+def evaluate(opts: list[Option], hp: int, seeds=SEEDS, depth: int = DEPTH, workers: int = WORKERS,
+             scenario: str = SCENARIO, *, looks=LOOKS, stop_z: float | None = STOP_Z, progress=None,
+             job=None) -> dict:
+    """Fill each option's per-seed scores, mean, wins and paired difference to 'skip' (when
+    skip is among the options), playing the seeds in order and stopping options that are
+    settled (module docstring). stop_z=None plays every option on every seed (0.22).
+    progress(state) gets the running results at least every FEED_S seconds and at the end."""
+    seeds = tuple(seeds)
+    hp = max(1, min(HERO_MAX_HP, hp))
+    marks = sorted({n for n in looks if 0 < n < len(seeds)} | {len(seeds)}) if stop_z else [len(seeds)]
+    v = _Valuation(opts, seeds, hp, depth, scenario, marks, stop_z, workers, progress, job or _job)
+    v.run()
+    paired(opts)
+    v.feed(force=True, phase="valued")
+    return {"fights": v.fights, "seeds": max((len(o.scores) for o in opts), default=0), "of": len(seeds),
+            "feed_s": round(v.feed_s, 3), "feeds": v.feeds, "seconds": round(time.time() - v.t0, 1)}
+
+
+def _stops(opts: list[Option], stats) -> str:
+    """What the sequential test settled early, for the rule text."""
+    stopped = [o for o in opts if o.stopped]
+    if not stopped or not isinstance(stats, dict) or not stats.get("of"):
+        return ""
+    head = (f"settled after {stats['seeds']} of {stats['of']} seeds" if stats["seeds"] < stats["of"]
+            else f"all {stats['of']} seeds")
+    return f" [{head}; " + "; ".join(f"{o.name} stopped: {o.stopped}" for o in stopped) + "]"
 
 
 # ---------------------------------------------------------------- decisions
 def decide_upgrade(kit: Kit, upgrade_id: str, hp: int, *, seeds=SEEDS, depth: int = DEPTH,
-                   workers: int = WORKERS, scenario: str = SCENARIO, evaluator=None) -> Decision:
+                   workers: int = WORKERS, scenario: str = SCENARIO, evaluator=None, progress=None) -> Decision:
     t0 = time.time()
     evaluator = evaluator or evaluate
     up = CAT.upgrade(upgrade_id)
@@ -208,42 +558,45 @@ def decide_upgrade(kit: Kit, upgrade_id: str, hp: int, *, seeds=SEEDS, depth: in
             best = max(cands, key=lambda o: (CAT.tile(kit[o.detail["label"]].tile).ready_value,
                                              -kit[o.detail["label"]].free_levels, -cands.index(o)))
             return Decision(best, opts, "pure gain: always taken; slot goes to the strongest tile", 0.0)
-        evaluator(cands, hp, seeds, depth, workers, scenario)
-        return Decision(_best(cands), opts, "pure gain: always taken; simulation picked the tile",
-                        round(time.time() - t0, 1))
-    evaluator(opts, hp, seeds, depth, workers, scenario)
-    return _tradeoff(opts, "trade-off", t0)
+        stats = evaluator(cands, hp, seeds, depth, workers, scenario, progress=progress)
+        n = max((len(o.scores) for o in cands), default=0)
+        return Decision(_best(cands), opts, f"pure gain: always taken; simulation picked the tile on {n} seeds"
+                        + _stops(cands, stats), round(time.time() - t0, 1), stats or {})
+    stats = evaluator(opts, hp, seeds, depth, workers, scenario, progress=progress)
+    return _tradeoff(opts, "trade-off", t0, stats)
 
 
 def decide_tile(kit: Kit, offers: list[dict], hp: int, *, seeds=SEEDS, depth: int = DEPTH,
-                workers: int = WORKERS, scenario: str = SCENARIO, evaluator=None) -> Decision:
+                workers: int = WORKERS, scenario: str = SCENARIO, evaluator=None, progress=None) -> Decision:
     t0 = time.time()
     evaluator = evaluator or evaluate
     opts = tile_choice_options(kit, offers)
     if len(opts) == 1:
         return Decision(opts[0], opts, "no offered tile the simulator can play", 0.0)
-    evaluator(opts, hp, seeds, depth, workers, scenario)
-    return _tradeoff(opts, "tile choice", t0)
+    stats = evaluator(opts, hp, seeds, depth, workers, scenario, progress=progress)
+    return _tradeoff(opts, "tile choice", t0, stats)
 
 
-def _tradeoff(opts: list[Option], what: str, t0: float) -> Decision:
+def _tradeoff(opts: list[Option], what: str, t0: float, stats=None) -> Decision:
     """Skip only when every option is a net loss; otherwise take the best option that is
     not one, also when it scored below skipping but within the noise [user, after run
     20261028-082756]. The rule text says which case decided: run 20261028-154317 took
     -1 damage -4 cooldown on Arrow at -0.20 +- 0.29 below skipping under the line 'best
     option that is not a net loss', which read as if it had beaten skipping [user review
-    of the 0.20 series]."""
+    of the 0.20 series]. Options that stopped behind the leader are not chosen."""
     skip, cands = opts[0], opts[1:]
     secs = round(time.time() - t0, 1)
-    keep = [o for o in cands if not o.net_loss]
+    stats = stats if isinstance(stats, dict) else {}
+    note = _stops(opts, stats)
+    keep = [o for o in cands if not o.net_loss and not o.out]
     if not keep:
-        return Decision(skip, opts, f"{what}: every option a net loss, skipped", secs)
+        return Decision(skip, opts, f"{what}: every option a net loss, skipped" + note, secs, stats)
     best = _best(keep)
     if best.diff is None:
-        return Decision(best, opts, f"{what}: best option that is not a net loss", secs)
+        return Decision(best, opts, f"{what}: best option that is not a net loss" + note, secs, stats)
     margin = f"{best.diff:+.2f} +- {best.se or 0.0:.2f} HP against skipping"
     if best.diff >= 0:
-        return Decision(best, opts, f"{what}: {best.name} scores {margin}, the best option", secs)
+        return Decision(best, opts, f"{what}: {best.name} scores {margin}, the best option" + note, secs, stats)
     below = "every option scored below skipping; " if all(o.diff is not None and o.diff < 0 for o in cands) else ""
     return Decision(best, opts, f"{what}: {below}{best.name} scores {margin}, a loss within the noise, "
-                                f"so it is taken (skip only when every option is a net loss)", secs)
+                                f"so it is taken (skip only when every option is a net loss)" + note, secs, stats)

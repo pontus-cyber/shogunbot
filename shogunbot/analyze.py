@@ -90,8 +90,10 @@ def analyze(run_dir: Path) -> str:
             opts = ", ".join(f"{o['name']} {o['value']:+.2f}"
                              + (f" ({o['diff']:+.2f}±{o['se']:.2f} vs skip{', net loss' if o.get('net_loss') else ''})"
                                 if o.get("diff") is not None else "")
+                             + (f" [{o['seeds']} seeds]" if o.get("seeds") else "")
                              for o in sorted(scored, key=lambda o: -o["value"]))
-            L.append(f"    values ({e.get('seconds')}s, HP {e.get('hp')}): {opts or 'not simulated'} -> {e.get('choice')}"
+            fights = f", {e['fights']} fights" if e.get("fights") else ""     # 0.23: sequential valuation
+            L.append(f"    values ({e.get('seconds')}s{fights}, HP {e.get('hp')}): {opts or 'not simulated'} -> {e.get('choice')}"
                      + (f"  [{e['rule']}]" if e.get("rule") else ""))
         elif e["event"] in ("reward_taken", "reward_failed"):
             L.append(f"    {e['event']}: {e.get('choice')} {e.get('reason', '')}"

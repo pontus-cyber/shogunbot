@@ -231,12 +231,14 @@ class _Stall:
 
 
 def _play_turn(s: State, rng: random.Random, depth: int, w: dict, telegraphs: bool,
-               stall: _Stall | None = None) -> State:
+               stall: _Stall | None = None, trace: list | None = None) -> State:
     if telegraphs:
         telegraph(s, rng)
     if stall is not None:
         depth, w = stall.settings(s, depth, w)
     d = plan(s, depth or auto_depth(s), w)
+    if trace is not None:
+        trace.append(_frame(s, d.action))
     outs = step(s, d.action, validate=False)
     r, acc = rng.random(), 0.0
     for p, s2, _ in outs:
@@ -246,8 +248,15 @@ def _play_turn(s: State, rng: random.Random, depth: int, w: dict, telegraphs: bo
     return s2
 
 
+def _frame(s: State, action: str) -> list:
+    """One turn of a recorded fight (run_once(trace=...)), for the live viewer's replay: level,
+    wave, board, hero HP, the hero's action, the enemies' telegraphs, the hero's queue."""
+    tele = " ".join(f"{e.x}:{e.intent}" for e in s.alive() if e.intent and e.intent != "hold")
+    return [s.level, s.wave, s.render(), s.hero.hp, action, tele, " ".join(s.hero.queue)]
+
+
 def play_level(seed: int, level_i: int, lp: LevelPlan, s: State, depth: int, w: dict, max_turns=200,
-               telegraphs: bool = True) -> tuple[State, bool]:
+               telegraphs: bool = True, trace: list | None = None) -> tuple[State, bool]:
     pending = list(lp.waves)
     uid = 1
     last_size = len(pending[0])
@@ -276,12 +285,12 @@ def play_level(seed: int, level_i: int, lp: LevelPlan, s: State, depth: int, w: 
             age = ones = 0
         if not s.alive() and not pending:
             return s, True
-        s = _play_turn(s, _turn_rng(seed, level_i, t), depth, w, telegraphs, stall)
+        s = _play_turn(s, _turn_rng(seed, level_i, t), depth, w, telegraphs, stall, trace)
     return s, False
 
 
 def boss(seed: int, level_i: int, lp: LevelPlan, hp: int, depth: int, w: dict, kit: Kit = DEFAULT_KIT,
-         telegraphs: bool = True, max_turns: int = 300) -> tuple[State, bool]:
+         telegraphs: bool = True, max_turns: int = 300, trace: list | None = None) -> tuple[State, bool]:
     s = State(lp.cells, Hero(lp.hero_x, 1, hp=hp, kit=kit),
               [Enemy(_BOSS.id, 3, -1, enemy_hp(_BOSS.id, lp.day5), [], uid=99)], level="boss")
     stall = _Stall()
@@ -290,23 +299,26 @@ def boss(seed: int, level_i: int, lp: LevelPlan, hp: int, depth: int, w: dict, k
             return s, False
         if not any(e.kind == _BOSS.id for e in s.alive()):
             return s, True
-        s = _play_turn(s, _turn_rng(seed, level_i, t), depth, w, telegraphs, stall)
+        s = _play_turn(s, _turn_rng(seed, level_i, t), depth, w, telegraphs, stall, trace)
     return s, False
 
 
 def run_once(seed: int, depth: int = 3, w: dict = WEIGHTS, kit: Kit = DEFAULT_KIT,
              start: str = "bamboo-1", hp: int = HERO_MAX_HP, telegraphs: bool = True,
-             scenario: str = "stage1") -> Result:
+             scenario: str = "stage1", trace: list | None = None) -> Result:
     """One simulated run with this kit and HP: the rest of Stage 1 from level
     `start`, or the 'stress' scenario. telegraphs=True shows the planner each
-    enemy's next action, as the game does."""
+    enemy's next action, as the game does. trace, a list, gets every turn
+    (_frame) and each level's end; recording changes nothing in the run."""
     turns = 0
     for i, lp in enumerate(plan_levels(seed, start, scenario)):
         if lp.boss:
-            s, ok = boss(seed, i, lp, hp, depth, w, kit, telegraphs)
+            s, ok = boss(seed, i, lp, hp, depth, w, kit, telegraphs, trace=trace)
         else:
             s = State(lp.cells, Hero(lp.hero_x, 1, hp=hp, kit=kit), [], level=lp.name)
-            s, ok = play_level(seed, i, lp, s, depth, w, telegraphs=telegraphs)
+            s, ok = play_level(seed, i, lp, s, depth, w, telegraphs=telegraphs, trace=trace)
+        if trace is not None:
+            trace.append(_frame(s, "cleared" if ok else "died" if s.hero.hp <= 0 else "stalled"))
         hp, turns = s.hero.hp, turns + s.turn
         if not ok:
             return Result(False, lp.name, hp, turns, timeout=hp > 0)

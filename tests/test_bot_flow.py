@@ -89,7 +89,7 @@ def prefer(name):
     """Evaluator that scores `name` above every other option on every seed."""
     from shogunbot import rewards
 
-    def ev(opts, hp, seeds, depth, workers, scenario):
+    def ev(opts, hp, seeds, depth, workers, scenario, **kw):
         for o in opts:
             o.scores = [10.0 if o.name == name else 9.0] * 4
             o.value, o.wins = sum(o.scores) / 4, 4

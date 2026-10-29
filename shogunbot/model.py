@@ -161,6 +161,11 @@ class Enemy:
     # e.g. just spawned) and phases since it last fired (None = not seen firing)
     last: str | None = None
     fage: int | None = None
+    # a kind the screen read could not rule out (an Ashigaru that may be an elite Tachi): when
+    # it fires, the hero is also hit where alt's tile would reach (rules._hits_hero, _enemy_fire)
+    # [user review of run 20261029-045856]
+    alt: str | None = None
+    elite: bool = False   # an elite variant (Day 2 on): emblem on its plate, extra HP; traits not modelled
 
     @property
     def armed(self) -> bool:
@@ -172,12 +177,13 @@ class Enemy:
 
     def clone(self) -> "Enemy":
         return Enemy(self.kind, self.x, self.facing, self.hp, list(self.queue), self.uid, self.frozen, self.cd,
-                     self.intent, self.primed, self.wind, self.cursed, self.poison, self.last, self.fage)
+                     self.intent, self.primed, self.wind, self.cursed, self.poison, self.last, self.fage,
+                     self.alt, self.elite)
 
     def key(self) -> tuple:
         return (self.kind, self.x, self.facing, self.hp, tuple(self.queue), self.frozen, self.cd, self.intent,
                 self.primed, min(self.wind, 1), self.cursed, self.poison, self.last,
-                None if self.fage is None else min(self.fage, 2))
+                None if self.fage is None else min(self.fage, 2), self.alt)
 
 
 @dataclass

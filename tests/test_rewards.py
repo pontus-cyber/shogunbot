@@ -134,7 +134,7 @@ def test_unknown_or_unsimulated_offers_are_never_taken():
 # ---- reward rules (0.16) ----------------------------------------------------------
 def fake_eval(table):
     """An evaluator that gives each option fixed per-seed scores: table[name] -> list."""
-    def ev(opts, hp, seeds, depth, workers, scenario):
+    def ev(opts, hp, seeds, depth, workers, scenario, **kw):
         for o in opts:
             o.scores = list(table[o.name])
             o.value = round(sum(o.scores) / len(o.scores), 3)

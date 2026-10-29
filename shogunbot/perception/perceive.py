@@ -5,7 +5,7 @@ perceive(rgb) returns a Perception with:
                'title' | 'death' | 'unknown'
   cells        left-to-right list of {kind, cx, unit}
   hero         {x, facing, hp, queue[...], hand[{tile, ready, cx}]}
-  enemies      [{x, kind, facing, hp, queue[...], fire_now, intent, spawning}]
+  enemies      [{x, kind, facing, hp, queue[...], fire_now, intent, spawning, elite, alt}]
   boss_frac    boss HP bar fill 0..1 (boss screen only)
   wave         (wave, waves in the level) from the HUD counter "WAVE x/y", or None
   wave_alert   True when the WAVE text is salmon: the turn a wave pops in (56 of 70 salmon
@@ -89,6 +89,16 @@ BASE_POOL = frozenset(t.id for t in CAT.base_pool())
 REGION = "bamboo_grove"
 KIND_BY_HP = CAT.kinds_by_hp(REGION)        # {3: ashigaru, 2: tachi, 1: charger}
 KIND_BY_TILE = CAT.kinds_by_tile(REGION)    # {sword: ashigaru, swirl: tachi, charge: charger}
+BASE_HP = {k: hp for hp, k in KIND_BY_HP.items()}
+# Elite variants (Day 2 on) have extra HP [wiki: Quick, Heavy, Reactive Shield +1, Double-Striker +2]
+ELITE_BONUS = tuple(sorted({t["hp_bonus"] for t in CAT.elite_traits.values() if t.get("hp_bonus")}))
+# ... and an emblem at the top centre of their plate. Emblem-coloured pixels (brown-gold: R 150-230,
+# G 85-150, B < 45, R - G 40-80) in the box: elites 80 (Double-Striker crown) and 214-256 (Quick);
+# Day-1 Stage 1 plates 0-40 (4,801 reads). The yellow 1ST/2ND order markers are brighter (G > 150)
+# and do not count [run 20261029-045856, the first Day 2 run; every recorded frame].
+ELITE_Y0, ELITE_Y1, ELITE_HALF = 744, 784, 14
+ELITE_PX = 60
+SPRITE_KIND_CONF = 0.8   # the sprite's kind counts as evidence from this confidence on
 
 
 def classify_icon(interior: np.ndarray, allowed: tuple | None = None) -> tuple[str, float]:
@@ -152,6 +162,43 @@ def read_stack(rgb: np.ndarray, cx: int) -> list[dict]:
             plus = "yellow" if (c[0] > 180 and c[2] < 120) else "white"
             out.append({"type": "plus", "colour": col, "plus": plus})
     return out
+
+
+def elite_pixels(rgb: np.ndarray, cx: int) -> int:
+    """Emblem-coloured pixels at the top centre of a unit's plate (ELITE_PX and up: an elite)."""
+    box = rgb[ELITE_Y0:ELITE_Y1, cx - ELITE_HALF:cx + ELITE_HALF + 1].astype(np.int16)
+    r, g, b = box[..., 0], box[..., 1], box[..., 2]
+    return int(((r >= 150) & (r <= 230) & (g >= 85) & (g <= 150) & (b < 45) & (r - g >= 40) & (r - g <= 80)).sum())
+
+
+def decide_kind(pips: int, tile_kind: str | None, sprite_kind: str | None, elite: bool) -> tuple[str | None, str | None]:
+    """(kind, alt) of a Stage 1 unit from its HP pips, the tile in its bubble, its sprite and
+    the elite emblem. alt is a kind the read could not rule out (None when the evidence agrees).
+
+    Day 1: the pips name the kind (the sprite misreads attack poses: 82 of 4,106 reads), and
+    the tile icon never contradicted them (0 of 4,106). Day 2 brings elites with 1-2 extra HP,
+    so 3 pips can be an Ashigaru or an elite Tachi: run 20261029-045856 read an elite Tachi
+    loaded with Swirl as an Ashigaru (turns 16 and 21), swapped with it for the swap trick and
+    took 2 damage twice [user review]. Now the tile icon decides whenever its kind fits the pips
+    with or without an elite bonus, an elite (emblem, or pips no base kind has) is named by its
+    sprite, and a sprite that names another kind the pips allow is kept as alt."""
+    allowed = (0,) + ELITE_BONUS
+    bonus = {k: pips - hp for k, hp in BASE_HP.items() if pips - hp in allowed}
+    if not bonus:
+        return None, None
+    if tile_kind in bonus:
+        return tile_kind, None
+    alt = tile_kind if tile_kind in BASE_HP else None      # a tile no kind with these pips carries
+    if elite or 0 not in bonus.values():
+        cands = [k for k, b in bonus.items() if b > 0] or list(bonus)
+        if sprite_kind in cands:
+            return sprite_kind, alt
+        kind = min(cands, key=lambda k: bonus[k])           # +1 is the bonus of three of the four elite traits
+        return kind, alt or next((c for c in cands if c != kind), None)
+    base = next(k for k, b in bonus.items() if b == 0)
+    if alt is None and sprite_kind in bonus and sprite_kind != base:
+        alt = sprite_kind
+    return base, alt
 
 
 def plate_marker(rgb: np.ndarray, cx: int) -> str | None:
@@ -490,20 +537,21 @@ def perceive(rgb: np.ndarray, kit_tiles=None) -> Perception:
                     intent = "queue"
                 elif tiles and tiles[0]["colour"] == "yellow":
                     intent = "fire"
-                # HP pips are a more reliable kind signal than the sprite (attack poses, hit flashes)
-                by_hp = KIND_BY_HP.get(g + r)
+                # HP pips, the bubble's tile and the elite emblem decide the kind, the sprite only
+                # among the kinds the pips allow (decide_kind). Daisuke is the only unit without
+                # HP pips (his HP is the boss bar); pips win over his sprite: a summoned Charger in
+                # the boss arena was read as a second Daisuke [run 20261028-053637, turns 101-161]
                 by_tile = KIND_BY_TILE.get(tiles[0]["tile"]) if tiles else None
-                # Daisuke is the only unit without HP pips (his HP is the boss bar).
-                # Pips win over the sprite: a summoned Charger in the boss arena was
-                # read as a second Daisuke [run 20261028-053637, turns 101-161]
-                if by_hp:
-                    kind = by_hp
-                elif screen == "boss" and (g + r) == 0:
+                elite = elite_pixels(rgb, cx) >= ELITE_PX
+                alt = None
+                if screen == "boss" and (g + r) == 0:
                     kind = "daisuke"
-                elif by_hp:
-                    kind = by_hp
-                elif by_tile:
-                    kind = by_tile
+                else:
+                    by_pips, alt = decide_kind(g + r, by_tile, kind if kc >= SPRITE_KIND_CONF else None, elite)
+                    if by_pips:
+                        kind = by_pips
+                    elif by_tile:
+                        kind = by_tile
                 if kind == "ashigaru" and tiles and intent != "fire" and windup_pixels(rgb, cx) >= WINDUP_MIN:
                     intent = "fire"
                     tiles[0] = dict(tiles[0], colour="yellow")
@@ -511,7 +559,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None) -> Perception:
                 en = {"x": i, "cx": cx, "kind": kind, "facing": 0 if spawning else facing, "hp": g,
                       "hp_max": g + r, "queue": [t["tile"] for t in tiles],
                       "fire_now": bool(tiles and tiles[0]["colour"] == "yellow"),
-                      "intent": intent, "spawning": spawning}
+                      "intent": intent, "spawning": spawning, "elite": elite, "alt": alt}
                 p.enemies.append(en)
                 conf[f"enemy{i}"] = round(kc, 2)
             entry["unit"] = kind

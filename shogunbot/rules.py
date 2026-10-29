@@ -296,6 +296,15 @@ def _toward(e: Enemy, hx: int) -> int:
 
 
 def _hits_hero(s: State, e: Enemy, tile: str) -> bool:
+    """Would e's tile hit the hero now? For a unit whose kind the read could not settle
+    (e.alt), also where the other kind's tile would reach: the planner then treats a swap
+    with a primed Ashigaru that may be a Tachi as unsafe [user review of run 20261029-045856]."""
+    if _tile_hits_hero(s, e, tile):
+        return True
+    return e.alt is not None and _tile_hits_hero(s, e, ENEMY_KINDS[e.alt][1])
+
+
+def _tile_hits_hero(s: State, e: Enemy, tile: str) -> bool:
     if tile not in ENEMY_TILE_DAMAGE:
         return False
     k, offs, dr, rng, _ = SPEC[tile]
@@ -473,6 +482,12 @@ def _enemy_hit(s: State, e: Enemy, u, dmg: int, tile: str, ev: Events) -> None:
 
 def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
     h = s.hero
+    if e.alt is not None:
+        # the read could not rule out alt: its tile hits the hero where e's own would not
+        at = ENEMY_KINDS[e.alt][1]
+        if (at in ENEMY_TILE_DAMAGE and _tile_hits_hero(s, e, at)
+                and not any(_tile_hits_hero(s, e, t) for t in e.queue)):
+            _hurt_hero(h, ENEMY_TILE_DAMAGE[at], e, ev)
     for tile in list(e.queue):
         if tile not in ENEMY_TILE_DAMAGE:
             tile = "sword"  # unknown icon read: assume the common melee hit

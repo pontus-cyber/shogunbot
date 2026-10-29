@@ -4,8 +4,11 @@ The bot writes runs/<id>/live.json whenever something changes: the board with ev
 unit's telegraph, all candidate moves with value and expected damage, the principal
 variation (the likely line the search found), why the best move beat the second best
 in plain words, the last 10 turns with predicted vs observed, the latest reward
-decision and recent events. The file is replaced atomically, and nothing here may
-ever stop the bot: a failed write is skipped and the next one tries again.
+decision and recent events. During a reward decision also the valuation as it runs
+(0.23): the offer, the seeds played per option with running results, an example
+fight, the choice, the rule and the click. The file is replaced atomically, and
+nothing here may ever stop the bot: a failed write is skipped and the next one tries
+again.
 """
 
 from __future__ import annotations
@@ -103,6 +106,7 @@ class LiveView:
         self.errors = 0
         self._last_hist_turn = None
         self._t0 = time.time()
+        self.val_s, self.val_writes = 0.0, 0
 
     # ---- lifecycle ------------------------------------------------------
     def start(self, run_dir, run_id: str, version: str) -> None:
@@ -113,7 +117,7 @@ class LiveView:
         self._t0 = time.time()
         self.doc = {"run_id": run_id, "bot_version": version, "status": "starting", "status_info": {},
                     "turn": None, "level": None, "wave": None, "board": None, "decision": None,
-                    "reward": None, "result": None}
+                    "reward": None, "valuation": None, "result": None}
         self._write()
 
     def status(self, status: str, **info) -> None:
@@ -130,7 +134,8 @@ class LiveView:
                 self._last_hist_turn = last_record.get("turn")
                 self.history.append(_history_row(last_record))
             self.doc.update(status="playing", status_info={}, turn=turn, level=s.level, wave=s.wave,
-                            board=_board(s), decision=_decision(d, plan_ms, stalled))
+                            board=_board(s), decision=_decision(d, plan_ms, stalled),
+                            turn_at=round(time.time() - self._t0, 1))   # the viewer leaves the valuation
             self._write()
         except Exception as e:      # the viewer must never stop the bot
             self._fail(e)
@@ -141,6 +146,30 @@ class LiveView:
         self.doc["reward"] = {**info, "at": round(time.time() - self._t0, 1)}
         self.doc["status"], self.doc["status_info"] = "reward", {"layout": info.get("layout")}
         self._write()
+
+    def valuation(self, info: dict, reset: bool = False) -> None:
+        """The reward valuation while it runs [user review of run 20261029-045856]: the
+        offer, then rewards.evaluate's running state (at least every rewards.FEED_S
+        seconds), the choice and rule, the click and its outcome. Each call merges into
+        doc['valuation']; reset starts a new decision. The viewer shows it until combat
+        resumes. val_s: time spent here, the feed's whole cost to the valuation."""
+        if self.path is None:
+            return
+        t1 = time.perf_counter()
+        try:
+            v = self.doc.get("valuation")
+            if reset or not isinstance(v, dict):
+                v = {}
+            v.update(info)
+            v["at"] = round(time.time() - self._t0, 1)
+            self.doc["valuation"] = v
+            self.doc["status"] = "reward"
+            self.doc["status_info"] = {"layout": v.get("layout"), "phase": v.get("phase")}
+            self._write()
+        except Exception as e:        # the viewer must never stop the bot
+            self._fail(e)
+        self.val_s += time.perf_counter() - t1
+        self.val_writes += 1
 
     def event(self, kind: str, data: dict) -> None:
         if self.path is None or kind not in _EVENT_TEXT:

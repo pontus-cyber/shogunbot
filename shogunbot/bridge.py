@@ -244,7 +244,11 @@ class Tracker:
                 queue = [ENEMY_KINDS[kind][1]]
             facing_e = self._enemy_facing(kind, e, queue, intent, h["x"],
                                           p.confidence.get(f"enemy{e['x']}", 0.0))
-            en = Enemy(kind, e["x"], facing_e, hp_e, queue, uid=i + 1, intent=intent)
+            alt = e.get("alt") if e.get("alt") in ENEMY_KINDS and e.get("alt") != kind else None
+            if alt:
+                self.notes.append(f"enemy at {e['x']}: read as {kind}, may be {alt}")
+            en = Enemy(kind, e["x"], facing_e, hp_e, queue, uid=i + 1, intent=intent, alt=alt,
+                       elite=bool(e.get("elite")))
             if self.freeze_left > 0:
                 en.frozen, en.intent = self.freeze_left, None
             en.cursed = self.cursed
