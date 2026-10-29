@@ -221,3 +221,20 @@ def test_the_report_names_the_counters_offers(tmp_path):
     text = analyze(tmp_path)
     assert "counter HEALTHY 15 coins, 1 skulls" in text
     assert "shop decision (skill healthy, 0.0s, HP 10)" in text and "shop_bought: skill:healthy  coins 38 -> 23" in text
+
+
+def test_a_build_with_skills_is_valued_and_cached_apart():
+    # 0.32 crashed here: the fight cache's key read each entry of Kit.to_list() as a tile, and a build with a
+    # skill lists {'skill', 'level'} after its tiles, so the first valuation after a counter purchase (the tile
+    # choice after Whispering Caves I) would have stopped with KeyError 'label' [found valuing recording 2's
+    # enchantment offers with your skills, 2026-10-29]
+    from shogunbot import rewards
+    from shogunbot.model import Kit
+    kit = Kit.of("swirl", "arrow")
+    k2 = kit.with_skill("quick_recovery").with_skill("dynamic_boost")
+    assert rewards.fight_key(kit.to_list(), 10, 9000, 3, "stress") != rewards.fight_key(k2.to_list(), 10, 9000, 3, "stress")
+    assert rewards.fight_key(k2.to_list(), 10, 9000, 3, "stress") != rewards.fight_key(
+        kit.with_skill("quick_recovery").to_list(), 10, 9000, 3, "stress")
+    d = rewards.decide_upgrade(k2, "damage_1_cooldown_1", 10, seeds=(9000,), workers=1)
+    assert {o.name for o in d.options} == {"skip", "upgrade:swirl", "upgrade:arrow"}
+    assert all(o.kit.skills == k2.skills for o in d.options)

@@ -255,9 +255,13 @@ def fingerprint() -> str:
 
 
 def fight_key(kit_list: list, hp: int, seed: int, depth: int, scenario: str) -> str:
-    """What fixes a simulated fight. A tile's levels and used levels change no fight."""
-    tiles = [[t["label"], t["tile"], t["damage"], t["cooldown"], t.get("enchant")] for t in kit_list]
-    return json.dumps([fingerprint(), tiles, hp, seed, depth, scenario], separators=(",", ":"))
+    """What fixes a simulated fight: the tiles and the skills (Kit.to_list puts one {'skill', 'level'} dict per
+    skill after the tiles; 0.31-0.32 read every entry as a tile and failed on a build with a skill). A tile's
+    levels and used levels change no fight."""
+    tiles = [[t["label"], t["tile"], t["damage"], t["cooldown"], t.get("enchant")] for t in kit_list if "skill" not in t]
+    skills = [[t["skill"], t["level"]] for t in kit_list if "skill" in t]
+    return json.dumps([fingerprint(), tiles, hp, seed, depth, scenario] + ([skills] if skills else []),
+                      separators=(",", ":"))
 
 
 def _cache_load() -> None:
