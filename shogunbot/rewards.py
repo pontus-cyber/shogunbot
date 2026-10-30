@@ -75,7 +75,13 @@ STALL_PENALTY = 3.0               # a simulated run that hit the turn limit aliv
 NOISE_Z = 2.0                     # a net loss is worse than skipping by more than 2 standard errors
 LOOKS = (24, 32, 40)              # seeds after which the options are compared (and after the last seed).
                                   # From 8 seeds, 3 of 950 random seed orders changed a logged choice;
-                                  # from 24, 1 of 3,000 [0.23 re-decision of the logged decisions]
+                                  # from 24, 1 of 3,000 [0.23 re-decision of the logged decisions].
+                                  # Pure gains play the same 48 with no cap [user 2026-10-30: a 16-fight cap
+                                  # only if it does not lower the win rate]: on the 31 logged pure gains with
+                                  # 2+ tiles (0.33 simulator) a 16-fight cap picked another tile in 6, and on
+                                  # 192 fresh fights per tile its picks won 1,142 of 1,152 against 1,147 for
+                                  # the 48-fight picks, 0.17 +- 0.07 HP lower (run 20261028-135635's boss
+                                  # shrine: Swirl won 186 of 192, the 48-fight pick Arrow 192)
 STOP_Z = 3.0                      # an option stops once its gap to the leader or to skip exceeds this many SE
 SD_FLOOR = 0.5                    # HP: the spread of one seed's difference is taken as at least this, so a
                                   # few seeds that happen to agree exactly cannot stop an option
