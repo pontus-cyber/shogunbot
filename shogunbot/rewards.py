@@ -742,7 +742,8 @@ def decide_skill(kit: Kit, sid: str | None, price: int | None, coins: int | None
     if cls is None:
         return Decision(skip, opts, f"shop: {sk.name} is not simulated yet; coins kept", 0.0)
     if cls == "pure":
-        return Decision(opt, opts, f"shop: {sk.name} for {price} of {coins} coins, a pure gain: always bought", 0.0)
+        return Decision(opt, opts, f"shop: {sk.name} for {price} of {coins} coins, a simulated skill that only gains: "
+                                   f"bought without a valuation", 0.0)
     stats = (evaluator or evaluate)(opts, hp, seeds, depth, workers, scenario, progress=progress)
     secs = round(time.time() - t0, 1)
     stats = stats if isinstance(stats, dict) else {}
@@ -769,12 +770,14 @@ def decide_shop(kit: Kit, upgrade_id: str | None, price: int | None, coins: int 
     skip = opts[0]
     if up is None:
         return Decision(skip, opts, "shop: the statue's upgrade was not read; coins kept", 0.0)
+    if not offerable(up):
+        # before the price: Sacrifice has none (it pays 40 coins), and 0.29-0.32.1 logged 'price not read'
+        # [run 20261030-041652, shop 2]
+        return Decision(skip, opts, f"shop: {up.name} is never bought (sacrifice or unknown effect)", 0.0)
     if price is None or coins is None:
         return Decision(skip, opts, f"shop: {'price' if price is None else 'coins'} not read; coins kept", 0.0)
     if price > coins:
         return Decision(skip, opts, f"shop: {up.name} costs {price}, {coins} coins held; coins kept", 0.0)
-    if not offerable(up):
-        return Decision(skip, opts, f"shop: {up.name} is never bought (sacrifice or unknown effect)", 0.0)
     if len(opts) == 1:
         return Decision(skip, opts, f"shop: no tile can take {up.name}; coins kept", 0.0)
     if pure_gain(up):

@@ -238,3 +238,27 @@ def test_a_build_with_skills_is_valued_and_cached_apart():
     d = rewards.decide_upgrade(k2, "damage_1_cooldown_1", 10, seeds=(9000,), workers=1)
     assert {o.name for o in d.options} == {"skip", "upgrade:swirl", "upgrade:arrow"}
     assert all(o.kit.skills == k2.skills for o in d.options)
+
+
+# ---- 0.33 [user review of run 20261030-041652, fix 4 and shop 2] -------------------------------
+def test_the_sacrifice_statue_is_logged_as_never_bought():
+    # Sacrifice has no price (it pays 40 coins): 0.29-0.32.1 checked the price first and logged 'price not read'
+    from shogunbot import rewards
+    from shogunbot.model import Kit
+    d = rewards.decide_shop(Kit.of("swirl", "arrow"), "sacrifice", None, 23, 8)
+    assert d.best.name == "skip" and "never bought" in d.rule
+
+
+def test_a_simulated_pure_gain_skill_is_reported_as_such(tmp_path):
+    # Unfriendly Fire is modelled (rules._enemy_hit adds data/skills.json's enemy_friendly_fire); the report
+    # said 'not simulated', meaning no valuation was needed
+    from shogunbot import rewards
+    from shogunbot.analyze import analyze
+    from shogunbot.model import Kit
+    d = rewards.decide_skill(Kit.of("swirl", "arrow"), "unfriendly_fire", 10, 33, 10)
+    assert d.best.name != "skip" and "simulated skill that only gains" in d.rule
+    ev = [{"event": "shop_decision", "skill": "unfriendly_fire", "price": 10, "coins": 33, "hp": 10, "seconds": 0.0,
+           "choice": d.best.name, "rule": d.rule, "options": [{"name": "skip", "scored": False, "value": 0.0, "wins": 0}]}]
+    (tmp_path / "events.jsonl").write_text("\n".join(json.dumps(e) for e in ev), encoding="utf-8")
+    text = analyze(tmp_path)
+    assert "no simulation needed" in text and "not simulated" not in text

@@ -249,9 +249,14 @@ class Tracker:
                 continue
             if "charged" in f and f.get("cooldown") == cd:
                 # the marks show the charge itself: grey = charged [run 20261028-061420 f0014-f0020]
-                if f["charged"] != charge.get(tile):
-                    self.notes.append(f"{tile} charge read {f['charged']}/{cd}, tracked {charge.get(tile)}")
-                    charge[tile] = f["charged"]
+                read = f["charged"]
+                if read >= cd > 0 and f.get("ready") is False:
+                    # a dimmed face is recharging whatever its marks say [run 20261030-041652 t237: the 4/8
+                    # Arrow's eighth mark fell outside the marks band, so it read 7 of 7 while dimmed]
+                    read = cd - 1
+                if read != charge.get(tile):
+                    self.notes.append(f"{tile} charge read {read}/{cd}, tracked {charge.get(tile)}")
+                    charge[tile] = read
             elif f["ready"]:
                 if charge[tile] < cd:
                     self.notes.append(f"{tile} ready earlier than tracked ({charge[tile]}/{cd})")
@@ -492,6 +497,13 @@ class Tracker:
         facing-persistence rule would undo the flip."""
         self.prev = [(k, x, -f, None) for k, x, f, _ in self.prev]
 
+    def recharging(self, label: str) -> None:
+        """The game refused to queue this tile (it stayed in the hand): it is recharging, whatever was read
+        or tracked [user review of run 20261030-041652, fix 1]."""
+        kt = self.kit.by_label.get(label)
+        if kt is not None and kt.cooldown > 0:
+            self.charge[label] = min(self.charge.get(label, kt.cooldown), kt.cooldown - 1)
+
     def acted(self, s: State, action: str) -> None:
         """Advance tracked charge and facing through the hero's action."""
         if self.freeze_left > 0:
@@ -512,6 +524,9 @@ class Tracker:
         if action == "turn":
             self.facing = -s.hero.facing
         if s2.hero.x != s.hero.x and s.enemy_at(s2.hero.x) is not None:
-            # swap: the enemy now stands where the hero was and keeps its facing
+            # swap: the enemy now stands where the hero was and keeps its facing. The others keep their
+            # telegraphs: 0.18-0.32 cleared every unit's, so a unit telegraphing a turn kept its old facing
+            # once the hero swapped past another (run 20261029-184142 t31: the Ashigaru on cell 6 turned, the
+            # sprite read it, the tracker kept it facing right; also runs 102441 t16, 154200 t159)
             self.swapped_uid_x = s.hero.x
-            self.prev = [(k, s.hero.x if x == s2.hero.x else x, f, None) for k, x, f, _ in self.prev]
+            self.prev = [(k, s.hero.x, f, None) if x == s2.hero.x else (k, x, f, i) for k, x, f, i in self.prev]

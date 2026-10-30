@@ -54,7 +54,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.32.1"
+VERSION = "0.33"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -79,6 +79,9 @@ START_GIVE_UPS_MAX = 2    # give-ups at a run start that still do not reach the 
 SHOP_GO_TRIES = 3         # GO clicks before the run stops as 'stuck' in a shop
 HOVER_S = 0.5             # the cursor on a counter slot this long before its tooltip is read
 HOVER_TRIES = 2           # looks per slot
+NO_CHANGE_STOP = 20       # inputs in a row that change nothing on screen before the run stops as 'stuck'
+                          # [user review of run 20261030-041652: the refused Arrow click was sent on every turn
+                          # from t237, over 800 in a row; the longest streak in the 37 earlier run logs was 5]
 # The map between regions (M4 step 1) is played in keyboard-only mode [user 2026-10-29]: its button
 # turns it on, the up/down arrows move the mark among the reachable nodes, Enter travels there, and
 # any mouse click turns it off again (perception/map_screen.py). Regions in order of preference;
@@ -312,6 +315,12 @@ class Bot:
             if slot is None:
                 self.log.event("act_failed", action=action, reason="tile not found in hand",
                                hand=p.hand)
+                return None
+            if not slot.get("ready", True):
+                # a dimmed face is recharging, whatever its marks say: the game ignores a click on it
+                # [run 20261030-041652: the 4/8 Arrow's eighth mark fell outside the marks band, so it
+                # read 7 of 7 charged while dimmed, and its click was refused on every turn from t237]
+                self.log.event("act_failed", action=action, reason="the tile is dimmed (recharging)")
                 return None
             self.click(slot["fx"], slot["fy"], frame, bot_action=action)
         else:
@@ -1143,6 +1152,7 @@ class Bot:
         seen_items: set = set()
         potion_failed: set = set()
         banned: dict = {}
+        no_change = 0                         # inputs in a row that changed nothing on screen
         result = "stopped"
 
         try:
@@ -1459,9 +1469,18 @@ class Bot:
                 # loop breaker [run 20261027-182237: a misread facing made 'right' a
                 # blocked move; the board never changed and the bot repeated it ~40 times]
                 key = s.key()
-                if last_key is not None and key == last_key and last_action in ("left", "right", "turn"):
+                if last_key is not None and key == last_key and (last_action in ("left", "right", "turn")
+                                                                 or last_action.startswith("queue:")):
                     banned.setdefault(key, set()).add(last_action)
-                    log.event("loop_break", turn=turn, banned=sorted(banned[key]), board=s.render())
+                    why = "the board did not change"
+                    if last_action.startswith("queue:"):
+                        # a queued tile leaves the hand: on the same board it is still there, so the game
+                        # refused it and the tile is recharging whatever was read [user review of run
+                        # 20261030-041652, fix 1: the 4/8 Arrow read 7 of 7 charged, its click was refused
+                        # on every turn from t237, and 54 times at Iwao from t143]
+                        tr.recharging(last_action.split(":", 1)[1])
+                        why = "the tile did not leave the hand: planned as recharging"
+                    log.event("loop_break", turn=turn, banned=sorted(banned[key]), board=s.render(), reason=why)
                     self.say(f"   '{last_action}' changed nothing; not repeating it here")
                 if d.action in banned.get(key, ()):
                     alt = next((c["action"] for c in d.candidates if c["action"] not in banned[key]), d.action)
@@ -1506,6 +1525,22 @@ class Bot:
                 self.say(f"t{turn:03d} {level} HP{s.hero.hp} {s.render():<28} -> {d.action:<12} "
                          f"(v={d.value:.0f}, d{d.depth}, {plan_ms:.0f}ms)")
                 reacted = self.do(d.action, p, frame, tr.kit, tr.charge)
+                if reacted:
+                    no_change = 0
+                else:
+                    # hard stop [user review of run 20261030-041652, fix 2: over 800 inputs in a row changed
+                    # nothing, for hours]. The longest such streak in the 37 earlier run logs was 5 inputs,
+                    # apart from the 36 refused Katana clicks of run 20261028-092419 (t105-t140), which the
+                    # loop breaker above now ends after two. Inputs that could not be sent count too.
+                    no_change += 1
+                    log.event("no_visible_change", turn=turn, action=d.action, in_a_row=no_change,
+                              sent=reacted is not None)
+                    if no_change >= NO_CHANGE_STOP:
+                        self.say(f"   {no_change} inputs in a row changed nothing; stopping the run as stuck")
+                        log.event("no_change_stop", turn=turn, inputs=no_change, action=d.action, board=s.render())
+                        log.save_frame(frame, "stuck_no_change")
+                        result = "stuck"
+                        break
                 if reacted is None:
                     # nothing was sent (e.g. the tile is not in the hand): never plan it again
                     # on this board, and do not advance the tracker [review of 0.15: the same
@@ -1515,11 +1550,11 @@ class Bot:
                               reason="action could not be sent")
                     time.sleep(0.25)
                     continue
-                if not reacted:
-                    # [run 20261027-180145] small changes (an enemy queuing) fell under the
-                    # threshold; retrying sent the same key again and cost real turns.
-                    # The input is counted as done; the next frame is read fresh anyway.
-                    log.event("no_visible_change", turn=turn, action=d.action)
+                # not reacted: [run 20261027-180145] small changes (an enemy queuing) fell under the
+                # threshold; retrying sent the same key again and cost real turns. The input is counted
+                # as done and the next frame is read fresh. Queued tiles too: 201 queue inputs in the 37 earlier
+                # run logs showed no change within the wait and still reached the queue. A refused one leaves
+                # the board as it was, and the loop breaker above bans it.
                 tr.acted(s, d.action)
                 turn += 1
                 time.sleep(0.25)
