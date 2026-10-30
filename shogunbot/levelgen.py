@@ -81,6 +81,15 @@ def frame_waves(folder: str | Path) -> dict:
         if not f.exists():
             continue
         p = perceive(np.array(Image.open(f).convert("RGB")), [t.tile for t in tr.kit])
+        if rec.get("screen") == "camp" and level is not None:
+            # a new run, as the bot logged its camp inputs: the fights before it were a run left over and given
+            # up at the start (run 20261030-115221 f0001, a Bamboo Grove II board), which would have named this
+            # run's first fight the boss level. The screen read alone is not used: recording 2's f1133 reads as
+            # the camp in mid-run
+            tr, wv = Tracker(), Waves()
+            level, seen_boss, turn, after = None, False, 0, None
+            waves, turns = [], []
+            continue
         if p.screen == "map" and seen_boss:
             break                                  # Stage 1 is over
         if p.screen == "reward":

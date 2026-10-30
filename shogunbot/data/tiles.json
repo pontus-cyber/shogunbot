@@ -5,7 +5,7 @@
       "damage, cooldown": "[wiki]; null = N/A. Enemy-only tiles carry the cooldown the simulator assumes, tagged in cooldown_source.",
       "skull_cost": "[wiki] unlock price in skulls; null = base tile, available without unlocking (the reward pool seen in Bamboo Grove tile choices [bot])",
       "free_play": "[wiki] adding the tile to the queue does not pass the turn",
-      "attack": "machine-readable footprint used by rules.py. kinds: cells (fixed offsets, + = ahead), first (first unit in dir), furthest (furthest unit in dir), damaged (every enemy below max HP), dash_strike (dash in dir to the first unit and strike it), dash_through (dash in dir through units to the first empty cell, striking each), summon, other (not simulated)",
+      "attack": "machine-readable footprint used by rules.py. kinds: cells (fixed offsets, + = ahead), first (first unit in dir), furthest (furthest unit in dir), damaged (every enemy below max HP), dash_strike (dash in dir to the first unit and strike it), dash_through (dash in dir through units to the first empty cell, striking each), summon, aim (strikes the cell the hero stood on when the turn the attack fires began, marked by a warning sign: whatever unit stands there then is hit), other (not simulated)",
       "sim": "true when rules.py simulates the tile; the bot only takes tiles with sim true",
       "ready_value": "optional planner bonus for having the tile ready; default 3 x damage + 2 x extra cells (+2 for dashes), see catalogue.ready_value"
     }
@@ -105,7 +105,7 @@
      "text": "Enemy tile: hits the cell directly ahead.", "attack": {"kind": "cells", "offsets": [1]}, "sim": true,
      "notes": "Ashigaru, Guardian, Grappler, Strider, Shadow Charger and Daisuke carry it [wiki Enemies]; damage 2 [wiki] [obs]"},
     {"id": "volley", "name": "Volley", "damage": 2, "cooldown": null, "skull_cost": null, "free_play": false, "obtainable": false,
-     "text": "On declaring the attack, aims at the hero's current cell and strikes it.", "attack": {"kind": "other", "effect": "aim_hero_cell"}, "sim": false},
+     "text": "On declaring the attack, aims at the hero's current cell and strikes it [wiki]. The aim is the hero's cell when the turn it fires begins, marked by a yellow warning sign at his feet; the hero's action comes first, then the arrows strike that cell and hit whatever unit stands there: stepping off dodges it [rec: collect/20261029-160032 f0199-f0200, f0203-f0205, f0215-f0217], a hero who stays takes 2 [bot: run 20261030-115221 t174], the Sniper the hero swapped onto the cell hit itself for 2 [rec: f0222-f0223], and a Sniper killed by the hero's action does not fire [bot: t178]. Loaded like any tile: red for one phase, then it fires (the hero is always in reach) [bot: t172-t174, t176-t178].", "attack": {"kind": "aim"}, "sim": true},
     {"id": "barricade", "name": "Barricade", "damage": null, "cooldown": null, "skull_cost": null, "free_play": false, "obtainable": false,
      "text": "Builds a barricade in the cell directly ahead.", "attack": {"kind": "other", "effect": "barricade", "offsets": [1]}, "sim": false},
     {"id": "summon", "name": "Summon", "damage": 0, "cooldown": 6, "cooldown_source": "hyp", "skull_cost": null, "free_play": false, "obtainable": false,

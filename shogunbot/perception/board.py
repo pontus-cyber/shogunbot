@@ -122,8 +122,21 @@ def _rows(rgb: np.ndarray, phase: int) -> tuple[np.ndarray, list[int], list[bool
     """The plate-row brightness, the grid cells (x0) of this phase, and which hold a plate's body."""
     lum = rgb[PLATE_Y0:PLATE_Y1].astype(np.int16).sum(axis=2).mean(axis=0)
     grid = list(range(phase, lum.shape[0] - PLATE_W + 1, PITCH))
-    present = [x0 >= 1 and lum[x0 + 10:x0 + PLATE_W - 10].mean() >= DARK_BODY_MIN for x0 in grid]
+    present = [x0 >= 1 and _body(lum, x0) >= DARK_BODY_MIN for x0 in grid]
     return lum, grid, present
+
+
+def _body(lum: np.ndarray, x0: int) -> float:
+    """A grid cell's plate-body brightness. A cell that reaches into the item column is judged on its part
+    right of ITEM_X: the potions light the plate rows (326-537 at x 90-140), and once the camera had panned
+    a 9-cell board 48 px left after the hero stepped right, the grid cell left of the board lay over them,
+    read as a plate, and the board as running on under the column, so the bot saw no board for 90 s and
+    stopped [run 20261030-115221 stuck.png, after t233, Moonlit Port III; x 150-230 there read 3-13].
+    A cell with less than 20 px right of the column holds no plate the bot can see."""
+    a, b = max(x0 + 10, ITEM_X), x0 + PLATE_W - 10
+    if b - a < 20:
+        return 0.0
+    return float(lum[a:b].mean())
 
 
 def _gap_dark(band: np.ndarray, x0: int) -> bool:

@@ -38,6 +38,8 @@ GLYPH_SAMPLES = {
     "runs/20261028-130456/frames/reward_2_shrine.png": ["-1 DAMAGE", "-4 COOLDOWN"],
     "runs/20261028-132238/frames/reward_3_shrine.png": ["FREE-PLAY", "+3 COOLDOWN"],
     "runs/20261028-132952/frames/reward_3_shrine.png": ["PERFECT STRIKE", "+1 COOLDOWN"],
+    # the Sacrifice shrine after Whispering Caves II, the first '0' (0.35) [user review of run 20261030-115221]
+    "runs/20261030-115221/frames/reward_5_shrine.png": ["SACRIFICE TILE", "GET 40 COINS"],
 }
 # The shop counter's tooltip (shop_screen.tooltip) names the hovered offer in its title, the same font at
 # 3 px per art pixel; these titles hold the letters the statue bubbles lack (B, H, Q, V, X) [recording 2,

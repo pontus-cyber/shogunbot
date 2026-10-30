@@ -30,7 +30,15 @@ def _sig(s) -> dict:
             "enemies": sorted((e.x, e.kind, e.hp) for e in s.alive())}
 
 
-def matches(pred: dict, alts: dict, obs: dict) -> bool:
+def kind_ties(route) -> dict:
+    """kind -> the kinds the same unit reads as on the next frame (perceive.pip_ties): a unit named by its tile
+    (a Yumi Sniper's Volley, an Archer's Arrow) reads as the roster's first kind with its HP once its bubble is
+    empty, and the other way round when its tile shows: a read, not a model error (0.35)."""
+    from .perception.perceive import pip_ties
+    return pip_ties(tuple(route))
+
+
+def matches(pred: dict, alts: dict, obs: dict, ties: dict | None = None) -> bool:
     """A predicted next state against the observed one: the hero's cell and HP, and every predicted
     unit seen on its cell with its HP (new units in the observed frame are spawns or summons, not
     model errors). A unit's kind must match unless the simulator lacks the observed kind (it is
@@ -38,10 +46,13 @@ def matches(pred: dict, alts: dict, obs: dict) -> bool:
     Guardian before 0.31 [M4: collect/20261028-190026 with its route, f0604-f1799]) or the observed
     kind is the unit's alt, the other kind it was planned as: a 2-pip unit without a readable tile is
     planned as Tachi and Archer, and its Arrow showing on the next frame names it (0.31) [collect/
-    20261028-190026 f0352, f0372, f0444; -160032 f0471]. alts: (cell, kind) -> alt of predicted units."""
+    20261028-190026 f0352, f0372, f0444; -160032 f0471]. alts: (cell, kind) -> alt of predicted units.
+    ties: kind -> kinds the same unit may read as on the next frame (kind_ties)."""
     if pred["hero"] != obs["hero"]:
         return False
-    return all(any(ox == x and oh == h and (ok == k or ok == alts.get((x, k)) or ok not in ENEMY_KINDS)
+    ties = ties or {}
+    return all(any(ox == x and oh == h and (ok == k or ok == alts.get((x, k)) or ok not in ENEMY_KINDS
+                                           or ok in ties.get(k, ()))
                    for ox, ok, oh in obs["enemies"])
                for x, k, h in pred["enemies"])
 
@@ -111,6 +122,12 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
     rows, scored = [], []
     for i in range(len(recs) - 1):
         p = P(i)
+        if recs[i].get("screen") == "camp" and tr.level_i >= 0:
+            # a new run, as the bot logged its camp inputs: the fights before it were a run left over and
+            # given up at the start, as the bot does since 0.24 (run 20261030-115221 f0001); its levels count
+            # from the camp. The screen read alone is not used: recording 2's f1133 reads as the camp in mid-run
+            tr = Tracker()
+            tr.route = list(route)
         if p.screen == "reward":
             tr.next_level()             # as the bot does: the next fight is the next level (0.24)
         if p.screen not in ("combat", "boss") or not p.enemies:
@@ -140,8 +157,9 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
             sg["enemies"] = sorted((x, k, h if k not in BOSS_KINDS else None) for x, k, h in sg["enemies"])
             preds.append((prob, sg, {(e.x, e.kind): e.alt for e in s2.alive() if e.alt}))
         n += 1
-        hit = [pr for pr, sg, alts in preds if matches(sg, alts, obs_sig)]
-        top = matches(preds[0][1], preds[0][2], obs_sig)
+        ties = kind_ties(regions())
+        hit = [pr for pr, sg, alts in preds if matches(sg, alts, obs_sig, ties)]
+        top = matches(preds[0][1], preds[0][2], obs_sig, ties)
         ok_any += bool(hit)
         ok_top += top
         scored.append([recs[i]["frame"], bool(top)])

@@ -62,6 +62,9 @@ SHRINES = {
     "collect/20261027-164727/f0154_idle.png": "freeplay",
     "runs/20261028-133837/frames/reward_3_shrine.png": "cooldown_minus_1",
     "runs/20261028-134818/frames/reward_3_shrine.png": "damage_1_cooldown_1",
+    # 0.35: SACRIFICE TILE / GET 40 COINS, the first '0' [user review of run 20261030-115221: read as 'GET 4? COINS',
+    # and the shrine was skipped as 'upgrade text not read']
+    "runs/20261030-115221/frames/reward_5_shrine.png": "sacrifice",
 }
 
 
@@ -79,6 +82,15 @@ def test_shrine_upgrade_read(rel):
     from shogunbot.perception import reward_screen
     rs = reward_screen.read(frame(rel), ("swirl", "arrow", "spear"))
     assert rs.kind == "shrine" and rs.upgrade == SHRINES[rel] and not rs.upgrade_lit
+
+
+def test_the_sacrifice_shrine_is_read_and_skipped_as_never_taken():
+    from shogunbot import rewards
+    from shogunbot.perception import text
+    rgb = frame("runs/20261030-115221/frames/reward_5_shrine.png")
+    assert text.read_text(rgb) == [("SACRIFICE TILE", True), ("GET 40 COINS", False)]
+    d = rewards.decide_upgrade(DEFAULT_KIT, "sacrifice", 10)
+    assert d.best.name == "skip" and d.rule == "not a free reward (sacrifice or unknown effect)"
 
 
 def test_shrine_lights_up_with_a_tile_in_the_statue():

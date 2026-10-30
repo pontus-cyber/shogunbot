@@ -70,6 +70,35 @@ def _stand_in_boss(t: dict, version: str) -> bool:
     return _version(version) < IWAO_READ_FROM and lv.startswith("stage") and lv.endswith("boss")
 
 
+# Bots before 0.35 named the Yumi Sniper an Ashigaru: it has the Ashigaru's 3 HP pips, and its Volley icon was not
+# among the icon templates, so the tracker logged it as an Ashigaru loaded with a Sword. Its turns are relabelled
+# from the frames, where its sprite (two banners on its back) and its Volley bubble show [run 20261030-115221:
+# Moonlit Port I waves 3 and 5, II wave 3 (swapped by the hero from cell 2 to 1 at t209), III wave 2; frames
+# t0171-t0178, t0188-t0190, t0207-t0210, t0231-t0233. Run 20261030-041652: Moonlit Port I wave 3, t0230-t0234].
+RELABEL = {   # run: [(level, first turn, last turn, cells, logged kind, kind, tile)]
+    "20261030-041652": [
+        ("stage3-1", 230, 234, (0,), "ashigaru", "yumi_sniper", "volley"),
+    ],
+    "20261030-115221": [
+        ("stage3-1", 171, 178, (0,), "ashigaru", "yumi_sniper", "volley"),
+        ("stage3-1", 188, 190, (6,), "ashigaru", "yumi_sniper", "volley"),
+        ("stage3-2", 207, 210, (1, 2), "ashigaru", "yumi_sniper", "volley"),
+        ("stage3-3", 231, 233, (0,), "ashigaru", "yumi_sniper", "volley"),
+    ],
+}
+
+
+def _relabel(run_id: str, turns: list) -> None:
+    for level, t0, t1, cells, was, kind, tile in RELABEL.get(run_id, []):
+        for t in turns:
+            if t.get("level") != level or not t0 <= (t.get("turn") or 0) <= t1:
+                continue
+            for e in (t.get("state") or {}).get("enemies", []):
+                if e.get("kind") == was and e.get("x") in cells:
+                    e["kind"] = kind
+                    e["queue"] = [tile for _ in e.get("queue") or []]
+
+
 def load_runs(root: str | Path, min_version: tuple = MIN_VERSION) -> list[Run]:
     """Bot runs with turn logs under root/runs (stopped or empty runs, runs of bots older
     than min_version and SKIP_RUNS skipped; the turns of SKIP_LEVELS dropped)."""
@@ -83,6 +112,7 @@ def load_runs(root: str | Path, min_version: tuple = MIN_VERSION) -> list[Run]:
         version = str(meta.get("bot_version", "?"))
         turns = [t for t in turns if (d.name, t.get("level")) not in SKIP_LEVELS
                  and not _rei_as_daisuke(t, version) and not _stand_in_boss(t, version)]
+        _relabel(d.name, turns)
         ef = d / "events.jsonl"
         events = [json.loads(l) for l in ef.open(encoding="utf-8") if l.strip()] if ef.exists() else []
         if turns and _version(version) >= min_version:

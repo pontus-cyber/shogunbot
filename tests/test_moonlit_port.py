@@ -44,6 +44,22 @@ def test_dark_boards_of_5_and_9():
     assert _read(REC2 + "f0700_SPACE.png") == ("combat", "....HE...")
 
 
+def test_a_board_of_9_panned_over_the_item_column_still_reads():
+    # 0.35 [user review of run 20261030-115221, stop cause]: on a 9-cell board the camera follows the
+    # hero; after he stepped right at Moonlit Port III (t233) the grid cell left of the board lay over
+    # the potions, which light the plate rows, so 0.30-0.34 rejected the row as running on under the
+    # item column and read 'unknown' for 90 s until the run stopped as stuck. A cell is now judged on
+    # its part right of the column. On all 10,977 recorded frames only 28 reads change, each from
+    # 'unknown' or a part of the board to the whole 9-cell board (Moonlit Port III of both recordings
+    # and this run).
+    run = "runs/20261030-115221/frames/"
+    assert _read(run + "stuck.png") == ("combat", "E...E.HE.")
+    assert _read(run + "unknown_1793358780.png") == ("combat", "E...E.HE.")
+    assert _read(run + "t0232_before.png") == ("combat", "E..E.H.E.")      # read before as well
+    assert _read(REC2 + "f0664_idle.png") == ("combat", "..E...HE.")
+    assert _read(REC1 + "f0535_idle.png") == ("combat", "......H..")
+
+
 def test_the_twins_arena_reads_as_a_boss_fight_of_7():
     st, row = _read(REC2 + "f0750_A.png")
     assert st == "boss" and len(row) == 7 and row.count("H") == 1
