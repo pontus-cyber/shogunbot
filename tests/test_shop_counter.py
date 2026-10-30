@@ -262,3 +262,26 @@ def test_a_simulated_pure_gain_skill_is_reported_as_such(tmp_path):
     (tmp_path / "events.jsonl").write_text("\n".join(json.dumps(e) for e in ev), encoding="utf-8")
     text = analyze(tmp_path)
     assert "no simulation needed" in text and "not simulated" not in text
+
+
+# ---- 0.34 [user 2026-10-30, enchantments: "rather more use than less, and we learn from that"] -----------
+def test_the_shop_buys_an_enchantment_unless_it_is_a_net_loss():
+    # run 20261030-041652, shop 1: Shockwave for 20 of 23 coins scored +0.13 over keeping the coins on Swirl and
+    # was not bought (0.29-0.33 wanted a trade-off above the noise); an enchantment now follows the shrine's rule
+    from shogunbot import rewards
+    from shogunbot.model import Kit
+
+    def ev(diff, se):
+        def f(opts, hp, seeds, depth, workers, scenario, **kw):
+            for o in opts:
+                o.scores = [5.0] * 4
+            for o in opts[1:]:
+                o.diff, o.se = diff, se
+        return f
+    kit = Kit.of("swirl", "arrow", "katana")
+    d = rewards.decide_shop(kit, "shockwave", 20, 23, 10, evaluator=ev(0.13, 0.15))
+    assert d.best.name != "skip" and "an enchantment" in d.rule
+    assert rewards.decide_shop(kit, "shockwave", 20, 23, 10, evaluator=ev(-0.5, 0.1)).best.name == "skip"  # net loss
+    assert rewards.decide_shop(kit, "shockwave", 20, 19, 10, evaluator=ev(0.5, 0.1)).best.name == "skip"   # coins
+    # a stat trade-off keeps the stricter rule
+    assert rewards.decide_shop(kit, "damage_2_cooldown_3", 20, 30, 10, evaluator=ev(0.13, 0.15)).best.name == "skip"

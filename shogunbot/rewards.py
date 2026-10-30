@@ -763,7 +763,9 @@ def decide_shop(kit: Kit, upgrade_id: str | None, price: int | None, coins: int 
     coins: nothing is bought unread or unaffordable, and a trade-off is bought only when its best
     option scores above keeping the coins by more than the noise (difference minus 2 standard
     errors above price x COIN_HP), not merely when it is no net loss. A pure gain is bought, its
-    tile picked as at a shrine; Sacrifice and unknown effects never."""
+    tile picked as at a shrine; Sacrifice and unknown effects never. An enchantment is bought as a
+    shrine takes one, unless every option is a net loss [user 2026-10-30: "rather more use than less,
+    and we learn from that"]."""
     t0 = time.time()
     up = CAT.upgrades.get(upgrade_id) if upgrade_id else None
     opts = upgrade_options(kit, upgrade_id) if up is not None else [Option("skip", kit)]
@@ -786,6 +788,11 @@ def decide_shop(kit: Kit, upgrade_id: str | None, price: int | None, coins: int 
         d.rule = f"shop: {up.name} for {price} of {coins} coins, a " + d.rule
         return d
     stats = (evaluator or evaluate)(opts, hp, seeds, depth, workers, scenario, progress=progress)
+    if up.kind == "enchant":
+        # enchantments: more use rather than less [user 2026-10-30, after the comparison with recording 2's
+        # shrines, where you took 1 of 5: "dont trust my playstyle ... rather more use than less, and we learn
+        # from that"]. Run 20261030-041652's shop 1 kept 20 coins over Shockwave on Swirl at +0.13 HP
+        return _tradeoff(opts, f"shop: {up.name} for {price} of {coins} coins, an enchantment", t0, stats)
     secs = round(time.time() - t0, 1)
     stats = stats if isinstance(stats, dict) else {}
     note = _stops(opts, stats)
