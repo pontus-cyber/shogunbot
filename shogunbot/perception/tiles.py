@@ -107,8 +107,16 @@ def grid(rgb: np.ndarray, box) -> np.ndarray:
 # ---------------------------------------------------------------- marks
 def read_marks(g: np.ndarray) -> tuple[int, int]:
     """(cooldown, charged) from the marks band. A mark is 2 art px wide;
-    grey = charged, red = still recharging. A flat line means cooldown 0."""
-    band = g[22:25, 2:24]
+    grey = charged, red = still recharging. A flat line means cooldown 0.
+    The marks are centred on the face at a 3 art px pitch: eight span art columns 2-24, so the band
+    runs from column 1 to 24; 0.15-0.32.1 stopped at 23, cut the eighth mark to one column and read a
+    cooldown of 8 as 7 [run 20261030-041652 t0237, t1026: the 4/8 Arrow, 7 grey marks and a red one].
+    On the bot's own frames of all runs (fights, rewards, shops) the wider band changes only the reads of
+    cooldown-8 tiles (also the Free-Play Arrow of runs 20261029-100218 and -103242) and of map frames, where
+    the hand is not read; on the recordings, where the cursor sits on the hand, 7 faces under a hover
+    outline or a click flash read differently (2 right only with the wider band, 2 only with the narrower,
+    3 boxes off the face) [25,722 faces, 2026-10-30]."""
+    band = g[22:25, 1:25]
     lum = band.mean(axis=2)
     lit = lum.max(axis=0) > 70
     runs = _runs(lit)

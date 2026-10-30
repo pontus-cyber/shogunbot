@@ -107,7 +107,9 @@ def analyze(run_dir: Path) -> str:
             opts = ", ".join(f"{o['name']} {o['value']:+.2f}" + (f" [{o['seeds']} seeds]" if o.get("seeds") else "")
                              for o in sorted(scored, key=lambda o: -o["value"]))
             what = f"skill {e['skill']}, " if e.get("skill") else ""                    # 0.32: the counter
-            L.append(f"    shop decision ({what}{e.get('seconds')}s, HP {e.get('hp')}): {opts or 'not simulated'} -> "
+            # no option scored: nothing to simulate (a pure gain, or an offer never bought) [user review of
+            # run 20261030-041652 read 'not simulated' as 'not modelled']
+            L.append(f"    shop decision ({what}{e.get('seconds')}s, HP {e.get('hp')}): {opts or 'no simulation needed'} -> "
                      f"{'keep the coins' if e.get('choice') == 'skip' else e.get('choice')}  [{e.get('rule')}]")
         elif e["event"] in ("shop_bought", "shop_buy_failed"):
             L.append(f"    {e['event']}: {e.get('choice')} {e.get('reason', '')}"
