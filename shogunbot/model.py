@@ -217,6 +217,9 @@ class Enemy:
     # [user review of run 20261029-045856]
     alt: str | None = None
     elite: bool = False   # an elite variant (Day 2 on): emblem on its plate, extra HP; traits not modelled
+    # an aimed tile (the Yumi Sniper's Volley): the cell it strikes this turn, the hero's cell when the turn
+    # began, shown by a warning sign; None until the turn it fires (rules.step sets it)
+    aim: int | None = None
 
     @property
     def armed(self) -> bool:
@@ -229,12 +232,12 @@ class Enemy:
     def clone(self) -> "Enemy":
         return Enemy(self.kind, self.x, self.facing, self.hp, list(self.queue), self.uid, self.frozen, self.cd,
                      self.intent, self.primed, self.wind, self.cursed, self.poison, self.last, self.fage,
-                     self.alt, self.elite)
+                     self.alt, self.elite, self.aim)
 
     def key(self) -> tuple:
         return (self.kind, self.x, self.facing, self.hp, tuple(self.queue), self.frozen, self.cd, self.intent,
                 self.primed, min(self.wind, 1), self.cursed, self.poison, self.last,
-                None if self.fage is None else min(self.fage, 2), self.alt)
+                None if self.fage is None else min(self.fage, 2), self.alt, self.aim)
 
 
 @dataclass

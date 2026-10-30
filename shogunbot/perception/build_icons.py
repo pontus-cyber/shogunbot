@@ -25,6 +25,11 @@ The Twins' icons (0.31) [rec: collect/20261028-190026 f0544-f0580, collect/20261
 Tetsubo, a '4' and a spiked club (read as Spear or Sword before); Shadow Dash, a '1' and a ghost with an
 arrow (read as Charge); Phantom Leap, the Dash tile, a white bird under Swap Toss's two circling arrows
 (both read as the red Summon, or Earth Impale). Their Spear and Swirl read right with the existing ones.
+
+The Yumi Sniper's Volley (0.35) [rec: collect/20261029-160032, Hibiku Wastelands f0198-f0332 and Moonlit Port
+f0512-f0597]: a '2' and arrows rising and falling. 0.34 read it as Spear (confidence 0-0.13) or, under the
+volley's firing flash, as Summon, so the tracker named the Sniper an Ashigaru [user review of run
+20261030-115221, t174]. The bot's own frames of that run are left out of the samples and serve as the check.
 """
 
 from __future__ import annotations
@@ -152,6 +157,24 @@ SAMPLES = {   # label: [(frame relative to ROOT, the unit's centre x at 1080p, s
         ("collect/20261029-160032/f0768_CLICK.png", 1004, 0),
         ("collect/20261029-160032/f0769_CLICK.png", 1004, 0),
         ("collect/20261029-160032/f0770_SPACE.png", 1004, 0),
+    ],
+    "volley": [   # the Yumi Sniper's Volley, red and yellow frames, the bright Hibiku and the dark Moonlit Port backdrops
+        ("collect/20261029-160032/f0198_W.png", 444, 0),
+        ("collect/20261029-160032/f0203_idle.png", 492, 0),
+        ("collect/20261029-160032/f0207_idle.png", 1480, 0),
+        ("collect/20261029-160032/f0216_D.png", 1432, 0),
+        ("collect/20261029-160032/f0222_D.png", 1284, 0),
+        ("collect/20261029-160032/f0226_SPACE.png", 816, 0),
+        ("collect/20261029-160032/f0228_D.png", 912, 0),
+        ("collect/20261029-160032/f0265_idle.png", 1284, 0),
+        ("collect/20261029-160032/f0314_SPACE.png", 1192, 0),
+        ("collect/20261029-160032/f0332_CLICK.png", 772, 0),
+        ("collect/20261029-160032/f0512_idle.png", 1200, 0),
+        ("collect/20261029-160032/f0514_A.png", 1200, 0),
+        ("collect/20261029-160032/f0517_CLICK.png", 1388, 0),
+        ("collect/20261029-160032/f0587_D.png", 820, 0),
+        ("collect/20261029-160032/f0595_CLICK.png", 680, 0),
+        ("collect/20261029-160032/f0597_SPACE.png", 732, 0),
     ],
     "swap_toss": [   # The Twins' Swap Toss, two circling arrows, over the Dash [rec: read as the red Summon or Earth Impale]
         ("collect/20261029-160032/f0740_SPACE.png", 1096, 1),

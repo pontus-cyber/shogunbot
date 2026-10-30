@@ -398,6 +398,10 @@ def _tile_hits_hero(s: State, e: Enemy, tile: str) -> bool:
         return _first_unit_ahead(s, e.x, e.facing * dr, skip_uid=e.uid, rng=rng) is s.hero
     if k == "furthest":
         return _furthest_unit_ahead(s, e.x, e.facing * dr) is s.hero
+    if k == "aim":
+        # the Volley: aimed at the hero's cell when the turn it fires begins, so the hero is always in reach
+        # until then; once aimed, only that cell is hit [data/tiles.json 'volley']
+        return e.aim is None or e.aim == s.hero.x
     return False
 
 
@@ -718,6 +722,12 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
             # Swap Toss: the contents of the cells ahead and behind change places [wiki: Tiles]; the
             # hero next to a Twin landed behind it [rec: collect/20261029-160032 f0770-f0772]
             _swap_cells(s, e.x + e.facing, e.x - e.facing)
+        elif k == "aim":
+            # the Volley strikes the cell aimed at as the turn began, whatever unit stands there: the hero who
+            # stayed (run 20261030-115221 t174, -2), nobody once he stepped off, or the Sniper itself after
+            # the hero swapped it onto the cell [rec: collect/20261029-160032 f0199-f0200, f0222-f0223]
+            cell = e.aim if e.aim is not None else h.x
+            _enemy_hit(s, e, s.unit_at(cell) if s.in_bounds(cell) else None, dmg, tile, ev)
         elif k == "summon":
             # the summoner's unit (Daisuke: Spike Chargers, Rei: Twin Tachi) [wiki]; HYP: random
             # cells, the planner assumes those farthest from the hero
@@ -731,6 +741,7 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
                 s.enemies.append(Enemy(kind, x, 1 if h.x > x else -1, ENEMY_KINDS[kind][0], [], uid))
     e.cd = max((ENEMY_TILE_COOLDOWN.get(t, 0) for t in e.queue), default=0)
     e.queue = []
+    e.aim = None
 
 
 def _apply_enemy_action(s: State, uid: int, action: tuple, ev: Events) -> None:
@@ -805,6 +816,7 @@ def enemy_phase(s: State, max_outcomes: int = 12) -> list[tuple[float, State, Ev
         for e in st.enemies:
             e.intent = None  # telegraphs only cover the coming phase
             e.primed = False
+            e.aim = None     # an aim lasts the turn it was taken in
     return [(p / total, st, ev) for p, st, ev in frontier]
 
 
@@ -864,9 +876,16 @@ def step(s: State, action: str, validate: bool = True) -> list[tuple[float, Stat
     primed = {e.uid for e in s.alive()
               if e.armed and e.wind >= 1 and ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0
               and _hits_hero(s, e, e.queue[0])}
+    # an aimed tile (Volley) takes the hero's cell as the turn begins, before he acts: the warning sign at his
+    # feet [rec: collect/20261029-160032 f0199, f0203, f0215, f0222; bot: run 20261030-115221 t174, t178]
+    aims = {e.uid: s.hero.x for e in s.alive()
+            if e.uid in primed and e.aim is None and (SPEC[e.queue[0]][0] == "aim" or (
+                e.alt is not None and SPEC[ENEMY_KINDS[e.alt][1]][0] == "aim"))}
     s1 = apply_hero(s, action, ev0)
     for e in s1.enemies:
         e.primed = e.uid in primed
+        if e.uid in aims:
+            e.aim = aims[e.uid]
     out = []
     for p, s2, ev in enemy_phase(s1):
         merged = ev0.clone()

@@ -14,7 +14,7 @@ from itertools import permutations
 from . import behaviour
 from .catalogue import CAT
 from .model import BOSS_KINDS, DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, Enemy, Hero, Kit, KitTile, State
-from .rules import apply_hero, Events
+from .rules import SPEC, apply_hero, Events
 
 BOSS_HP = {k: CAT.enemy(k).hp for k in BOSS_KINDS}         # the bar's full width [wiki]: Daisuke 15, Rei 13
 BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
@@ -282,10 +282,23 @@ class Tracker:
                     shield=self.shield, kit=kit)
 
         enemies = []
+        from .perception.perceive import pip_ties
+        ties = pip_ties(tuple(self.route))
+        warn = list(getattr(p, "warn", []) or [])
+        aimed_fire = any(e["queue"] and SPEC.get(e["queue"][0], ("",))[0] == "aim" and e.get("intent") == "fire"
+                         for e in p.enemies)
         for i, e in enumerate(p.enemies):
             kind = e["kind"] if e["kind"] in ENEMY_KINDS else "ashigaru"
             if kind != e["kind"]:
                 self.notes.append(f"enemy at {e['x']} read as {e['kind']}; assumed ashigaru")
+            if kind in ties and not e["queue"] and not e.get("spawning"):
+                # a unit named by its tile keeps that name while its bubble is empty: the Yumi Sniper has the
+                # Ashigaru's 3 HP pips and shows its Volley only while loaded [run 20261030-115221 t175-t176: the
+                # Sniper that had fired at t174 read as an Ashigaru again]; the Archer and the Tachi share 2
+                was = next((q[0] for q in self.prev if q[0] in ties[kind] and self._could_be(q, e["x"])), None)
+                if was:
+                    self.notes.append(f"enemy at {e['x']}: kept as {was} (read as {kind}, no tile in its bubble)")
+                    kind = was
             if kind in BOSS_KINDS:
                 hp_e = max(1, round((p.boss_frac or 1.0) * BOSS_HP[kind]))
             else:
@@ -305,13 +318,21 @@ class Tracker:
                 # regular enemies only carry their own tile; an odd read is an animation overlay
                 self.notes.append(f"enemy at {e['x']} queue read {queue}; set to {ENEMY_KINDS[kind][1]}")
                 queue = [ENEMY_KINDS[kind][1]]
+            aim = None
+            if queue and SPEC.get(queue[0], ("",))[0] == "aim" and warn and (intent == "fire" or not aimed_fire):
+                # the warning sign: an aimed Volley fires this turn at that cell, the hero's, whatever the
+                # bubble's blink showed [rec: collect/20261029-160032 f0199, f0204, f0216, f0222, f0264 read red]
+                aim = min(warn, key=lambda c: abs(c - h["x"]))
+                if intent != "fire":
+                    self.notes.append(f"enemy at {e['x']}: warning sign at {aim}; fires this turn")
+                intent = "fire"
             facing_e = self._enemy_facing(kind, e, queue, intent, h["x"],
                                           p.confidence.get(f"enemy{e['x']}", 0.0))
             alt = e.get("alt") if e.get("alt") in ENEMY_KINDS and e.get("alt") != kind else None
             if alt:
                 self.notes.append(f"enemy at {e['x']}: read as {kind}, may be {alt}")
             en = Enemy(kind, e["x"], facing_e, hp_e, queue, uid=i + 1, intent=intent, alt=alt,
-                       elite=bool(e.get("elite")))
+                       elite=bool(e.get("elite")), aim=aim)
             if self.freeze_left > 0:
                 en.frozen, en.intent = self.freeze_left, None
             en.cursed = self.cursed

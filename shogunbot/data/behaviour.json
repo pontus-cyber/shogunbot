@@ -4,14 +4,14 @@
    "learned": {
     "mean_p": 0.898,
     "nll": 0.206,
-    "rows": 5219,
-    "top1": 0.926
+    "rows": 5652,
+    "top1": 0.927
    },
    "presets": {
-    "mean_p": 0.591,
-    "nll": 2.699,
-    "rows": 5219,
-    "top1": 0.604
+    "mean_p": 0.589,
+    "nll": 2.722,
+    "rows": 5652,
+    "top1": 0.601
    }
   },
   "runs": [
@@ -46,9 +46,10 @@
    "20261029-153952",
    "20261029-154200",
    "20261029-184142",
-   "20261030-041652"
+   "20261030-041652",
+   "20261030-115221"
   ],
-  "source": "learned from 32 bot runs (20261028-044407 .. 20261030-041652), 5219 labelled enemy-turns; telegraph = label [bot: shogunbot.mine build, 2026-10-30]"
+  "source": "learned from 33 bot runs (20261028-044407 .. 20261030-115221), 5652 labelled enemy-turns; telegraph = label [bot: shogunbot.mine build, 2026-10-30]"
  },
  "boss_tiles": {
   "daisuke": {
@@ -82,34 +83,38 @@
   },
   "iwao": {
    "1|-": {
-    "earth_impale": 3
+    "earth_impale": 4
    },
    "1|earth_impale": {
     "swirl": 2
    },
    "2|-": {
-    "earth_impale": 2,
-    "spear": 3,
-    "summon": 1
+    "earth_impale": 3,
+    "spear": 4,
+    "summon": 2
    },
    "3|-": {
+    "earth_impale": 1,
     "summon": 2
    }
   },
   "rei": {
    "1|-": {
-    "charge": 1
+    "charge": 2
+   },
+   "1|charge": {
+    "dragon_punch": 1
    },
    "2|-": {
-    "dragon_punch": 1,
+    "dragon_punch": 2,
     "summon": 1
    },
    "2|charge": {
     "dragon_punch": 1
    },
    "3|-": {
-    "dragon_punch": 2,
-    "summon_double": 1
+    "dragon_punch": 3,
+    "summon_double": 2
    }
   }
  },
@@ -129,6 +134,9 @@
    "kind=ashigaru_archer|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
     "hold": 6
    },
+   "kind=ashigaru_archer|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=None|fage=None": {
+    "hold": 1
+   },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=hold|fage=None": {
     "hold": 1
    },
@@ -136,13 +144,19 @@
     "hold": 2
    },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=None|fage=None": {
-    "hold": 1
+    "hold": 2
+   },
+   "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold|fage=None": {
+    "fire": 1
+   },
+   "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=None|fage=None": {
+    "hold": 2
    },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=None": {
     "fire": 1
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=None|fage=None": {
-    "hold": 35
+    "hold": 38
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=fire|fage=0": {
     "hold": 2
@@ -154,7 +168,7 @@
     "turn": 1
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
-    "turn": 44
+    "turn": 46
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=queue|fage=2": {
     "hold": 1
@@ -163,7 +177,7 @@
     "queue": 1
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=None|fage=None": {
-    "hold": 19
+    "hold": 24
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=fire|fage=0": {
     "hold": 1
@@ -176,20 +190,20 @@
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
     "hold": 2,
-    "turn": 28
+    "turn": 33
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=None|fage=None": {
-    "hold": 5
+    "hold": 6
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
-    "turn": 73
+    "turn": 77
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=1": {
     "turn": 4
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=None": {
-    "hold": 1,
-    "turn": 11
+    "hold": 2,
+    "turn": 13
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=turn|fage=None": {
     "turn": 1
@@ -201,7 +215,7 @@
     "turn": 5
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=None|fage=None": {
-    "hold": 10
+    "hold": 11
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=fire|fage=0": {
     "hold": 1
@@ -213,13 +227,13 @@
     "turn": 1
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=hold|fage=None": {
-    "turn": 12
+    "turn": 13
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=move|fage=1": {
     "hold": 1
    },
    "kind=ashigaru|face=False|armed=True|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
-    "turn": 4
+    "turn": 5
    },
    "kind=ashigaru|face=False|armed=True|in_fp=False|blocked=True|dist=1|last=hold|fage=2": {
     "turn": 1
@@ -231,14 +245,14 @@
     "turn": 3
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None|fage=None": {
-    "hold": 53
+    "hold": 52
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire|fage=0": {
-    "away": 39,
-    "hold": 20
+    "away": 40,
+    "hold": 22
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=1": {
-    "queue": 15
+    "queue": 17
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=2": {
     "hold": 2,
@@ -261,10 +275,10 @@
     "queue": 1
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=turn|fage=None": {
-    "queue": 32
+    "queue": 36
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None|fage=None": {
-    "hold": 31
+    "hold": 36
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire|fage=0": {
     "hold": 1
@@ -278,10 +292,10 @@
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
     "hold": 1,
-    "queue": 24
+    "queue": 28
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move|fage=1": {
-    "queue": 41
+    "queue": 43
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move|fage=2": {
     "hold": 1
@@ -299,10 +313,10 @@
     "queue": 4
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=turn|fage=None": {
-    "queue": 26
+    "queue": 31
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=None|fage=None": {
-    "hold": 20
+    "hold": 21
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
     "hold": 4
@@ -314,7 +328,7 @@
     "queue": 5
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=None": {
-    "queue": 17
+    "queue": 18
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=move|fage=None": {
     "hold": 2
@@ -326,7 +340,7 @@
     "hold": 1
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn|fage=1": {
-    "queue": 57
+    "queue": 62
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn|fage=2": {
     "queue": 6
@@ -339,7 +353,7 @@
     "hold": 10
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=fire|fage=0": {
-    "away": 13,
+    "away": 14,
     "hold": 1
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=hold|fage=2": {
@@ -353,7 +367,7 @@
     "queue": 8
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=None|fage=None": {
-    "hold": 14
+    "hold": 15
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=fire|fage=0": {
     "hold": 2
@@ -362,7 +376,7 @@
     "queue": 2
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=hold|fage=None": {
-    "queue": 12
+    "queue": 13
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=move|fage=1": {
     "queue": 1
@@ -371,47 +385,47 @@
     "queue": 2
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=turn|fage=None": {
-    "queue": 9
+    "queue": 10
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=hold|fage=2": {
-    "toward": 39
+    "toward": 40
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
     "hold": 2,
-    "toward": 81
+    "toward": 87
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=move|fage=2": {
     "toward": 25
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=move|fage=None": {
-    "toward": 54
+    "toward": 59
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=queue|fage=2": {
-    "hold": 33
+    "hold": 35
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=queue|fage=None": {
-    "hold": 67
+    "hold": 71
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=2": {
     "hold": 5,
     "toward": 23
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
-    "hold": 66,
-    "toward": 51
+    "hold": 72,
+    "toward": 56
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move|fage=2": {
     "toward": 6
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move|fage=None": {
     "hold": 1,
-    "toward": 26
+    "toward": 28
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=2": {
     "hold": 32
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=None": {
-    "hold": 51
+    "hold": 59
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=None|fage=None": {
     "hold": 1
@@ -420,7 +434,7 @@
     "hold": 7
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=hold|fage=None": {
-    "hold": 40
+    "hold": 41
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=move|fage=2": {
     "hold": 1
@@ -432,19 +446,19 @@
     "hold": 4
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=queue|fage=None": {
-    "hold": 13
+    "hold": 14
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=hold|fage=2": {
     "hold": 16
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=hold|fage=None": {
-    "hold": 63
+    "hold": 66
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=queue|fage=2": {
     "hold": 4
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=queue|fage=None": {
-    "hold": 18
+    "hold": 19
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=None|fage=None": {
     "hold": 1
@@ -453,23 +467,23 @@
     "fire": 1
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=2": {
-    "fire": 23
+    "fire": 24
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=None": {
-    "fire": 51,
+    "fire": 54,
     "turn": 1
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move|fage=2": {
-    "fire": 58
+    "fire": 59
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move|fage=None": {
-    "fire": 114
+    "fire": 124
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue|fage=2": {
-    "hold": 36
+    "hold": 38
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue|fage=None": {
-    "hold": 50
+    "hold": 52
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=turn|fage=1": {
     "hold": 1
@@ -492,7 +506,7 @@
    },
    "kind=charger|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
     "queue": 1,
-    "turn": 26
+    "turn": 27
    },
    "kind=charger|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=turn|fage=None": {
     "turn": 1
@@ -557,7 +571,7 @@
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None|fage=None": {
     "away": 1,
-    "hold": 49
+    "hold": 52
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=2": {
     "hold": 1,
@@ -565,7 +579,7 @@
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
     "hold": 3,
-    "queue": 17
+    "queue": 19
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=move|fage=1": {
     "queue": 1
@@ -580,10 +594,10 @@
     "queue": 2
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=turn|fage=None": {
-    "queue": 22
+    "queue": 23
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None|fage=None": {
-    "hold": 30
+    "hold": 34
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire|fage=0": {
     "hold": 3
@@ -593,7 +607,7 @@
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
     "hold": 2,
-    "queue": 21
+    "queue": 23
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move|fage=1": {
     "queue": 2
@@ -615,7 +629,7 @@
     "hold": 25
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
-    "away": 5,
+    "away": 6,
     "hold": 2
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=1": {
@@ -675,13 +689,13 @@
     "hold": 13
    },
    "kind=charger|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
-    "hold": 129
+    "hold": 131
    },
    "kind=charger|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=2": {
     "hold": 3
    },
    "kind=charger|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=None": {
-    "hold": 19
+    "hold": 20
    },
    "kind=charger|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=hold|fage=2": {
     "hold": 2
@@ -708,13 +722,13 @@
     "fire": 2
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold|fage=None": {
-    "fire": 12
+    "fire": 14
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue|fage=2": {
     "hold": 3
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue|fage=None": {
-    "hold": 22
+    "hold": 23
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=turn|fage=None": {
     "turn": 1
@@ -723,14 +737,14 @@
     "fire": 1
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=3|last=hold|fage=None": {
-    "fire": 30,
+    "fire": 31,
     "hold": 1
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=3|last=queue|fage=2": {
     "hold": 1
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=3|last=queue|fage=None": {
-    "hold": 24
+    "hold": 25
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=None|fage=None": {
     "hold": 2
@@ -751,7 +765,7 @@
     "hold": 7
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue|fage=None": {
-    "hold": 39
+    "hold": 40
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=turn|fage=None": {
     "fire": 6
@@ -1006,6 +1020,76 @@
    "kind=daisuke|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=turn|fage=None": {
     "fire": 1
    },
+   "kind=guardian|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
+    "turn": 1
+   },
+   "kind=guardian|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=2": {
+    "turn": 1
+   },
+   "kind=guardian|face=False|armed=False|in_fp=False|blocked=True|dist=2|last=hold|fage=2": {
+    "turn": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None|fage=None": {
+    "hold": 2
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire|fage=0": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=1": {
+    "queue": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=2": {
+    "hold": 1,
+    "queue": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
+    "queue": 2
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=queue|fage=2": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn|fage=1": {
+    "queue": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn|fage=2": {
+    "queue": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=fire|fage=0": {
+    "queue": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=hold|fage=2": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=turn|fage=2": {
+    "queue": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=hold|fage=2": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=move|fage=2": {
+    "toward": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=move|fage=None": {
+    "toward": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=queue|fage=2": {
+    "toward": 2
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=queue|fage=None": {
+    "toward": 2
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=queue|fage=1": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move|fage=2": {
+    "fire": 2
+   },
+   "kind=guardian|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move|fage=None": {
+    "fire": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue|fage=2": {
+    "hold": 2
+   },
    "kind=iwao|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=move|fage=1": {
     "hold": 1
    },
@@ -1030,7 +1114,7 @@
     "fire": 1
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None|fage=None": {
-    "hold": 3
+    "hold": 4
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire|fage=0": {
     "away": 2,
@@ -1041,25 +1125,25 @@
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
     "hold": 1,
-    "queue": 2
+    "queue": 3
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=move|fage=1": {
-    "queue": 4
+    "queue": 6
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire|fage=0": {
-    "away": 2,
-    "hold": 1
-   },
-   "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move|fage=1": {
-    "queue": 2
-   },
-   "kind=iwao|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
     "away": 3,
     "hold": 1
    },
+   "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move|fage=1": {
+    "queue": 3
+   },
+   "kind=iwao|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
+    "away": 5,
+    "hold": 2
+   },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=1": {
     "hold": 1,
-    "queue": 1
+    "queue": 2
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn|fage=1": {
     "queue": 1
@@ -1068,51 +1152,58 @@
     "fire": 2
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=queue|fage=2": {
-    "hold": 1
+    "hold": 2
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=2": {
     "fire": 1,
-    "toward": 1
+    "toward": 2
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
+    "toward": 2
+   },
+   "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move|fage=2": {
     "toward": 1
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move|fage=None": {
-    "toward": 1
+    "toward": 2
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=2": {
-    "hold": 2
+    "hold": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
     "fire": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|dist=1|last=hold|fage=2": {
-    "queue": 2
+    "fire": 1,
+    "queue": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|dist=1|last=move|fage=2": {
     "fire": 1
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|dist=1|last=queue|fage=2": {
-    "hold": 3
+    "hold": 4
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|dist=1|last=turn|fage=2": {
     "hold": 1
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold|fage=2": {
-    "fire": 5,
+    "fire": 6,
     "hold": 2
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold|fage=None": {
     "hold": 1
    },
-   "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=move|fage=None": {
+   "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=move|fage=2": {
     "fire": 1
    },
+   "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=move|fage=None": {
+    "fire": 2
+   },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue|fage=2": {
-    "hold": 2
+    "hold": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue|fage=None": {
-    "hold": 1
+    "hold": 2
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=fire|fage=0": {
     "fire": 1
@@ -1133,13 +1224,17 @@
     "turn": 1
    },
    "kind=rei|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
+    "turn": 2
+   },
+   "kind=rei|face=False|armed=True|in_fp=False|blocked=True|dist=1|last=hold|fage=2": {
     "turn": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire|fage=0": {
+    "away": 1,
     "hold": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=1": {
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=2": {
     "away": 1
@@ -1148,12 +1243,15 @@
     "queue": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None|fage=None": {
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire|fage=0": {
     "hold": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=1": {
+    "queue": 1
+   },
+   "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move|fage=1": {
     "queue": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=queue|fage=2": {
@@ -1162,14 +1260,17 @@
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=turn|fage=1": {
     "queue": 1
    },
+   "kind=rei|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
+    "hold": 1
+   },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=move|fage=2": {
     "hold": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn|fage=1": {
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=hold|fage=2": {
-    "toward": 1
+    "toward": 2
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=move|fage=2": {
     "toward": 1
@@ -1181,16 +1282,19 @@
     "hold": 1
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=2": {
-    "toward": 2
+    "toward": 3
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
-    "fire": 1
+    "fire": 2
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move|fage=2": {
     "toward": 2
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=2": {
-    "hold": 2
+    "hold": 4
+   },
+   "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=None": {
+    "hold": 1
    },
    "kind=rei|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold|fage=2": {
     "queue": 1
@@ -1198,17 +1302,21 @@
    "kind=rei|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue|fage=2": {
     "hold": 1
    },
-   "kind=rei|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=2": {
+   "kind=rei|face=True|armed=True|in_fp=True|blocked=False|dist=3|last=turn|fage=2": {
     "fire": 1
    },
+   "kind=rei|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=2": {
+    "fire": 1,
+    "queue": 1
+   },
    "kind=rei|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move|fage=2": {
-    "fire": 2
+    "fire": 4
    },
    "kind=rei|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue|fage=2": {
-    "hold": 1
+    "hold": 3
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=None|fage=None": {
-    "hold": 32
+    "hold": 36
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=fire|fage=0": {
     "hold": 2
@@ -1221,13 +1329,13 @@
     "turn": 1
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
-    "turn": 45
+    "turn": 49
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=move|fage=1": {
     "queue": 1
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=None|fage=None": {
-    "hold": 21
+    "hold": 23
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=fire|fage=0": {
     "hold": 3,
@@ -1238,10 +1346,10 @@
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
     "queue": 1,
-    "turn": 28
+    "turn": 30
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=None|fage=None": {
-    "hold": 15
+    "hold": 16
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
     "away": 1,
@@ -1258,7 +1366,7 @@
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=None": {
     "queue": 1,
-    "turn": 18
+    "turn": 19
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=move|fage=1": {
     "turn": 1
@@ -1276,10 +1384,10 @@
     "turn": 1
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=2|last=hold|fage=None": {
-    "turn": 7
+    "turn": 8
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=None|fage=None": {
-    "hold": 15
+    "hold": 17
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=fire|fage=0": {
     "hold": 1
@@ -1288,7 +1396,7 @@
     "turn": 2
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=hold|fage=None": {
-    "turn": 17
+    "turn": 19
    },
    "kind=tachi|face=False|armed=True|in_fp=False|blocked=False|dist=2|last=fire|fage=0": {
     "fire": 1
@@ -1318,11 +1426,15 @@
    "kind=tachi|face=False|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=None": {
     "hold": 1
    },
+   "kind=tachi|face=False|armed=True|in_fp=True|blocked=True|dist=1|last=None|fage=None": {
+    "hold": 1
+   },
    "kind=tachi|face=False|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=2": {
     "fire": 1
    },
    "kind=tachi|face=False|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=None": {
-    "fire": 7
+    "fire": 7,
+    "turn": 1
    },
    "kind=tachi|face=False|armed=True|in_fp=True|blocked=True|dist=1|last=move|fage=2": {
     "fire": 1
@@ -1337,22 +1449,25 @@
     "hold": 3
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None|fage=None": {
-    "hold": 61
+    "hold": 64
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire|fage=0": {
     "away": 33,
-    "hold": 17
+    "hold": 18
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=1": {
     "queue": 11
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
     "hold": 2,
-    "queue": 38
+    "queue": 42
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=move|fage=1": {
     "hold": 2,
     "queue": 8
+   },
+   "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=queue|fage=None": {
+    "hold": 1
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=turn|fage=1": {
     "queue": 1
@@ -1361,10 +1476,10 @@
     "queue": 9
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=turn|fage=None": {
-    "queue": 29
+    "queue": 33
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None|fage=None": {
-    "hold": 29
+    "hold": 33
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire|fage=0": {
     "hold": 1,
@@ -1378,7 +1493,7 @@
     "queue": 1
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
-    "queue": 24
+    "queue": 28
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move|fage=1": {
     "queue": 16
@@ -1390,16 +1505,16 @@
     "queue": 1
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=turn|fage=None": {
-    "queue": 26
+    "queue": 28
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=None|fage=None": {
-    "hold": 23
+    "hold": 24
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
-    "hold": 7
+    "hold": 8
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=1": {
-    "queue": 6
+    "queue": 7
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=2": {
     "hold": 1,
@@ -1407,7 +1522,7 @@
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=None": {
     "hold": 3,
-    "queue": 28
+    "queue": 29
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=move|fage=1": {
     "hold": 2
@@ -1416,10 +1531,10 @@
     "queue": 7
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn|fage=None": {
-    "queue": 26
+    "queue": 28
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=None|fage=None": {
-    "hold": 5
+    "hold": 6
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=fire|fage=0": {
     "away": 1,
@@ -1432,7 +1547,7 @@
     "queue": 2
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=turn|fage=None": {
-    "queue": 11
+    "queue": 13
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=None|fage=None": {
     "hold": 14
@@ -1454,7 +1569,7 @@
     "queue": 1
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=turn|fage=None": {
-    "queue": 13
+    "queue": 14
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=fire|fage=0": {
     "fire": 3,
@@ -1464,33 +1579,33 @@
     "toward": 17
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
-    "toward": 58
+    "toward": 62
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=move|fage=2": {
     "toward": 2
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=move|fage=None": {
-    "toward": 33
+    "toward": 39
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=queue|fage=2": {
     "hold": 20
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=queue|fage=None": {
-    "hold": 39
+    "hold": 43
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=2": {
     "hold": 10,
     "toward": 7
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
-    "hold": 64,
-    "toward": 38
+    "hold": 78,
+    "toward": 44
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move|fage=2": {
     "toward": 2
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move|fage=None": {
-    "toward": 17
+    "toward": 18
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=1": {
     "hold": 3
@@ -1499,7 +1614,7 @@
     "hold": 17
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=None": {
-    "hold": 48
+    "hold": 53
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=hold|fage=2": {
     "hold": 2
@@ -1517,7 +1632,7 @@
     "hold": 34
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=queue|fage=None": {
-    "hold": 18
+    "hold": 19
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=fire|fage=0": {
     "hold": 1
@@ -1526,22 +1641,22 @@
     "fire": 27
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=None": {
-    "fire": 39
+    "fire": 41
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move|fage=2": {
     "fire": 19
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move|fage=None": {
-    "fire": 75
+    "fire": 81
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue|fage=2": {
     "hold": 23
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue|fage=None": {
-    "hold": 63
+    "hold": 67
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=None|fage=None": {
-    "hold": 4
+    "hold": 5
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=fire|fage=0": {
     "hold": 1
@@ -1550,19 +1665,25 @@
     "turn": 1
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
-    "turn": 3
+    "turn": 6
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=None|fage=None": {
     "hold": 1
    },
+   "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=2": {
+    "turn": 1
+   },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
-    "turn": 3
+    "turn": 4
+   },
+   "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=queue|fage=2": {
+    "hold": 1
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=None|fage=None": {
     "hold": 1
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=fire|fage=0": {
-    "turn": 7
+    "turn": 10
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=None": {
     "turn": 2
@@ -1579,6 +1700,9 @@
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=hold|fage=2": {
     "turn": 1
    },
+   "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=hold|fage=None": {
+    "turn": 1
+   },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=queue|fage=2": {
     "hold": 1
    },
@@ -1589,13 +1713,13 @@
     "hold": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None|fage=None": {
-    "hold": 3
+    "hold": 6
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=1": {
     "queue": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
-    "queue": 2
+    "queue": 3
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=move|fage=1": {
     "queue": 1
@@ -1604,29 +1728,32 @@
     "queue": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=turn|fage=None": {
-    "queue": 3
+    "queue": 6
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None|fage=None": {
-    "hold": 3
+    "hold": 5
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire|fage=0": {
-    "away": 3,
-    "hold": 6
+    "away": 4,
+    "hold": 8
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=1": {
-    "queue": 5
+    "queue": 7
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
-    "queue": 1
+    "queue": 2
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move|fage=1": {
-    "queue": 3
+    "queue": 4
+   },
+   "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=turn|fage=2": {
+    "queue": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=turn|fage=None": {
     "queue": 2
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=None|fage=None": {
-    "hold": 2
+    "hold": 5
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=2": {
     "queue": 1
@@ -1634,7 +1761,7 @@
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=None": {
     "away": 1,
     "hold": 2,
-    "queue": 2
+    "queue": 5
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=move|fage=2": {
     "hold": 1
@@ -1643,19 +1770,19 @@
     "hold": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn|fage=1": {
-    "queue": 5
+    "queue": 8
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn|fage=None": {
-    "queue": 3
+    "queue": 4
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=None|fage=None": {
-    "hold": 1
+    "hold": 2
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=hold|fage=None": {
-    "queue": 1
+    "queue": 2
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=None|fage=None": {
-    "hold": 4
+    "hold": 5
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=fire|fage=0": {
     "away": 2
@@ -1666,12 +1793,15 @@
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=turn|fage=2": {
     "queue": 1
    },
+   "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=turn|fage=None": {
+    "queue": 1
+   },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=2": {
-    "toward": 4
+    "toward": 7
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
-    "hold": 5,
-    "toward": 7
+    "hold": 8,
+    "toward": 9
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move|fage=2": {
     "toward": 1
@@ -1681,13 +1811,13 @@
     "toward": 5
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=2": {
-    "hold": 5
+    "hold": 8
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue|fage=None": {
-    "hold": 3
+    "hold": 4
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=hold|fage=None": {
-    "hold": 9
+    "hold": 12
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=queue|fage=2": {
     "hold": 2
@@ -1699,10 +1829,10 @@
     "fire": 2
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold|fage=None": {
-    "fire": 3
+    "fire": 6
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=move|fage=2": {
-    "fire": 2
+    "fire": 3
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=move|fage=None": {
     "fire": 3
@@ -1711,25 +1841,25 @@
     "hold": 3
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue|fage=None": {
-    "hold": 6
+    "hold": 9
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=2": {
     "fire": 4
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=None": {
-    "fire": 5
+    "fire": 7
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move|fage=2": {
-    "fire": 1
-   },
-   "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move|fage=None": {
     "fire": 2
    },
+   "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move|fage=None": {
+    "fire": 4
+   },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue|fage=2": {
-    "hold": 4
+    "hold": 5
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue|fage=None": {
-    "hold": 5
+    "hold": 9
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=turn|fage=None": {
     "fire": 1
@@ -1738,10 +1868,70 @@
     "fire": 1
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=2|last=hold|fage=None": {
-    "fire": 3
+    "fire": 4
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=2|last=queue|fage=None": {
+    "hold": 3
+   },
+   "kind=yumi_sniper|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=hold|fage=None": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=False|armed=True|in_fp=True|blocked=True|dist=1|last=queue|fage=None": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None|fage=None": {
     "hold": 2
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire|fage=0": {
+    "hold": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=1": {
+    "queue": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold|fage=None": {
+    "queue": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None|fage=None": {
+    "hold": 2
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold|fage=None": {
+    "queue": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=turn|fage=None": {
+    "queue": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=None|fage=None": {
+    "hold": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn|fage=None": {
+    "queue": 2
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold|fage=None": {
+    "fire": 1
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue|fage=2": {
+    "hold": 1
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue|fage=None": {
+    "hold": 1
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=False|dist=3|last=queue|fage=None": {
+    "hold": 1
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=2": {
+    "fire": 1
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold|fage=None": {
+    "fire": 1
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue|fage=None": {
+    "hold": 1
    }
   },
   {
@@ -1751,6 +1941,9 @@
    "kind=ashigaru_archer|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold": {
     "hold": 6
    },
+   "kind=ashigaru_archer|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=None": {
+    "hold": 1
+   },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=hold": {
     "hold": 1
    },
@@ -1758,19 +1951,25 @@
     "hold": 2
    },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=None": {
-    "hold": 1
+    "hold": 2
+   },
+   "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold": {
+    "fire": 1
+   },
+   "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=None": {
+    "hold": 2
    },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold": {
     "fire": 1
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=None": {
-    "hold": 35
+    "hold": 38
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=fire": {
     "hold": 2
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
-    "turn": 47
+    "turn": 49
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=queue": {
     "hold": 1
@@ -1779,24 +1978,24 @@
     "queue": 1
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=None": {
-    "hold": 19
+    "hold": 24
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=fire": {
     "hold": 1
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=hold": {
     "hold": 2,
-    "turn": 32
+    "turn": 37
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=None": {
-    "hold": 5
+    "hold": 6
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=fire": {
-    "turn": 73
+    "turn": 77
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=hold": {
-    "hold": 1,
-    "turn": 15
+    "hold": 2,
+    "turn": 17
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=turn": {
     "turn": 1
@@ -1808,19 +2007,19 @@
     "turn": 5
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=None": {
-    "hold": 10
+    "hold": 11
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=fire": {
     "hold": 1
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=hold": {
-    "turn": 14
+    "turn": 15
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=move": {
     "hold": 1
    },
    "kind=ashigaru|face=False|armed=True|in_fp=False|blocked=True|dist=1|last=fire": {
-    "turn": 4
+    "turn": 5
    },
    "kind=ashigaru|face=False|armed=True|in_fp=False|blocked=True|dist=1|last=hold": {
     "turn": 1
@@ -1829,15 +2028,15 @@
     "turn": 4
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None": {
-    "hold": 53
+    "hold": 52
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire": {
-    "away": 39,
-    "hold": 20
+    "away": 40,
+    "hold": 22
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
     "hold": 3,
-    "queue": 62
+    "queue": 64
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=move": {
     "queue": 8
@@ -1847,36 +2046,36 @@
     "queue": 1
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=turn": {
-    "queue": 33
+    "queue": 37
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None": {
-    "hold": 31
+    "hold": 36
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire": {
     "hold": 1
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold": {
     "hold": 3,
-    "queue": 28
+    "queue": 32
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move": {
     "hold": 1,
-    "queue": 42
+    "queue": 44
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=queue": {
     "hold": 6
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=turn": {
-    "queue": 30
+    "queue": 35
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=None": {
-    "hold": 20
+    "hold": 21
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire": {
     "hold": 4
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold": {
-    "queue": 27
+    "queue": 28
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=move": {
     "hold": 2
@@ -1885,14 +2084,14 @@
     "hold": 3
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn": {
-    "queue": 87
+    "queue": 92
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=None": {
     "away": 1,
     "hold": 10
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=fire": {
-    "away": 13,
+    "away": 14,
     "hold": 1
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=hold": {
@@ -1903,58 +2102,58 @@
     "queue": 8
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=None": {
-    "hold": 14
+    "hold": 15
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=fire": {
     "hold": 2
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=hold": {
-    "queue": 14
+    "queue": 15
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=move": {
     "queue": 1
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=turn": {
-    "queue": 11
+    "queue": 12
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=hold": {
     "hold": 2,
-    "toward": 120
+    "toward": 127
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=move": {
-    "toward": 79
+    "toward": 84
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=queue": {
-    "hold": 100
+    "hold": 106
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold": {
-    "hold": 71,
-    "toward": 74
+    "hold": 77,
+    "toward": 79
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move": {
     "hold": 1,
-    "toward": 32
+    "toward": 34
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue": {
-    "hold": 83
+    "hold": 91
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=None": {
     "hold": 1
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=hold": {
-    "hold": 47
+    "hold": 48
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=move": {
     "hold": 6
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=queue": {
-    "hold": 17
+    "hold": 18
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=hold": {
-    "hold": 79
+    "hold": 82
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=queue": {
-    "hold": 22
+    "hold": 23
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=None": {
     "hold": 1
@@ -1963,14 +2162,14 @@
     "fire": 1
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold": {
-    "fire": 74,
+    "fire": 78,
     "turn": 1
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move": {
-    "fire": 172
+    "fire": 183
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue": {
-    "hold": 86
+    "hold": 90
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=turn": {
     "fire": 5,
@@ -1985,7 +2184,7 @@
    },
    "kind=charger|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
     "queue": 1,
-    "turn": 27
+    "turn": 28
    },
    "kind=charger|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=turn": {
     "turn": 1
@@ -2036,27 +2235,27 @@
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None": {
     "away": 1,
-    "hold": 49
+    "hold": 52
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
     "hold": 4,
-    "queue": 18
+    "queue": 20
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=move": {
     "queue": 2
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=turn": {
-    "queue": 25
+    "queue": 26
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None": {
-    "hold": 30
+    "hold": 34
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire": {
     "hold": 3
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold": {
     "hold": 2,
-    "queue": 22
+    "queue": 24
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move": {
     "queue": 4
@@ -2069,7 +2268,7 @@
     "hold": 25
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire": {
-    "away": 5,
+    "away": 6,
     "hold": 2
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold": {
@@ -2108,10 +2307,10 @@
     "queue": 8
    },
    "kind=charger|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold": {
-    "hold": 142
+    "hold": 144
    },
    "kind=charger|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue": {
-    "hold": 22
+    "hold": 23
    },
    "kind=charger|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=hold": {
     "hold": 6
@@ -2129,20 +2328,20 @@
     "fire": 2
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold": {
-    "fire": 12
+    "fire": 14
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue": {
-    "hold": 25
+    "hold": 26
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=turn": {
     "turn": 1
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=3|last=hold": {
-    "fire": 31,
+    "fire": 32,
     "hold": 1
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|dist=3|last=queue": {
-    "hold": 25
+    "hold": 26
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=None": {
     "hold": 2
@@ -2155,7 +2354,7 @@
     "turn": 1
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue": {
-    "hold": 46
+    "hold": 47
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=turn": {
     "fire": 6
@@ -2337,6 +2536,58 @@
     "fire": 2,
     "queue": 1
    },
+   "kind=guardian|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=fire": {
+    "turn": 1
+   },
+   "kind=guardian|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=hold": {
+    "turn": 1
+   },
+   "kind=guardian|face=False|armed=False|in_fp=False|blocked=True|dist=2|last=hold": {
+    "turn": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None": {
+    "hold": 2
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
+    "hold": 1,
+    "queue": 4
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=queue": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn": {
+    "queue": 2
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=fire": {
+    "queue": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=hold": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=turn": {
+    "queue": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=hold": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=move": {
+    "toward": 2
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=queue": {
+    "toward": 4
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=queue": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move": {
+    "fire": 3
+   },
+   "kind=guardian|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue": {
+    "hold": 2
+   },
    "kind=iwao|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=move": {
     "hold": 1
    },
@@ -2361,7 +2612,7 @@
     "fire": 1
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None": {
-    "hold": 3
+    "hold": 4
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire": {
     "away": 2,
@@ -2369,25 +2620,25 @@
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
     "hold": 1,
-    "queue": 3
-   },
-   "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=move": {
     "queue": 4
    },
+   "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=move": {
+    "queue": 6
+   },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire": {
-    "away": 2,
-    "hold": 1
-   },
-   "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move": {
-    "queue": 2
-   },
-   "kind=iwao|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire": {
     "away": 3,
     "hold": 1
    },
+   "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move": {
+    "queue": 3
+   },
+   "kind=iwao|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire": {
+    "away": 5,
+    "hold": 2
+   },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold": {
     "hold": 1,
-    "queue": 1
+    "queue": 2
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn": {
     "queue": 1
@@ -2396,42 +2647,43 @@
     "fire": 2
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=queue": {
-    "hold": 1
+    "hold": 2
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold": {
     "fire": 1,
-    "toward": 2
+    "toward": 4
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move": {
-    "toward": 1
+    "toward": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue": {
-    "hold": 2
+    "hold": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|dist=1|last=fire": {
     "fire": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|dist=1|last=hold": {
-    "queue": 2
+    "fire": 1,
+    "queue": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|dist=1|last=move": {
     "fire": 1
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|dist=1|last=queue": {
-    "hold": 3
+    "hold": 4
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|dist=1|last=turn": {
     "hold": 1
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold": {
-    "fire": 5,
+    "fire": 6,
     "hold": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=move": {
-    "fire": 1
+    "fire": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue": {
-    "hold": 3
+    "hold": 5
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=fire": {
     "fire": 1
@@ -2446,25 +2698,32 @@
     "turn": 1
    },
    "kind=rei|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=fire": {
+    "turn": 2
+   },
+   "kind=rei|face=False|armed=True|in_fp=False|blocked=True|dist=1|last=hold": {
     "turn": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire": {
+    "away": 1,
     "hold": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
     "away": 1,
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=move": {
     "queue": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None": {
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire": {
     "hold": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold": {
+    "queue": 1
+   },
+   "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move": {
     "queue": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=queue": {
@@ -2473,14 +2732,17 @@
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=turn": {
     "queue": 1
    },
+   "kind=rei|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire": {
+    "hold": 1
+   },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=move": {
     "hold": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn": {
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=hold": {
-    "toward": 1
+    "toward": 2
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=move": {
     "toward": 1
@@ -2489,14 +2751,14 @@
     "hold": 3
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold": {
-    "fire": 1,
-    "toward": 2
+    "fire": 2,
+    "toward": 3
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move": {
     "toward": 2
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue": {
-    "hold": 2
+    "hold": 5
    },
    "kind=rei|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold": {
     "queue": 1
@@ -2504,30 +2766,34 @@
    "kind=rei|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue": {
     "hold": 1
    },
-   "kind=rei|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold": {
+   "kind=rei|face=True|armed=True|in_fp=True|blocked=False|dist=3|last=turn": {
     "fire": 1
    },
+   "kind=rei|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold": {
+    "fire": 1,
+    "queue": 1
+   },
    "kind=rei|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move": {
-    "fire": 2
+    "fire": 4
    },
    "kind=rei|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue": {
-    "hold": 1
+    "hold": 3
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=None": {
-    "hold": 32
+    "hold": 36
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=fire": {
     "hold": 2
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
     "queue": 1,
-    "turn": 53
+    "turn": 57
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=move": {
     "queue": 1
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=None": {
-    "hold": 21
+    "hold": 23
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=fire": {
     "hold": 3,
@@ -2535,10 +2801,10 @@
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=hold": {
     "queue": 1,
-    "turn": 31
+    "turn": 33
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=None": {
-    "hold": 15
+    "hold": 16
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=fire": {
     "away": 1,
@@ -2547,7 +2813,7 @@
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=hold": {
     "hold": 1,
     "queue": 3,
-    "turn": 24
+    "turn": 25
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=move": {
     "turn": 1
@@ -2559,16 +2825,16 @@
     "hold": 4
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=2|last=hold": {
-    "turn": 9
+    "turn": 10
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=None": {
-    "hold": 15
+    "hold": 17
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=fire": {
     "hold": 1
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=hold": {
-    "turn": 19
+    "turn": 21
    },
    "kind=tachi|face=False|armed=True|in_fp=False|blocked=False|dist=2|last=fire": {
     "fire": 1
@@ -2592,8 +2858,12 @@
    "kind=tachi|face=False|armed=True|in_fp=False|blocked=False|dist=3|last=queue": {
     "hold": 1
    },
+   "kind=tachi|face=False|armed=True|in_fp=True|blocked=True|dist=1|last=None": {
+    "hold": 1
+   },
    "kind=tachi|face=False|armed=True|in_fp=True|blocked=True|dist=1|last=hold": {
-    "fire": 8
+    "fire": 8,
+    "turn": 1
    },
    "kind=tachi|face=False|armed=True|in_fp=True|blocked=True|dist=1|last=move": {
     "fire": 3
@@ -2602,25 +2872,28 @@
     "hold": 10
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None": {
-    "hold": 61
+    "hold": 64
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire": {
     "away": 33,
-    "hold": 17
+    "hold": 18
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
     "hold": 2,
-    "queue": 49
+    "queue": 53
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=move": {
     "hold": 2,
     "queue": 8
    },
+   "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=queue": {
+    "hold": 1
+   },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=turn": {
-    "queue": 39
+    "queue": 43
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None": {
-    "hold": 29
+    "hold": 33
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire": {
     "hold": 1,
@@ -2628,33 +2901,33 @@
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold": {
     "hold": 1,
-    "queue": 27
+    "queue": 31
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move": {
     "hold": 1,
     "queue": 16
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=turn": {
-    "queue": 27
+    "queue": 29
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=None": {
-    "hold": 23
+    "hold": 24
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=fire": {
-    "hold": 7
+    "hold": 8
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold": {
     "hold": 4,
-    "queue": 36
+    "queue": 38
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=move": {
     "hold": 2
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn": {
-    "queue": 33
+    "queue": 35
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=None": {
-    "hold": 5
+    "hold": 6
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=fire": {
     "away": 1,
@@ -2664,7 +2937,7 @@
     "queue": 3
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=turn": {
-    "queue": 13
+    "queue": 15
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=None": {
     "hold": 14
@@ -2680,30 +2953,30 @@
     "hold": 1
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=turn": {
-    "queue": 14
+    "queue": 15
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=fire": {
     "fire": 3,
     "hold": 2
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=hold": {
-    "toward": 75
+    "toward": 79
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=move": {
-    "toward": 35
+    "toward": 41
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=2|last=queue": {
-    "hold": 59
+    "hold": 63
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold": {
-    "hold": 74,
-    "toward": 45
+    "hold": 88,
+    "toward": 51
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move": {
-    "toward": 19
+    "toward": 20
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue": {
-    "hold": 68
+    "hold": 73
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=True|dist=2|last=hold": {
     "hold": 16
@@ -2715,40 +2988,43 @@
     "hold": 34
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=queue": {
-    "hold": 18
+    "hold": 19
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=fire": {
     "hold": 1
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold": {
-    "fire": 66
+    "fire": 68
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move": {
-    "fire": 94
+    "fire": 100
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue": {
-    "hold": 86
+    "hold": 90
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=None": {
-    "hold": 4
+    "hold": 5
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=fire": {
     "hold": 1
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
-    "turn": 4
+    "turn": 7
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=None": {
     "hold": 1
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=hold": {
-    "turn": 3
+    "turn": 5
+   },
+   "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=queue": {
+    "hold": 1
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=None": {
     "hold": 1
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=fire": {
-    "turn": 7
+    "turn": 10
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=hold": {
     "turn": 2
@@ -2763,7 +3039,7 @@
     "hold": 1
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=hold": {
-    "turn": 1
+    "turn": 2
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|dist=3|last=queue": {
     "hold": 1
@@ -2775,40 +3051,40 @@
     "hold": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None": {
-    "hold": 3
+    "hold": 6
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
-    "queue": 3
+    "queue": 4
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=move": {
     "queue": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=turn": {
-    "queue": 4
+    "queue": 7
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None": {
-    "hold": 3
+    "hold": 5
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=fire": {
-    "away": 3,
-    "hold": 6
+    "away": 4,
+    "hold": 8
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold": {
-    "queue": 6
+    "queue": 9
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=move": {
-    "queue": 3
+    "queue": 4
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=turn": {
-    "queue": 2
+    "queue": 3
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=None": {
-    "hold": 2
+    "hold": 5
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=hold": {
     "away": 1,
     "hold": 2,
-    "queue": 3
+    "queue": 6
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=move": {
     "hold": 1
@@ -2817,16 +3093,16 @@
     "hold": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn": {
-    "queue": 8
+    "queue": 12
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=None": {
-    "hold": 1
+    "hold": 2
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=2|last=hold": {
-    "queue": 1
+    "queue": 2
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=None": {
-    "hold": 4
+    "hold": 5
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=fire": {
     "away": 2
@@ -2835,51 +3111,102 @@
     "queue": 6
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|dist=3|last=turn": {
-    "queue": 1
+    "queue": 2
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=hold": {
-    "hold": 5,
-    "toward": 11
+    "hold": 8,
+    "toward": 16
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=move": {
     "hold": 1,
     "toward": 6
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=False|dist=3|last=queue": {
-    "hold": 8
+    "hold": 12
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=hold": {
-    "hold": 9
+    "hold": 12
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=True|dist=3|last=queue": {
     "hold": 6
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold": {
-    "fire": 5
+    "fire": 8
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=move": {
-    "fire": 5
+    "fire": 6
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue": {
-    "hold": 9
+    "hold": 12
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold": {
-    "fire": 9
+    "fire": 11
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=move": {
-    "fire": 3
+    "fire": 6
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue": {
-    "hold": 9
+    "hold": 14
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=turn": {
     "fire": 1
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=2|last=hold": {
-    "fire": 4
+    "fire": 5
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|dist=2|last=queue": {
+    "hold": 3
+   },
+   "kind=yumi_sniper|face=False|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=False|armed=False|in_fp=False|blocked=False|dist=3|last=hold": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=False|armed=False|in_fp=False|blocked=True|dist=1|last=hold": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=False|armed=True|in_fp=True|blocked=True|dist=1|last=queue": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=None": {
     "hold": 2
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=fire": {
+    "hold": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=2|last=hold": {
+    "queue": 2
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=None": {
+    "hold": 2
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=hold": {
+    "queue": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|dist=3|last=turn": {
+    "queue": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=None": {
+    "hold": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=True|dist=1|last=turn": {
+    "queue": 2
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=hold": {
+    "fire": 1
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=False|dist=2|last=queue": {
+    "hold": 2
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=False|dist=3|last=queue": {
+    "hold": 1
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=hold": {
+    "fire": 2
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=True|dist=1|last=queue": {
+    "hold": 1
    }
   },
   {
@@ -2889,24 +3216,33 @@
    "kind=ashigaru_archer|face=True|armed=True|in_fp=False|blocked=False|last=hold": {
     "hold": 6
    },
+   "kind=ashigaru_archer|face=True|armed=True|in_fp=False|blocked=True|last=None": {
+    "hold": 1
+   },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=False|blocked=True|last=hold": {
     "hold": 3
    },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=False|last=None": {
-    "hold": 1
+    "hold": 2
+   },
+   "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=False|last=hold": {
+    "fire": 1
+   },
+   "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=True|last=None": {
+    "hold": 2
    },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=True|blocked=True|last=hold": {
     "fire": 1
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|last=None": {
-    "hold": 54
+    "hold": 62
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|last=fire": {
     "hold": 3
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|last=hold": {
     "hold": 2,
-    "turn": 79
+    "turn": 86
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=False|last=queue": {
     "hold": 1
@@ -2915,15 +3251,15 @@
     "queue": 1
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|last=None": {
-    "hold": 20
+    "hold": 22
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|last=fire": {
     "hold": 1,
-    "turn": 73
+    "turn": 77
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|last=hold": {
-    "hold": 1,
-    "turn": 34
+    "hold": 2,
+    "turn": 37
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|blocked=True|last=move": {
     "hold": 1
@@ -2932,7 +3268,7 @@
     "turn": 1
    },
    "kind=ashigaru|face=False|armed=True|in_fp=False|blocked=True|last=fire": {
-    "turn": 4
+    "turn": 5
    },
    "kind=ashigaru|face=False|armed=True|in_fp=False|blocked=True|last=hold": {
     "turn": 1
@@ -2941,38 +3277,38 @@
     "turn": 4
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|last=None": {
-    "hold": 84
+    "hold": 88
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|last=fire": {
-    "away": 39,
-    "hold": 21
+    "away": 40,
+    "hold": 23
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|last=hold": {
     "hold": 6,
-    "queue": 90
+    "queue": 96
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|last=move": {
     "hold": 1,
-    "queue": 50
+    "queue": 52
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|last=queue": {
     "hold": 7,
     "queue": 1
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=False|last=turn": {
-    "queue": 63
+    "queue": 72
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|last=None": {
     "away": 1,
-    "hold": 44
+    "hold": 46
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|last=fire": {
-    "away": 13,
+    "away": 14,
     "hold": 7
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|last=hold": {
     "hold": 1,
-    "queue": 51
+    "queue": 53
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|last=move": {
     "hold": 2,
@@ -2982,30 +3318,30 @@
     "hold": 3
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|blocked=True|last=turn": {
-    "queue": 106
+    "queue": 112
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|last=hold": {
-    "hold": 73,
-    "toward": 194
+    "hold": 79,
+    "toward": 206
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|last=move": {
     "hold": 1,
-    "toward": 111
+    "toward": 118
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=False|last=queue": {
-    "hold": 183
+    "hold": 197
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|last=None": {
     "hold": 1
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|last=hold": {
-    "hold": 126
+    "hold": 130
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|last=move": {
     "hold": 6
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|blocked=True|last=queue": {
-    "hold": 39
+    "hold": 41
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|last=None": {
     "hold": 1
@@ -3014,14 +3350,14 @@
     "fire": 1
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|last=hold": {
-    "fire": 74,
+    "fire": 78,
     "turn": 1
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|last=move": {
-    "fire": 172
+    "fire": 183
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|last=queue": {
-    "hold": 86
+    "hold": 90
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|blocked=True|last=turn": {
     "fire": 5,
@@ -3037,7 +3373,7 @@
    },
    "kind=charger|face=False|armed=False|in_fp=False|blocked=False|last=hold": {
     "queue": 2,
-    "turn": 44
+    "turn": 45
    },
    "kind=charger|face=False|armed=False|in_fp=False|blocked=False|last=turn": {
     "turn": 1
@@ -3068,27 +3404,27 @@
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|last=None": {
     "away": 1,
-    "hold": 79
+    "hold": 86
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|last=fire": {
     "hold": 3
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|last=hold": {
     "hold": 6,
-    "queue": 40
+    "queue": 44
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|last=move": {
     "queue": 6
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=False|last=turn": {
-    "queue": 46
+    "queue": 47
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=True|last=None": {
     "away": 2,
     "hold": 45
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=True|last=fire": {
-    "away": 7,
+    "away": 8,
     "hold": 5
    },
    "kind=charger|face=True|armed=False|in_fp=False|blocked=True|last=hold": {
@@ -3106,10 +3442,10 @@
     "queue": 40
    },
    "kind=charger|face=True|armed=True|in_fp=False|blocked=False|last=hold": {
-    "hold": 142
+    "hold": 144
    },
    "kind=charger|face=True|armed=True|in_fp=False|blocked=False|last=queue": {
-    "hold": 22
+    "hold": 23
    },
    "kind=charger|face=True|armed=True|in_fp=False|blocked=True|last=hold": {
     "hold": 41
@@ -3121,11 +3457,11 @@
     "fire": 2
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|last=hold": {
-    "fire": 43,
+    "fire": 46,
     "hold": 1
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|last=queue": {
-    "hold": 50
+    "hold": 52
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=False|last=turn": {
     "turn": 1
@@ -3141,7 +3477,7 @@
     "turn": 1
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=True|last=queue": {
-    "hold": 46
+    "hold": 47
    },
    "kind=charger|face=True|armed=True|in_fp=True|blocked=True|last=turn": {
     "fire": 6
@@ -3284,6 +3620,52 @@
     "fire": 2,
     "queue": 1
    },
+   "kind=guardian|face=False|armed=False|in_fp=False|blocked=True|last=fire": {
+    "turn": 1
+   },
+   "kind=guardian|face=False|armed=False|in_fp=False|blocked=True|last=hold": {
+    "turn": 2
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=False|last=None": {
+    "hold": 2
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=False|last=fire": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=False|last=hold": {
+    "hold": 1,
+    "queue": 4
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|last=fire": {
+    "queue": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|last=hold": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|last=queue": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|blocked=True|last=turn": {
+    "queue": 3
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=False|last=hold": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=False|last=move": {
+    "toward": 2
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=False|last=queue": {
+    "toward": 4
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|blocked=True|last=queue": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=True|blocked=True|last=move": {
+    "fire": 3
+   },
+   "kind=guardian|face=True|armed=True|in_fp=True|blocked=True|last=queue": {
+    "hold": 2
+   },
    "kind=iwao|face=False|armed=False|in_fp=False|blocked=False|last=move": {
     "hold": 1
    },
@@ -3308,64 +3690,65 @@
     "fire": 1
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|last=None": {
-    "hold": 3
+    "hold": 4
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|last=fire": {
-    "away": 4,
+    "away": 5,
     "hold": 2
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|last=hold": {
     "hold": 1,
-    "queue": 3
+    "queue": 4
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=False|last=move": {
-    "queue": 6
+    "queue": 9
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=True|last=fire": {
-    "away": 3,
-    "hold": 1
+    "away": 5,
+    "hold": 2
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=True|last=hold": {
     "hold": 1,
-    "queue": 1
+    "queue": 2
    },
    "kind=iwao|face=True|armed=False|in_fp=False|blocked=True|last=turn": {
     "queue": 1
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|last=hold": {
     "fire": 3,
-    "toward": 2
+    "toward": 4
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|last=move": {
-    "toward": 1
+    "toward": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=False|last=queue": {
-    "hold": 3
+    "hold": 5
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|last=fire": {
     "fire": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|last=hold": {
-    "queue": 2
+    "fire": 1,
+    "queue": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|last=move": {
     "fire": 1
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|last=queue": {
-    "hold": 3
+    "hold": 4
    },
    "kind=iwao|face=True|armed=True|in_fp=False|blocked=True|last=turn": {
     "hold": 1
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|last=hold": {
-    "fire": 5,
+    "fire": 6,
     "hold": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|last=move": {
-    "fire": 1
+    "fire": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=False|last=queue": {
-    "hold": 3
+    "hold": 5
    },
    "kind=iwao|face=True|armed=True|in_fp=True|blocked=True|last=fire": {
     "fire": 1
@@ -3380,20 +3763,24 @@
     "turn": 1
    },
    "kind=rei|face=False|armed=False|in_fp=False|blocked=True|last=fire": {
+    "turn": 2
+   },
+   "kind=rei|face=False|armed=True|in_fp=False|blocked=True|last=hold": {
     "turn": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|last=None": {
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|last=fire": {
+    "away": 1,
     "hold": 2
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|last=hold": {
     "away": 1,
-    "queue": 2
+    "queue": 3
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|last=move": {
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|last=queue": {
     "queue": 1
@@ -3401,21 +3788,24 @@
    "kind=rei|face=True|armed=False|in_fp=False|blocked=False|last=turn": {
     "queue": 1
    },
+   "kind=rei|face=True|armed=False|in_fp=False|blocked=True|last=fire": {
+    "hold": 1
+   },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=True|last=move": {
     "hold": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|blocked=True|last=turn": {
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|last=hold": {
-    "fire": 1,
-    "toward": 3
+    "fire": 2,
+    "toward": 5
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|last=move": {
     "toward": 3
    },
    "kind=rei|face=True|armed=True|in_fp=False|blocked=False|last=queue": {
-    "hold": 5
+    "hold": 8
    },
    "kind=rei|face=True|armed=True|in_fp=True|blocked=False|last=hold": {
     "queue": 1
@@ -3423,17 +3813,21 @@
    "kind=rei|face=True|armed=True|in_fp=True|blocked=False|last=queue": {
     "hold": 1
    },
-   "kind=rei|face=True|armed=True|in_fp=True|blocked=True|last=hold": {
+   "kind=rei|face=True|armed=True|in_fp=True|blocked=False|last=turn": {
     "fire": 1
    },
+   "kind=rei|face=True|armed=True|in_fp=True|blocked=True|last=hold": {
+    "fire": 1,
+    "queue": 1
+   },
    "kind=rei|face=True|armed=True|in_fp=True|blocked=True|last=move": {
-    "fire": 2
+    "fire": 4
    },
    "kind=rei|face=True|armed=True|in_fp=True|blocked=True|last=queue": {
-    "hold": 1
+    "hold": 3
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|last=None": {
-    "hold": 53
+    "hold": 59
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|last=fire": {
     "hold": 5,
@@ -3441,13 +3835,13 @@
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|last=hold": {
     "queue": 2,
-    "turn": 84
+    "turn": 90
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=False|last=move": {
     "queue": 1
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|last=None": {
-    "hold": 34
+    "hold": 37
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|last=fire": {
     "away": 1,
@@ -3456,7 +3850,7 @@
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|last=hold": {
     "hold": 1,
     "queue": 3,
-    "turn": 52
+    "turn": 56
    },
    "kind=tachi|face=False|armed=False|in_fp=False|blocked=True|last=move": {
     "turn": 1
@@ -3477,8 +3871,12 @@
    "kind=tachi|face=False|armed=True|in_fp=False|blocked=False|last=queue": {
     "hold": 3
    },
+   "kind=tachi|face=False|armed=True|in_fp=True|blocked=True|last=None": {
+    "hold": 1
+   },
    "kind=tachi|face=False|armed=True|in_fp=True|blocked=True|last=hold": {
-    "fire": 8
+    "fire": 8,
+    "turn": 1
    },
    "kind=tachi|face=False|armed=True|in_fp=True|blocked=True|last=move": {
     "fire": 3
@@ -3487,90 +3885,96 @@
     "hold": 10
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|last=None": {
-    "hold": 90
+    "hold": 97
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|last=fire": {
     "away": 33,
-    "hold": 18,
+    "hold": 19,
     "queue": 3
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|last=hold": {
     "hold": 3,
-    "queue": 76
+    "queue": 84
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|last=move": {
     "hold": 3,
     "queue": 24
    },
+   "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|last=queue": {
+    "hold": 1
+   },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=False|last=turn": {
-    "queue": 66
+    "queue": 72
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|last=None": {
-    "hold": 42
+    "hold": 44
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|last=fire": {
     "away": 1,
-    "hold": 9
+    "hold": 10
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|last=hold": {
     "hold": 6,
-    "queue": 50
+    "queue": 52
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|last=move": {
     "hold": 3
    },
    "kind=tachi|face=True|armed=False|in_fp=False|blocked=True|last=turn": {
-    "queue": 60
+    "queue": 65
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|last=fire": {
     "fire": 3,
     "hold": 2
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|last=hold": {
-    "hold": 74,
-    "toward": 120
+    "hold": 88,
+    "toward": 130
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|last=move": {
-    "toward": 54
+    "toward": 61
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=False|last=queue": {
-    "hold": 127
+    "hold": 136
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=True|last=hold": {
     "hold": 50
    },
    "kind=tachi|face=True|armed=True|in_fp=False|blocked=True|last=queue": {
-    "hold": 34
+    "hold": 35
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|last=fire": {
     "hold": 1
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|last=hold": {
-    "fire": 66
+    "fire": 68
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|last=move": {
-    "fire": 94
+    "fire": 100
    },
    "kind=tachi|face=True|armed=True|in_fp=True|blocked=True|last=queue": {
-    "hold": 86
+    "hold": 90
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|last=None": {
-    "hold": 5
+    "hold": 6
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|last=fire": {
     "hold": 1
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|last=hold": {
-    "turn": 7
+    "turn": 12
+   },
+   "kind=yari_master|face=False|armed=False|in_fp=False|blocked=False|last=queue": {
+    "hold": 1
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|last=None": {
     "hold": 2
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|last=fire": {
-    "turn": 7
+    "turn": 10
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|last=hold": {
-    "turn": 4
+    "turn": 5
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|blocked=True|last=queue": {
     "hold": 1
@@ -3585,23 +3989,23 @@
     "hold": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|last=None": {
-    "hold": 6
+    "hold": 11
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|last=fire": {
-    "away": 3,
-    "hold": 6
+    "away": 4,
+    "hold": 8
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|last=hold": {
-    "queue": 9
+    "queue": 13
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|last=move": {
-    "queue": 4
+    "queue": 5
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=False|last=turn": {
-    "queue": 6
+    "queue": 10
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|last=None": {
-    "hold": 7
+    "hold": 12
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|last=fire": {
     "away": 2
@@ -3609,7 +4013,7 @@
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|last=hold": {
     "away": 1,
     "hold": 2,
-    "queue": 10
+    "queue": 14
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|last=move": {
     "hold": 1
@@ -3618,70 +4022,109 @@
     "hold": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|blocked=True|last=turn": {
-    "queue": 9
+    "queue": 14
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=False|last=hold": {
-    "hold": 5,
-    "toward": 11
+    "hold": 8,
+    "toward": 16
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=False|last=move": {
     "hold": 1,
     "toward": 6
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=False|last=queue": {
-    "hold": 8
+    "hold": 12
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=True|last=hold": {
-    "hold": 9
+    "hold": 12
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|blocked=True|last=queue": {
     "hold": 6
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=False|last=hold": {
-    "fire": 5
+    "fire": 8
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=False|last=move": {
-    "fire": 5
+    "fire": 6
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=False|last=queue": {
-    "hold": 9
+    "hold": 12
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|last=hold": {
-    "fire": 13
+    "fire": 16
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|last=move": {
-    "fire": 3
+    "fire": 6
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|last=queue": {
-    "hold": 11
+    "hold": 17
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|blocked=True|last=turn": {
     "fire": 1
+   },
+   "kind=yumi_sniper|face=False|armed=False|in_fp=False|blocked=False|last=hold": {
+    "turn": 2
+   },
+   "kind=yumi_sniper|face=False|armed=False|in_fp=False|blocked=True|last=hold": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=False|armed=True|in_fp=True|blocked=True|last=queue": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|last=None": {
+    "hold": 4
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|last=fire": {
+    "hold": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|last=hold": {
+    "queue": 3
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=False|last=turn": {
+    "queue": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=True|last=None": {
+    "hold": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|blocked=True|last=turn": {
+    "queue": 2
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=False|last=hold": {
+    "fire": 1
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=False|last=queue": {
+    "hold": 3
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=True|last=hold": {
+    "fire": 2
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|blocked=True|last=queue": {
+    "hold": 1
    }
   },
   {
    "kind=ashigaru_archer|face=True|armed=True|in_fp=False|last=None": {
-    "hold": 1
+    "hold": 2
    },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=False|last=hold": {
     "hold": 9
    },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=True|last=None": {
-    "hold": 1
+    "hold": 4
    },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=True|last=hold": {
-    "fire": 1
+    "fire": 2
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|last=None": {
-    "hold": 74
+    "hold": 84
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|last=fire": {
     "hold": 4,
-    "turn": 73
+    "turn": 77
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|last=hold": {
-    "hold": 3,
-    "turn": 113
+    "hold": 4,
+    "turn": 123
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False|last=move": {
     "hold": 1
@@ -3694,7 +4137,7 @@
     "turn": 1
    },
    "kind=ashigaru|face=False|armed=True|in_fp=False|last=fire": {
-    "turn": 4
+    "turn": 5
    },
    "kind=ashigaru|face=False|armed=True|in_fp=False|last=hold": {
     "turn": 1
@@ -3704,40 +4147,40 @@
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|last=None": {
     "away": 1,
-    "hold": 128
+    "hold": 134
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|last=fire": {
-    "away": 52,
-    "hold": 28
+    "away": 54,
+    "hold": 30
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|last=hold": {
     "hold": 7,
-    "queue": 141
+    "queue": 149
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|last=move": {
     "hold": 3,
-    "queue": 51
+    "queue": 53
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|last=queue": {
     "hold": 10,
     "queue": 1
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False|last=turn": {
-    "queue": 169
+    "queue": 184
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|last=None": {
     "hold": 1
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|last=hold": {
-    "hold": 199,
-    "toward": 194
+    "hold": 209,
+    "toward": 206
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|last=move": {
     "hold": 7,
-    "toward": 111
+    "toward": 118
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False|last=queue": {
-    "hold": 222
+    "hold": 238
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|last=None": {
     "hold": 1
@@ -3746,14 +4189,14 @@
     "fire": 1
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|last=hold": {
-    "fire": 74,
+    "fire": 78,
     "turn": 1
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|last=move": {
-    "fire": 172
+    "fire": 183
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|last=queue": {
-    "hold": 86
+    "hold": 90
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True|last=turn": {
     "fire": 5,
@@ -3770,7 +4213,7 @@
    },
    "kind=charger|face=False|armed=False|in_fp=False|last=hold": {
     "queue": 3,
-    "turn": 87
+    "turn": 88
    },
    "kind=charger|face=False|armed=False|in_fp=False|last=move": {
     "turn": 2
@@ -3787,16 +4230,16 @@
    },
    "kind=charger|face=True|armed=False|in_fp=False|last=None": {
     "away": 3,
-    "hold": 124
+    "hold": 131
    },
    "kind=charger|face=True|armed=False|in_fp=False|last=fire": {
-    "away": 7,
+    "away": 8,
     "hold": 8
    },
    "kind=charger|face=True|armed=False|in_fp=False|last=hold": {
     "away": 1,
     "hold": 7,
-    "queue": 56
+    "queue": 60
    },
    "kind=charger|face=True|armed=False|in_fp=False|last=move": {
     "away": 1,
@@ -3806,13 +4249,13 @@
     "hold": 1
    },
    "kind=charger|face=True|armed=False|in_fp=False|last=turn": {
-    "queue": 86
+    "queue": 87
    },
    "kind=charger|face=True|armed=True|in_fp=False|last=hold": {
-    "hold": 183
+    "hold": 185
    },
    "kind=charger|face=True|armed=True|in_fp=False|last=queue": {
-    "hold": 41
+    "hold": 42
    },
    "kind=charger|face=True|armed=True|in_fp=True|last=None": {
     "fire": 2,
@@ -3822,12 +4265,12 @@
     "hold": 1
    },
    "kind=charger|face=True|armed=True|in_fp=True|last=hold": {
-    "fire": 72,
+    "fire": 75,
     "hold": 1,
     "turn": 1
    },
    "kind=charger|face=True|armed=True|in_fp=True|last=queue": {
-    "hold": 96
+    "hold": 99
    },
    "kind=charger|face=True|armed=True|in_fp=True|last=turn": {
     "fire": 6,
@@ -3926,6 +4369,45 @@
     "fire": 2,
     "queue": 1
    },
+   "kind=guardian|face=False|armed=False|in_fp=False|last=fire": {
+    "turn": 1
+   },
+   "kind=guardian|face=False|armed=False|in_fp=False|last=hold": {
+    "turn": 2
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|last=None": {
+    "hold": 2
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|last=fire": {
+    "hold": 1,
+    "queue": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|last=hold": {
+    "hold": 2,
+    "queue": 4
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|last=queue": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False|last=turn": {
+    "queue": 3
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|last=hold": {
+    "hold": 1
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|last=move": {
+    "toward": 2
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False|last=queue": {
+    "hold": 1,
+    "toward": 4
+   },
+   "kind=guardian|face=True|armed=True|in_fp=True|last=move": {
+    "fire": 3
+   },
+   "kind=guardian|face=True|armed=True|in_fp=True|last=queue": {
+    "hold": 2
+   },
    "kind=iwao|face=False|armed=False|in_fp=False|last=fire": {
     "away": 1,
     "turn": 1
@@ -3950,18 +4432,18 @@
     "fire": 1
    },
    "kind=iwao|face=True|armed=False|in_fp=False|last=None": {
-    "hold": 3
+    "hold": 4
    },
    "kind=iwao|face=True|armed=False|in_fp=False|last=fire": {
-    "away": 7,
-    "hold": 3
+    "away": 10,
+    "hold": 4
    },
    "kind=iwao|face=True|armed=False|in_fp=False|last=hold": {
     "hold": 2,
-    "queue": 4
+    "queue": 6
    },
    "kind=iwao|face=True|armed=False|in_fp=False|last=move": {
-    "queue": 6
+    "queue": 9
    },
    "kind=iwao|face=True|armed=False|in_fp=False|last=turn": {
     "queue": 1
@@ -3970,16 +4452,16 @@
     "fire": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|last=hold": {
-    "fire": 3,
-    "queue": 2,
-    "toward": 2
+    "fire": 4,
+    "queue": 3,
+    "toward": 4
    },
    "kind=iwao|face=True|armed=True|in_fp=False|last=move": {
     "fire": 1,
-    "toward": 1
+    "toward": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=False|last=queue": {
-    "hold": 6
+    "hold": 9
    },
    "kind=iwao|face=True|armed=True|in_fp=False|last=turn": {
     "hold": 1
@@ -3988,60 +4470,67 @@
     "fire": 1
    },
    "kind=iwao|face=True|armed=True|in_fp=True|last=hold": {
-    "fire": 8,
+    "fire": 9,
     "hold": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=True|last=move": {
-    "fire": 1
+    "fire": 3
    },
    "kind=iwao|face=True|armed=True|in_fp=True|last=queue": {
-    "hold": 6
+    "hold": 8
    },
    "kind=rei|face=False|armed=False|in_fp=False|last=fire": {
-    "turn": 2
+    "turn": 3
+   },
+   "kind=rei|face=False|armed=True|in_fp=False|last=hold": {
+    "turn": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|last=None": {
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=False|in_fp=False|last=fire": {
-    "hold": 2
+    "away": 1,
+    "hold": 3
    },
    "kind=rei|face=True|armed=False|in_fp=False|last=hold": {
     "away": 1,
-    "queue": 2
+    "queue": 3
    },
    "kind=rei|face=True|armed=False|in_fp=False|last=move": {
     "hold": 1,
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=False|in_fp=False|last=queue": {
     "queue": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False|last=turn": {
-    "queue": 2
+    "queue": 3
    },
    "kind=rei|face=True|armed=True|in_fp=False|last=hold": {
-    "fire": 1,
-    "toward": 3
+    "fire": 2,
+    "toward": 5
    },
    "kind=rei|face=True|armed=True|in_fp=False|last=move": {
     "toward": 3
    },
    "kind=rei|face=True|armed=True|in_fp=False|last=queue": {
-    "hold": 5
+    "hold": 8
    },
    "kind=rei|face=True|armed=True|in_fp=True|last=hold": {
     "fire": 1,
-    "queue": 1
+    "queue": 2
    },
    "kind=rei|face=True|armed=True|in_fp=True|last=move": {
-    "fire": 2
+    "fire": 4
    },
    "kind=rei|face=True|armed=True|in_fp=True|last=queue": {
-    "hold": 2
+    "hold": 4
+   },
+   "kind=rei|face=True|armed=True|in_fp=True|last=turn": {
+    "fire": 1
    },
    "kind=tachi|face=False|armed=False|in_fp=False|last=None": {
-    "hold": 87
+    "hold": 96
    },
    "kind=tachi|face=False|armed=False|in_fp=False|last=fire": {
     "away": 1,
@@ -4051,7 +4540,7 @@
    "kind=tachi|face=False|armed=False|in_fp=False|last=hold": {
     "hold": 1,
     "queue": 5,
-    "turn": 136
+    "turn": 146
    },
    "kind=tachi|face=False|armed=False|in_fp=False|last=move": {
     "queue": 1,
@@ -4073,8 +4562,12 @@
    "kind=tachi|face=False|armed=True|in_fp=False|last=queue": {
     "hold": 3
    },
+   "kind=tachi|face=False|armed=True|in_fp=True|last=None": {
+    "hold": 1
+   },
    "kind=tachi|face=False|armed=True|in_fp=True|last=hold": {
-    "fire": 8
+    "fire": 8,
+    "turn": 1
    },
    "kind=tachi|face=False|armed=True|in_fp=True|last=move": {
     "fire": 3
@@ -4083,62 +4576,65 @@
     "hold": 10
    },
    "kind=tachi|face=True|armed=False|in_fp=False|last=None": {
-    "hold": 132
+    "hold": 141
    },
    "kind=tachi|face=True|armed=False|in_fp=False|last=fire": {
     "away": 34,
-    "hold": 27,
+    "hold": 29,
     "queue": 3
    },
    "kind=tachi|face=True|armed=False|in_fp=False|last=hold": {
     "hold": 9,
-    "queue": 126
+    "queue": 136
    },
    "kind=tachi|face=True|armed=False|in_fp=False|last=move": {
     "hold": 6,
     "queue": 24
    },
+   "kind=tachi|face=True|armed=False|in_fp=False|last=queue": {
+    "hold": 1
+   },
    "kind=tachi|face=True|armed=False|in_fp=False|last=turn": {
-    "queue": 126
+    "queue": 137
    },
    "kind=tachi|face=True|armed=True|in_fp=False|last=fire": {
     "fire": 3,
     "hold": 2
    },
    "kind=tachi|face=True|armed=True|in_fp=False|last=hold": {
-    "hold": 124,
-    "toward": 120
+    "hold": 138,
+    "toward": 130
    },
    "kind=tachi|face=True|armed=True|in_fp=False|last=move": {
-    "toward": 54
+    "toward": 61
    },
    "kind=tachi|face=True|armed=True|in_fp=False|last=queue": {
-    "hold": 161
+    "hold": 171
    },
    "kind=tachi|face=True|armed=True|in_fp=True|last=fire": {
     "hold": 1
    },
    "kind=tachi|face=True|armed=True|in_fp=True|last=hold": {
-    "fire": 66
+    "fire": 68
    },
    "kind=tachi|face=True|armed=True|in_fp=True|last=move": {
-    "fire": 94
+    "fire": 100
    },
    "kind=tachi|face=True|armed=True|in_fp=True|last=queue": {
-    "hold": 86
+    "hold": 90
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|last=None": {
-    "hold": 7
+    "hold": 8
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|last=fire": {
     "hold": 1,
-    "turn": 7
+    "turn": 10
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|last=hold": {
-    "turn": 11
+    "turn": 17
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|last=queue": {
-    "hold": 1
+    "hold": 2
    },
    "kind=yari_master|face=False|armed=False|in_fp=False|last=turn": {
     "queue": 1
@@ -4150,101 +4646,125 @@
     "hold": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|last=None": {
-    "hold": 13
+    "hold": 23
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|last=fire": {
-    "away": 5,
-    "hold": 6
+    "away": 6,
+    "hold": 8
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|last=hold": {
     "away": 1,
     "hold": 2,
-    "queue": 19
+    "queue": 27
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|last=move": {
     "hold": 1,
-    "queue": 4
+    "queue": 5
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|last=queue": {
     "hold": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False|last=turn": {
-    "queue": 15
+    "queue": 24
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|last=hold": {
-    "hold": 14,
-    "toward": 11
+    "hold": 20,
+    "toward": 16
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|last=move": {
     "hold": 1,
     "toward": 6
    },
    "kind=yari_master|face=True|armed=True|in_fp=False|last=queue": {
-    "hold": 14
+    "hold": 18
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|last=hold": {
-    "fire": 18
+    "fire": 24
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|last=move": {
-    "fire": 8
+    "fire": 12
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|last=queue": {
-    "hold": 20
+    "hold": 29
    },
    "kind=yari_master|face=True|armed=True|in_fp=True|last=turn": {
     "fire": 1
+   },
+   "kind=yumi_sniper|face=False|armed=False|in_fp=False|last=hold": {
+    "turn": 3
+   },
+   "kind=yumi_sniper|face=False|armed=True|in_fp=True|last=queue": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|last=None": {
+    "hold": 5
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|last=fire": {
+    "hold": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|last=hold": {
+    "queue": 3
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False|last=turn": {
+    "queue": 3
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|last=hold": {
+    "fire": 3
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True|last=queue": {
+    "hold": 4
    }
   },
   {
    "kind=ashigaru_archer|face=True|armed=True|in_fp=False": {
-    "hold": 10
+    "hold": 11
    },
    "kind=ashigaru_archer|face=True|armed=True|in_fp=True": {
-    "fire": 1,
-    "hold": 1
+    "fire": 2,
+    "hold": 4
    },
    "kind=ashigaru|face=False|armed=False|in_fp=False": {
-    "hold": 83,
+    "hold": 94,
     "queue": 1,
-    "turn": 187
+    "turn": 201
    },
    "kind=ashigaru|face=False|armed=True|in_fp=False": {
-    "turn": 9
+    "turn": 10
    },
    "kind=ashigaru|face=True|armed=False|in_fp=False": {
-    "away": 53,
-    "hold": 176,
-    "queue": 362
+    "away": 55,
+    "hold": 184,
+    "queue": 387
    },
    "kind=ashigaru|face=True|armed=True|in_fp=False": {
-    "hold": 429,
-    "toward": 305
+    "hold": 455,
+    "toward": 324
    },
    "kind=ashigaru|face=True|armed=True|in_fp=True": {
-    "fire": 252,
-    "hold": 88,
+    "fire": 267,
+    "hold": 92,
     "turn": 1
    },
    "kind=charger|face=False|armed=False|in_fp=False": {
     "away": 1,
     "hold": 11,
     "queue": 5,
-    "turn": 101
+    "turn": 102
    },
    "kind=charger|face=False|armed=True|in_fp=False": {
     "turn": 9
    },
    "kind=charger|face=True|armed=False|in_fp=False": {
-    "away": 12,
-    "hold": 140,
-    "queue": 148
+    "away": 13,
+    "hold": 147,
+    "queue": 153
    },
    "kind=charger|face=True|armed=True|in_fp=False": {
-    "hold": 224
+    "hold": 227
    },
    "kind=charger|face=True|armed=True|in_fp=True": {
-    "fire": 80,
-    "hold": 100,
+    "fire": 83,
+    "hold": 103,
     "turn": 2
    },
    "kind=daisuke|face=False|armed=False|in_fp=False": {
@@ -4278,6 +4798,21 @@
     "queue": 40,
     "turn": 1
    },
+   "kind=guardian|face=False|armed=False|in_fp=False": {
+    "turn": 3
+   },
+   "kind=guardian|face=True|armed=False|in_fp=False": {
+    "hold": 6,
+    "queue": 8
+   },
+   "kind=guardian|face=True|armed=True|in_fp=False": {
+    "hold": 2,
+    "toward": 6
+   },
+   "kind=guardian|face=True|armed=True|in_fp=True": {
+    "fire": 3,
+    "hold": 2
+   },
    "kind=iwao|face=False|armed=False|in_fp=False": {
     "away": 1,
     "hold": 1,
@@ -4292,43 +4827,46 @@
     "fire": 1
    },
    "kind=iwao|face=True|armed=False|in_fp=False": {
-    "away": 7,
-    "hold": 8,
-    "queue": 11
+    "away": 10,
+    "hold": 10,
+    "queue": 16
    },
    "kind=iwao|face=True|armed=True|in_fp=False": {
-    "fire": 7,
-    "hold": 7,
-    "queue": 2,
-    "toward": 3
+    "fire": 8,
+    "hold": 10,
+    "queue": 3,
+    "toward": 7
    },
    "kind=iwao|face=True|armed=True|in_fp=True": {
-    "fire": 10,
-    "hold": 9
+    "fire": 13,
+    "hold": 11
    },
    "kind=rei|face=False|armed=False|in_fp=False": {
-    "turn": 2
+    "turn": 3
+   },
+   "kind=rei|face=False|armed=True|in_fp=False": {
+    "turn": 1
    },
    "kind=rei|face=True|armed=False|in_fp=False": {
-    "away": 1,
-    "hold": 3,
-    "queue": 7
+    "away": 2,
+    "hold": 4,
+    "queue": 11
    },
    "kind=rei|face=True|armed=True|in_fp=False": {
-    "fire": 1,
-    "hold": 5,
-    "toward": 6
+    "fire": 2,
+    "hold": 8,
+    "toward": 8
    },
    "kind=rei|face=True|armed=True|in_fp=True": {
-    "fire": 3,
-    "hold": 2,
-    "queue": 1
+    "fire": 6,
+    "hold": 4,
+    "queue": 2
    },
    "kind=tachi|face=False|armed=False|in_fp=False": {
     "away": 1,
-    "hold": 97,
+    "hold": 106,
     "queue": 7,
-    "turn": 138
+    "turn": 148
    },
    "kind=tachi|face=False|armed=True|in_fp=False": {
     "fire": 1,
@@ -4337,48 +4875,63 @@
    },
    "kind=tachi|face=False|armed=True|in_fp=True": {
     "fire": 11,
-    "hold": 10
+    "hold": 11,
+    "turn": 1
    },
    "kind=tachi|face=True|armed=False|in_fp=False": {
     "away": 34,
-    "hold": 174,
-    "queue": 279
+    "hold": 186,
+    "queue": 300
    },
    "kind=tachi|face=True|armed=True|in_fp=False": {
     "fire": 3,
-    "hold": 287,
-    "toward": 174
+    "hold": 311,
+    "toward": 191
    },
    "kind=tachi|face=True|armed=True|in_fp=True": {
-    "fire": 160,
-    "hold": 87
+    "fire": 168,
+    "hold": 91
    },
    "kind=yari_master|face=False|armed=False|in_fp=False": {
-    "hold": 9,
+    "hold": 11,
     "queue": 1,
-    "turn": 18
+    "turn": 27
    },
    "kind=yari_master|face=False|armed=True|in_fp=False": {
     "hold": 1,
     "turn": 1
    },
    "kind=yari_master|face=True|armed=False|in_fp=False": {
-    "away": 6,
-    "hold": 23,
-    "queue": 38
+    "away": 7,
+    "hold": 35,
+    "queue": 56
    },
    "kind=yari_master|face=True|armed=True|in_fp=False": {
-    "hold": 29,
-    "toward": 17
+    "hold": 39,
+    "toward": 22
    },
    "kind=yari_master|face=True|armed=True|in_fp=True": {
-    "fire": 27,
-    "hold": 20
+    "fire": 37,
+    "hold": 29
+   },
+   "kind=yumi_sniper|face=False|armed=False|in_fp=False": {
+    "turn": 3
+   },
+   "kind=yumi_sniper|face=False|armed=True|in_fp=True": {
+    "turn": 1
+   },
+   "kind=yumi_sniper|face=True|armed=False|in_fp=False": {
+    "hold": 6,
+    "queue": 6
+   },
+   "kind=yumi_sniper|face=True|armed=True|in_fp=True": {
+    "fire": 3,
+    "hold": 4
    }
   },
   {
    "face=False|armed=False|in_fp=False|last=None": {
-    "hold": 179,
+    "hold": 199,
     "queue": 2,
     "turn": 6
    },
@@ -4386,12 +4939,12 @@
     "away": 3,
     "hold": 14,
     "queue": 1,
-    "turn": 116
+    "turn": 125
    },
    "face=False|armed=False|in_fp=False|last=hold": {
-    "hold": 4,
+    "hold": 5,
     "queue": 9,
-    "turn": 349
+    "turn": 381
    },
    "face=False|armed=False|in_fp=False|last=move": {
     "hold": 2,
@@ -4399,7 +4952,7 @@
     "turn": 3
    },
    "face=False|armed=False|in_fp=False|last=queue": {
-    "hold": 2
+    "hold": 3
    },
    "face=False|armed=False|in_fp=False|last=turn": {
     "queue": 4,
@@ -4408,12 +4961,12 @@
    "face=False|armed=True|in_fp=False|last=fire": {
     "fire": 1,
     "hold": 1,
-    "turn": 4
+    "turn": 5
    },
    "face=False|armed=True|in_fp=False|last=hold": {
     "hold": 2,
     "toward": 4,
-    "turn": 11
+    "turn": 12
    },
    "face=False|armed=True|in_fp=False|last=move": {
     "toward": 3
@@ -4422,64 +4975,69 @@
     "hold": 7,
     "turn": 8
    },
+   "face=False|armed=True|in_fp=True|last=None": {
+    "hold": 1
+   },
    "face=False|armed=True|in_fp=True|last=hold": {
     "fire": 9,
-    "turn": 1
+    "turn": 2
    },
    "face=False|armed=True|in_fp=True|last=move": {
     "fire": 4
    },
    "face=False|armed=True|in_fp=True|last=queue": {
-    "hold": 10
+    "hold": 10,
+    "turn": 1
    },
    "face=True|armed=False|in_fp=False|last=None": {
     "away": 6,
-    "hold": 424,
-    "queue": 4
+    "hold": 464,
+    "queue": 5
    },
    "face=True|armed=False|in_fp=False|last=fire": {
-    "away": 150,
-    "hold": 96,
-    "queue": 3
+    "away": 158,
+    "hold": 106,
+    "queue": 4
    },
    "face=True|armed=False|in_fp=False|last=hold": {
     "away": 4,
-    "hold": 27,
-    "queue": 393
+    "hold": 29,
+    "queue": 433
    },
    "face=True|armed=False|in_fp=False|last=move": {
     "away": 2,
     "hold": 11,
-    "queue": 138
+    "queue": 145
    },
    "face=True|armed=False|in_fp=False|last=queue": {
-    "hold": 12,
+    "hold": 14,
     "queue": 4
    },
    "face=True|armed=False|in_fp=False|last=turn": {
-    "queue": 429
+    "queue": 472
    },
    "face=True|armed=True|in_fp=False|last=None": {
-    "hold": 4
+    "hold": 5
    },
    "face=True|armed=True|in_fp=False|last=fire": {
     "fire": 7,
     "hold": 3
    },
    "face=True|armed=True|in_fp=False|last=hold": {
-    "fire": 32,
-    "hold": 560,
-    "queue": 3,
-    "toward": 361,
+    "fire": 34,
+    "hold": 593,
+    "queue": 4,
+    "toward": 392,
     "turn": 1
    },
    "face=True|armed=True|in_fp=False|last=move": {
     "fire": 1,
     "hold": 9,
-    "toward": 195
+    "toward": 213
    },
    "face=True|armed=True|in_fp=False|last=queue": {
-    "hold": 508
+    "hold": 546,
+    "toward": 4
    },
    "face=True|armed=True|in_fp=False|last=turn": {
     "fire": 1,
@@ -4488,27 +5046,27 @@
    },
    "face=True|armed=True|in_fp=True|last=None": {
     "fire": 2,
-    "hold": 5
+    "hold": 8
    },
    "face=True|armed=True|in_fp=True|last=fire": {
     "fire": 2,
     "hold": 2
    },
    "face=True|armed=True|in_fp=True|last=hold": {
-    "fire": 288,
+    "fire": 308,
     "hold": 4,
-    "queue": 40,
+    "queue": 41,
     "turn": 3
    },
    "face=True|armed=True|in_fp=True|last=move": {
-    "fire": 306
+    "fire": 334
    },
    "face=True|armed=True|in_fp=True|last=queue": {
     "fire": 1,
-    "hold": 395
+    "hold": 425
    },
    "face=True|armed=True|in_fp=True|last=turn": {
-    "fire": 14,
+    "fire": 15,
     "hold": 1,
     "queue": 1,
     "turn": 1
@@ -4517,48 +5075,48 @@
   {
    "face=False|armed=False|in_fp=False": {
     "away": 3,
-    "hold": 201,
+    "hold": 223,
     "queue": 17,
-    "turn": 477
+    "turn": 518
    },
    "face=False|armed=True|in_fp=False": {
     "fire": 1,
     "hold": 10,
     "toward": 7,
-    "turn": 23
+    "turn": 25
    },
    "face=False|armed=True|in_fp=True": {
     "fire": 13,
-    "hold": 10,
-    "turn": 1
+    "hold": 11,
+    "turn": 3
    },
    "face=True|armed=False|in_fp=False": {
-    "away": 162,
-    "hold": 570,
-    "queue": 971
+    "away": 170,
+    "hold": 624,
+    "queue": 1063
    },
    "face=True|armed=True|in_fp=False": {
-    "fire": 41,
-    "hold": 1085,
-    "queue": 3,
-    "toward": 558,
+    "fire": 43,
+    "hold": 1157,
+    "queue": 4,
+    "toward": 611,
     "turn": 1
    },
    "face=True|armed=True|in_fp=True": {
-    "fire": 613,
-    "hold": 407,
-    "queue": 41,
+    "fire": 662,
+    "hold": 440,
+    "queue": 42,
     "turn": 4
    }
   },
   {
    "": {
-    "away": 165,
-    "fire": 668,
-    "hold": 2283,
-    "queue": 1032,
-    "toward": 565,
-    "turn": 506
+    "away": 173,
+    "fire": 719,
+    "hold": 2465,
+    "queue": 1126,
+    "toward": 618,
+    "turn": 551
    }
   }
  ],

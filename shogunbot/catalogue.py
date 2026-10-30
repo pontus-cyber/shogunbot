@@ -295,6 +295,12 @@ class Catalogue:
         """Standard enemies introduced in this region (bosses excluded)."""
         return [self.enemies[i] for i in self.regions[region]["enemies"]]
 
+    def region_visitors(self, region: str) -> list[EnemyKind]:
+        """Standard enemies of another region seen in this region's waves although the route did not
+        pass their home region (regions.json 'visitors'): the Yumi Sniper in Moonlit Port [bot: run
+        20261030-115221; rec: collect/20261029-160032]."""
+        return [self.enemies[i] for i in self.regions[region].get("visitors", [])]
+
     def bosses(self, region: str) -> list[EnemyKind]:
         """The region's bosses: its first boss, then the alternates [wiki: Regions]."""
         return [self.enemies[i] for i in self.regions[region].get("boss") or []]
@@ -331,7 +337,7 @@ class Catalogue:
                     if t not in self.tiles:
                         raise ValueError(f"hero {h.id}: unknown tile {t}")
         for reg in self.regions.values():
-            for i in reg.get("enemies", []) + (reg.get("boss") or []):
+            for i in reg.get("enemies", []) + reg.get("visitors", []) + (reg.get("boss") or []):
                 if i not in self.enemies:
                     raise ValueError(f"region {reg['id']}: unknown enemy {i}")
 

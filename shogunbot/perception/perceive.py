@@ -111,7 +111,34 @@ def roster_tables(regions: tuple[str, ...] = ROSTER) -> tuple[dict, dict]:
             base.setdefault(e.id, e.hp)
             if e.tile:
                 by_tile.setdefault(e.tile, e.id)
+    # then the regions' visitors (roster_visitors), after every native kind
+    for e in roster_visitors(regions):
+        base.setdefault(e, CAT.enemies[e].hp)
+        if CAT.enemies[e].tile:
+            by_tile.setdefault(CAT.enemies[e].tile, e)
     return base, by_tile
+
+
+@lru_cache(maxsize=16)
+def pip_ties(regions: tuple[str, ...] = ROSTER) -> dict:
+    """kind -> the other simulated kinds of the roster with its HP: the kinds a unit's HP pips cannot tell apart
+    (the Ashigaru and the Yumi Sniper, 3; the Tachi and the Ashigaru Archer, 2). Only the tile in its bubble names
+    such a unit, so a unit named by its tile reads as the roster's first kind again once its bubble is empty."""
+    from ..model import ENEMY_KINDS
+    base, _ = roster_tables(regions)
+    sim = [k for k in base if k in ENEMY_KINDS]
+    return {k: frozenset(o for o in sim if o != k and base[o] == base[k]) for k in sim
+            if any(o != k and base[o] == base[k] for o in sim)}
+
+
+@lru_cache(maxsize=16)
+def roster_visitors(regions: tuple[str, ...] = ROSTER) -> frozenset:
+    """Kinds that come to these regions from a region the route did not pass (regions.json 'visitors'):
+    the Yumi Sniper in Moonlit Port [bot: run 20261030-115221, four Snipers in Moonlit Port I-III, all
+    read as Ashigaru by 0.34]. They are named only by the tile in their bubble: a 3-pip unit without one
+    stays an Ashigaru, as the natives are the common case."""
+    native = {e.id for r in regions for e in CAT.region_enemies(r)}
+    return frozenset(e.id for r in regions for e in CAT.region_visitors(r) if e.id not in native)
 # Elite variants (Day 2 on) have extra HP [wiki: Quick, Heavy, Reactive Shield +1, Double-Striker +2]
 ELITE_BONUS = tuple(sorted({t["hp_bonus"] for t in CAT.elite_traits.values() if t.get("hp_bonus")}))
 # ... and an emblem at the top centre of their plate. Emblem-coloured pixels (brown-gold: R 150-230,
@@ -123,9 +150,28 @@ ELITE_PX = 60
 SPRITE_KIND_CONF = 0.8   # the sprite's kind counts as evidence from this confidence on
 
 
-def classify_icon(interior: np.ndarray, allowed: tuple | None = None) -> tuple[str, float]:
+# Icons read only on a unit that can carry them: the Yumi Sniper's Volley, a '2' over thin arrows. Open on every
+# bubble, its templates came nearest to 271 of the 9,996 recorded enemy bubbles: the Sniper's 161 (read as Spear,
+# Swirl or Arrow before) and 110 others at low confidence (Tachi Swirls, Iwao's Earth Impale, a Day 2 elite's
+# sword, boss tiles). It is open on a unit whose HP pips fit a kind of the route's roster that carries it
+# (perceive, open_icons): then only the Sniper's 161 reads change (the 3-pip elite Tachis of the Day 2 run
+# 20261029-045856 have the pips but not the route), and routes without the Sniper read as before.
+GATED_ICONS = frozenset({"volley"})
+
+
+def open_icons(pips: int, base_hp: dict, elites: bool) -> frozenset:
+    """The gated icons a unit with these HP pips may carry: those of the roster's kinds whose HP fits."""
+    bonus = (0,) + (ELITE_BONUS if elites else ())
+    return frozenset(t for k, hp in base_hp.items() for t in CAT.enemies[k].tiles
+                     if t in GATED_ICONS and pips - hp in bonus)
+
+
+def classify_icon(interior: np.ndarray, allowed: tuple | None = None,
+                  exclude: frozenset = GATED_ICONS) -> tuple[str, float]:
     v = cv2.resize(interior, (25, 24), interpolation=cv2.INTER_AREA).astype(np.float32).ravel() / 255
     d = ((ICO_X - v) ** 2).sum(1)
+    if exclude:
+        d = np.where(np.isin(ICO_K, list(exclude)), np.inf, d)
     if allowed:
         # restrict to the tiles that can be there [run 20261028-061420: an Arrow in the
         # hand was read as Spear (conf 0.01) and the bot could not find its Arrow]
@@ -192,8 +238,9 @@ def _frame_off_centre(rgb: np.ndarray, y0: int, y1: int, cx: int) -> str | None:
     return cols[0]
 
 
-def read_stack(rgb: np.ndarray, cx: int) -> list[dict]:
-    """Bubble slots above a unit, bottom first: {type:'tile'|'plus', tile, colour, plus_colour}."""
+def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS) -> list[dict]:
+    """Bubble slots above a unit, bottom first: {type:'tile'|'plus', tile, colour, plus_colour}.
+    exclude: icons the unit cannot carry (classify_icon)."""
     out = []
     for k in range(4):
         y0, y1 = SLOT_Y0 - SLOT_PITCH * k, SLOT_Y1 - SLOT_PITCH * k
@@ -210,7 +257,7 @@ def read_stack(rgb: np.ndarray, cx: int) -> list[dict]:
         interior = rgb[y0 + 12:y1 - 12, cx - 50:cx + 50]
         dark = (interior.astype(int).sum(axis=2) < 150).mean()
         if dark > 0.35:
-            tile, conf = classify_icon(interior)
+            tile, conf = classify_icon(interior, exclude=exclude)
             out.append({"type": "tile", "tile": tile, "colour": col, "conf": round(conf, 2)})
         else:
             c = rgb[(y0 + y1) // 2 - 4:(y0 + y1) // 2 + 4, cx - 4:cx + 4].reshape(-1, 3).mean(0)
@@ -227,7 +274,8 @@ def elite_pixels(rgb: np.ndarray, cx: int) -> int:
 
 
 def decide_kind(pips: int, tile_kind: str | None, sprite_kind: str | None, elite: bool,
-                base_hp: dict | None = None, elites: bool = True) -> tuple[str | None, str | None]:
+                base_hp: dict | None = None, elites: bool = True,
+                visitors: frozenset = frozenset()) -> tuple[str | None, str | None]:
     """(kind, alt) of a Stage 1 unit from its HP pips, the tile in its bubble, its sprite and
     the elite emblem. alt is a kind the read could not rule out (None when the evidence agrees).
 
@@ -242,7 +290,10 @@ def decide_kind(pips: int, tile_kind: str | None, sprite_kind: str | None, elite
     base_hp: the kinds of the run's regions (roster_tables). elites False (Day 1, chosen at the
     camp): no unit has extra pips, so the pips alone name the kind [M4: in Whispering Caves the
     Yari Master's spear icon read as a Sword on 18 of 30 reads, which named the 4-pip unit an elite
-    Ashigaru; collect/20261028-190026 f0186-f0280]."""
+    Ashigaru; collect/20261028-190026 f0186-f0280].
+
+    visitors (roster_visitors): kinds named only by their tile, never kept as the alt of a pip tie (a
+    3-pip unit with no tile in its bubble is an Ashigaru, not 'maybe a Yumi Sniper')."""
     allowed = (0,) + (ELITE_BONUS if elites else ())
     bonus = {k: pips - hp for k, hp in (base_hp or BASE_HP).items() if pips - hp in allowed}
     if not bonus:
@@ -266,7 +317,7 @@ def decide_kind(pips: int, tile_kind: str | None, sprite_kind: str | None, elite
         # two kinds of the route with these pips and no tile to tell them apart: the Moonlit Port
         # Ashigaru Archer and the Tachi both have 2 [catalogue], and the Archer read as a Tachi until its
         # Arrow showed (collect/20261028-190026 f0346-f0380): plan it as both (0.31)
-        alt = next((k for k, b in bonus.items() if b == 0 and k != base), None)
+        alt = next((k for k, b in bonus.items() if b == 0 and k != base and k not in visitors), None)
     return base, alt
 
 
@@ -284,6 +335,27 @@ def plate_marker(rgb: np.ndarray, cx: int) -> str | None:
     if dx < -30:
         return "move-left"
     return "turn"
+
+
+# The warning sign an aimed attack (the Yumi Sniper's Volley) puts at the feet of the hero as the turn it fires
+# begins: a yellow triangle (220,168,27) with a black '!', 48 px wide, rows 708-751, centred on his cell [run
+# 20261030-115221 t0174_before: x 848-895, 1,120 yellow px; rec: collect/20261029-160032 f0199, f0203, f0215,
+# f0222]. It is read on rows 705-735, above the yellow 1ST/2ND order markers (rows 740-777), in each cell's
+# window (centre +-40 px). On the 9,496 recorded fight frames 87 show a sign, on 98 cells, with 380-1,576 yellow
+# px: 77 under the hero, the rest on the cell he was leaving as the user's input was captured, or a boss's aimed
+# attacks in the recordings' last regions. Other yellow things there held at most 302: a coin on the ground beside
+# a move arrow (rec2 f0025), a boss's gold trim (156-218).
+WARN_Y0, WARN_Y1, WARN_HALF = 705, 736, 40
+WARN_PX = 350
+
+
+def warn_cells(rgb: np.ndarray, cxs: list) -> list[int]:
+    """The cells (indices into cxs, the cells' centres) under a warning sign."""
+    sub = rgb[WARN_Y0:WARN_Y1].astype(np.int16)
+    m = ((sub[..., 0] > 200) & (sub[..., 0] < 245) & (sub[..., 1] > 145) & (sub[..., 1] < 195)
+         & (sub[..., 2] < 60))
+    col = m.sum(axis=0)
+    return [i for i, cx in enumerate(cxs) if int(col[max(cx - WARN_HALF, 0):cx + WARN_HALF].sum()) >= WARN_PX]
 
 
 def swap_ticks(rgb: np.ndarray, cx: int) -> tuple[int, int]:
@@ -489,11 +561,18 @@ def merge_blink(p: "Perception", frames: list) -> list[str]:
     blink cycle and upgrade it when any frame shows yellow.
     Returns notes on what was upgraded (for the log)."""
     notes = []
+    frames = [normalize(f) for f in frames]
+    if p.cells:
+        cxs = [c["cx"] for c in p.cells]
+        for f in frames:
+            for i in warn_cells(f, cxs):
+                if i not in p.warn:
+                    p.warn.append(i)
+                    notes.append(f"warning sign at {i} on a later frame")
     for e in p.enemies:
         if e["intent"] in ("fire", "move-left", "move-right", "turn"):
             continue
         for f in frames:
-            f = normalize(f)
             stack = read_stack(f, e["cx"])
             tiles = [t for t in stack if t["type"] == "tile"]
             plus = [t for t in stack if t["type"] == "plus"]
@@ -572,11 +651,12 @@ class Perception:
     wave: tuple | None = None
     wave_alert: bool = False
     confidence: dict = field(default_factory=dict)
+    warn: list = field(default_factory=list)     # cells under an aimed attack's warning sign (warn_cells)
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in
                 ("screen", "cells", "hero", "enemies", "hand", "items", "boss_frac", "wave", "wave_alert",
-                 "confidence")}
+                 "confidence", "warn")}
 
 
 def boss_kind(regions: tuple[str, ...], cells: int) -> str:
@@ -592,6 +672,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
     run's route so far (whose enemies can appear). day: the day the run is on, when known (Day 1
     has no elites)."""
     base_hp, by_tile_kind = roster_tables(tuple(regions))
+    visitors = roster_visitors(tuple(regions))
     rgb = normalize(rgb)
     cs = find_cells(rgb)
     screen = screen_type(rgb, cs)
@@ -609,7 +690,11 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
         if c["kind"] in ("enemy", "hero"):
             crop = rgb[SPRITE_Y0:SPRITE_Y1, cx - 64:cx + 64]
             kind, facing, kc = classify_sprite(crop)
-            stack = read_stack(rgb, cx)
+            if c["kind"] == "enemy":
+                g, r = hp_squares(rgb, cx, HP_ROWS[0])
+                stack = read_stack(rgb, cx, exclude=GATED_ICONS - open_icons(g + r, base_hp, day != 1))
+            else:
+                stack = read_stack(rgb, cx)
             marker = plate_marker(rgb, cx)
             if c["kind"] == "hero":
                 g1, r1, g2, r2 = hero_hp(rgb, cx)
@@ -624,7 +709,6 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 conf["hero_facing"] = round(kc, 2) if kind == "hero" else 0.0
                 conf["hero_hp"] = 1.0 if (g1 + g2 + r1 + r2) in (5, 10, 12, 14, 16) else 0.3
             else:
-                g, r = hp_squares(rgb, cx, HP_ROWS[0])
                 tiles = [s for s in stack if s["type"] == "tile"]
                 plus = [s for s in stack if s["type"] == "plus"]
                 intent = None
@@ -656,7 +740,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                     kind = boss_kind(regions, len(cs))
                 else:
                     by_pips, alt = decide_kind(g + r, by_tile, kind if kc >= SPRITE_KIND_CONF else None, elite,
-                                               base_hp, elites=day != 1)
+                                               base_hp, elites=day != 1, visitors=visitors)
                     if by_pips:
                         kind = by_pips
                     elif by_tile:
@@ -674,6 +758,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
             entry["unit"] = kind
         cell_list.append(entry)
     p.cells = cell_list
+    p.warn = warn_cells(rgb, [c["cx"] for c in cs])
     p.hand = read_hand(rgb, kit_tiles)
     p.items = read_consumables(rgb)
     if screen == "boss":
