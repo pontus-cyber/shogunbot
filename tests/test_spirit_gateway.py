@@ -234,3 +234,17 @@ def test_a_loaded_shinobi_with_the_hero_in_its_lane_fires_whatever_one_frame_sho
     s = tr.state(_p(REC1, 694))
     sh = next(e for e in s.enemies if e.kind == "shinobi")
     assert sh.queue == ["shuriken"] and sh.intent == "fire"
+
+
+def test_a_unit_read_as_the_statue_where_another_stood_keeps_its_kind_and_hp():
+    # rec1 f0868-f0869: the Hook pulled the hero past the Summoner on cell 0, whose pips did not show, so it read as
+    # The Statue; f0879: the Tachi summoned on cell 3 the turn before read as The Statue too. Before 0.36 the extra
+    # read became the boss's summoned unit (a Charger, then the Summoner's Ashigaru)
+    tr = _statue_tracker()
+    seen = {}
+    for n in (866, 867, 868, 869, 870, 878, 879):
+        s = tr.state(_p(REC1, n))
+        seen[n] = sorted((e.x, e.kind, e.hp) for e in s.enemies)
+        tr.acted(s, "wait")
+    assert seen[868][0] == (0, "summoner", 7) and seen[869][0] == (0, "summoner", 7)
+    assert seen[879][0] == (3, "tachi", 2)

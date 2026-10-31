@@ -186,6 +186,7 @@ class Tracker:
         self.advance = False               # a reward screen ended the level: the next fight is the next level
         self.notes: list[str] = []
         self.prev: list = []          # enemies of the last state (for facing persistence)
+        self.prev_hp: dict = {}       # cell -> HP of the last state's units
         self.fresh: list = []         # (x, kind, facing) of the units new in the last state
         self.hist: list = []          # enemies when the bot last acted: (kind, x, telegraph, fage), for the
                                       # behaviour model's history features (behaviour.carry)
@@ -261,6 +262,7 @@ class Tracker:
             self.level = level
             self.facing_known = False
             self.prev = []
+            self.prev_hp = {}
             self.hist = []
             self.cycle = self._cycle_now = None
 
@@ -381,14 +383,23 @@ class Tracker:
             # summoned units whose pips were hidden [run 20261028-053637: Chargers]
             last = next((q[1] for q in self.prev if q[0] in BOSS_KINDS), None)
             keep = min(bosses, key=lambda en: abs(en.x - last)) if last is not None else max(bosses, key=lambda en: len(en.queue))
-            unit = CAT.enemy(keep.kind).summons or "charger"
+            # (The Statue summons through its Summoner: the Summoner's unit)
+            unit = (CAT.enemy(keep.kind).summons or next((e.summons for e in CAT.enemies.values()
+                                                          if e.behaviour.get("synced_with") == keep.kind), None)
+                    or "charger")
             for en in bosses:
                 if en is not keep:
-                    en.kind, en.hp = unit, ENEMY_KINDS[unit][0]
-                    en.queue = [t for t in en.queue if t == ENEMY_KINDS[unit][1]][:1]
+                    # a unit that stood there last turn keeps its kind and HP: the Summoner on cell 0 read as
+                    # The Statue while the Hook pulled the hero past it, and a summoned Tachi on cell 3 the
+                    # turn after it came [rec: collect/20261028-190026 f0868-f0869, f0879]
+                    was = next((q for q in self.prev if q[0] not in BOSS_KINDS and q[1] == en.x), None)
+                    k = was[0] if was else unit
+                    en.kind, en.hp = k, (self.prev_hp.get(en.x) if was else None) or ENEMY_KINDS[k][0]
+                    en.queue = [t for t in en.queue if t in CAT.enemy(k).tiles][:1]
             self.notes.append(f"{len(bosses)} {keep.kind} reads; kept cell {keep.x}")
         self.fresh = [(en.x, en.kind, en.facing) for en in self._unmatched(enemies)]
         self.prev = [(en.kind, en.x, en.facing, en.intent) for en in enemies]
+        self.prev_hp = {en.x: en.hp for en in enemies}
         self.swapped_uid_x = None
         # what each enemy did last turn and how long since it fired: the learned model's
         # history features, matched the way shogunbot.mine matches logged turns
