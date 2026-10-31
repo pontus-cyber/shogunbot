@@ -25,3 +25,18 @@ def test_light_paper_map_reads_as_map(rel):
 ])
 def test_paper_coloured_fight_is_not_a_map(rel):
     assert screens.classify(frame(rel)) != "map"
+
+
+# 0.39: Moonlit Port III's camera panned a 9-cell board to x0 140, under the item column's edge
+# [run 20261031-123442, after t225: no board for 90 s, the run stopped]
+def test_panned_nine_cell_board_under_the_item_column():
+    from shogunbot.perception import board
+    cs = board.cells(frame("runs/20261031-123442/frames/unknown_1793447769.png"))
+    assert [c["x0"] for c in cs] == list(range(140, 1261, 140))
+    assert [c["kind"] for c in cs][6:] == ["enemy", "empty", "hero"]
+
+
+def test_a_row_that_may_run_on_under_the_item_column_stays_unread():
+    from shogunbot.perception import board
+    # a 5-cell row whose next plate lies under the potions: the width is unknown
+    assert not board.is_board(board.cells(frame("collect/20261029-160032/f0547_idle.png")))

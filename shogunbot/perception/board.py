@@ -32,6 +32,14 @@ ROW_TOL = 70                      # neighbouring plates of a board are PITCH apa
                                   # makes 280; a spawn flame's glow moved a plate's edge by 12 px [collect/
                                   # 20261029-160032 f0047, Bamboo Grove II], a tooltip's bar over the first
                                   # plate by 64 [f1370, Hot Springs], the item column by 48 [f1893]
+EDGE_BODY_MIN = 60                # Moonlit Port III's camera panned a 9-cell board to x0 140, its first plate
+EDGE_STD = 25                     # 78 px right of the item column, so the row read as running on under the
+                                  # column and the bot saw no board for 90 s [run 20261031-123442
+                                  # unknown_1793447769.png, after t225]. That first cell is taken when at
+                                  # least EDGE_BODY_MIN px of its body lie right of ITEM_X, the board is then
+                                  # 9 wide (nothing can lie further left) and the body is even (std <= EDGE_STD:
+                                  # 0.9-2.7 empty and 14 on an enemy there; 43 on the lit ground left of a
+                                  # 7-cell Bamboo Grove board, collect/20261029-160032 f0415, which it must not take)
 
 
 def plate_runs(rgb: np.ndarray) -> list[tuple[int, int]]:
@@ -139,6 +147,12 @@ def _body(lum: np.ndarray, x0: int) -> float:
     return float(lum[a:b].mean())
 
 
+def _edge_cell(lum: np.ndarray, x0: int, width: int) -> bool:
+    """The cell at x0, partly under the item column, is a 9-cell board's first plate (EDGE_BODY_MIN)."""
+    a, b = max(x0 + 10, ITEM_X), x0 + PLATE_W - 10
+    return width == max(BOARD_CELLS) and b - a >= EDGE_BODY_MIN and float(lum[a:b].std()) <= EDGE_STD
+
+
 def _gap_dark(band: np.ndarray, x0: int) -> bool:
     """The gap right of the plate at x0 is dark somewhere in its middle (a move arrow lights only its
     top rows; the lighthouse beam and a tooltip light it all) [collect/20261028-190026 f0353, f0402]."""
@@ -171,7 +185,9 @@ def dark_cells(rgb: np.ndarray, runs: list[tuple[int, int]]) -> list[dict] | Non
     boards = []
     for r in rows:
         if r[0] > 0 and present[r[0] - 1]:
-            continue                          # it runs on under the item column: its width is unknown
+            if not _edge_cell(lum, grid[r[0] - 1], len(r) + 1):
+                continue                      # it runs on under the item column: its width is unknown
+            r = [r[0] - 1] + r
         heroes = [i for i in r if _tealish(rgb, grid[i]) >= HERO_TEAL]
         if len(r) in BOARD_CELLS and len(heroes) == 1:
             boards.append((r, heroes[0]))
