@@ -55,7 +55,10 @@ def state_diff(pred: State, obs: State) -> list[str]:
         elif o is None:
             out.append(f"cell{x}: pred={p.kind} obs=empty")
         else:
-            if p.kind != o.kind:
+            # a kind the read left open (alt) that its tile then named is no misprediction: the planner
+            # played both [user review of run 20261030-213120, item 4: 6 of its 11 kind mismatches were
+            # 2-pip units planned as Tachi or Archer until the Archer's Arrow showed]; replay accepts these too
+            if p.kind != o.kind and o.kind != getattr(p, "alt", None):
                 out.append(f"cell{x}.kind: pred={p.kind} obs={o.kind}")
             for f in ("hp", "facing"):
                 if getattr(p, f) != getattr(o, f):

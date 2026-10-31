@@ -33,6 +33,26 @@ def h_queue(p) -> list:
     return list((p.hero or {}).get("queue", []))
 
 
+def hand_unsettled(p, kit: Kit) -> str | None:
+    """Why the hand read and the hero's queue bubbles do not account for the kit, or None.
+
+    Every kit tile is in the hand (bright or dimmed) or queued, so faces + bubbles = tiles on a
+    settled screen. Two animations break that, and the screen's overall change stays under
+    grab_stable's threshold while they play [user review of run 20261030-213120, item 2]: a tile that
+    comes ready flashes (a white bar sweeps over its face: t62 read the Arrow as nothing and the
+    Charge as an unknown face, t95 the Swirl as nothing), and after an attack the fired tiles fly back
+    into the hand (t241, t291; t168 read an empty hand while the Arrow flashed). Of the 1,339 saved
+    fight frames of the bot's runs, 9 read so, all in one of these two moments."""
+    faces = list(getattr(p, "hand", None) or [])
+    unread = sum(1 for f in faces if f.get("tile") is None)
+    if unread:
+        return f"{unread} hand face(s) unread"
+    bubbles = h_queue(p)
+    if len(faces) + len(bubbles) != len(kit):
+        return f"{len(faces)} hand faces and {len(bubbles)} queue bubbles for {len(kit)} kit tiles"
+    return None
+
+
 def match_faces(kit: Kit, faces: list[dict], charge: dict | None = None) -> dict[str, dict]:
     """Assign hand faces to kit labels by tile id. With copies of a tile (swirl,
     swirl#2) the assignment that best fits each copy's cooldown, damage and
@@ -188,10 +208,10 @@ class Tracker:
         stage = self.stage if stage is None else stage
         return region_boss_index(self.route[stage - 1] if 0 < stage <= len(self.route) else None)
 
-    def _level(self, screen: str, cells: int) -> str:
+    def _level_pos(self, screen: str, cells: int) -> tuple[int, int]:
+        """(stage, level index) of the fight on screen, without moving the tracker there."""
         stage, i = self.stage, self.level_i
         if self.advance:
-            self.advance = False
             stage, i = (stage + 1, 0) if i >= self.boss_index(stage) else (stage, i + 1)
         elif i < 0:                          # the run's first fight: by the board
             i = self.boss_index(stage) if screen == "boss" else 1 if cells == 7 and stage == 1 else 0
@@ -201,6 +221,16 @@ class Tracker:
             i = 1                            # Bamboo Grove II without its reward screen read
         elif stage == 1 and i == 1 and cells == 5:
             i = 2                            # Daisuke's arena shows a turn or two before the boss bar
+        return stage, i
+
+    def peek_level(self, screen: str, cells: int) -> str:
+        """The name state() would give the fight on screen; the tracker stays where it is."""
+        stage, i = self._level_pos(screen, cells)
+        return level_name(stage, i, self.boss_index(stage))
+
+    def _level(self, screen: str, cells: int) -> str:
+        stage, i = self._level_pos(screen, cells)
+        self.advance = False
         self.stage, self.level_i = stage, i
         return level_name(stage, i, self.boss_index(stage))
 
@@ -314,8 +344,9 @@ class Tracker:
                 if fixed != queue:
                     self.notes.append(f"{kind} queue read {queue}; set to {fixed}")
                 queue = fixed
-            elif queue and any(t != ENEMY_KINDS[kind][1] for t in queue):
-                # regular enemies only carry their own tile; an odd read is an animation overlay
+            elif queue and any(t not in CAT.enemy(kind).tiles for t in queue):
+                # regular enemies only carry their own tiles (the Grappler and the Shinobi two each); an odd
+                # read is an animation overlay
                 self.notes.append(f"enemy at {e['x']} queue read {queue}; set to {ENEMY_KINDS[kind][1]}")
                 queue = [ENEMY_KINDS[kind][1]]
             aim = None

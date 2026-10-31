@@ -24,7 +24,7 @@
     {"id": "slot_1", "name": "+1 Upgrade Slot", "lines": ["+1 UPGRADE SLOT"], "seen": false, "damage": 0, "cooldown": 0, "slots": 1, "uses_level": false},
     {"id": "slot_1_cooldown_minus_1", "name": "+1 Upgrade Slot, -1 Cooldown", "lines": ["+1 UPGRADE SLOT", "-1 COOLDOWN"], "seen": true, "damage": 0, "cooldown": -1, "slots": 1, "uses_level": false},
     {"id": "sacrifice", "name": "Sacrifice a Tile", "lines": ["SACRIFICE TILE", "GET 40 COINS"], "seen": true, "lines_source": "bot: run 20261030-115221 reward_5_shrine (after Whispering Caves II) and the first shop's statue; the first line red", "damage": 0, "cooldown": 0, "slots": 0, "uses_level": false, "removes_tile": true, "coins": 40},
-    {"id": "warriors_gamble", "name": "Warrior's Gamble", "lines": ["WARRIOR'S GAMBLE"], "seen": false, "damage": 0, "cooldown": 0, "slots": 0, "uses_level": true, "unknown_effect": true}
+    {"id": "warriors_gamble", "name": "Warrior's Gamble", "lines": ["WARRIOR'S GAMBLE"], "seen": true, "lines_source": "bot: run 20261030-213120 reward_2_shrine (Bamboo Grove II); the apostrophe reads as '?', the title alone matches", "text": "Randomize the tile into a new one. All upgrades will be randomized as well.", "text_source": "bot: run 20261030-213120 reward_2_shrine; its button reads RANDOMIZE (not UPGRADE), REROLL 3 coins", "damage": 0, "cooldown": 0, "slots": 0, "uses_level": true, "unknown_effect": true, "never_taken": "the new tile and its upgrades are random, so no simulation can value it [user review of run 20261030-213120, item 3: fine for now]"}
   ],
   "enchantments": [
     {"id": "shockwave", "name": "Shockwave", "lines": ["SHOCKWAVE", "+1 COOLDOWN"], "seen": false, "cooldown": 1, "text": "On hit, enemies adjacent to the target take 1 damage each."},

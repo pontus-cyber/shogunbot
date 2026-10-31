@@ -93,6 +93,18 @@ def test_the_sacrifice_shrine_is_read_and_skipped_as_never_taken():
     assert d.best.name == "skip" and d.rule == "not a free reward (sacrifice or unknown effect)"
 
 
+def test_warriors_gamble_is_read_and_never_taken():
+    # 0.36 [user review of run 20261030-213120, item 3]: Bamboo Grove II's shrine; its text says the tile is
+    # randomized into a new one, upgrades too, so no simulation can value it
+    from shogunbot import rewards
+    from shogunbot.perception import reward_screen
+    rs = reward_screen.read(frame("runs/20261030-213120/frames/reward_2_shrine.png"), ("swirl", "arrow", "charge"))
+    assert rs.kind == "shrine" and rs.upgrade == "warriors_gamble"
+    up = CAT.upgrades["warriors_gamble"]
+    assert up.seen and up.unknown_effect and not rewards.offerable(up)
+    assert rewards.decide_upgrade(DEFAULT_KIT, "warriors_gamble", 10).best.name == "skip"
+
+
 def test_shrine_lights_up_with_a_tile_in_the_statue():
     from shogunbot.perception import reward_screen
     assert reward_screen.read(frame("collect/20261027-164727/f0111_CLICK.png"), ("swirl", "arrow", "spear")).upgrade_lit
