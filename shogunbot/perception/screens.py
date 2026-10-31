@@ -278,11 +278,19 @@ def features(rgb: np.ndarray) -> dict:
     a = rgb.astype(int)
     s = a[200:800, 150:1800]
     tan = ((np.abs(s[..., 0] - 150) < 20) & (np.abs(s[..., 1] - 112) < 20) & (np.abs(s[..., 2] - 80) < 20)).mean()
+    paper = ((np.abs(s[..., 0] - 168) < 20) & (np.abs(s[..., 1] - 138) < 20) & (np.abs(s[..., 2] - 105) < 20)).mean()
     s2 = a[200:700, 100:1800]
     red = (s2[..., 0] > s2[..., 1] * 1.7).mean()
     hand = a[900:1010, 780:1140]
     wood = ((hand[..., 0] > 150) & (hand[..., 1] > 80) & (hand[..., 1] < 150) & (hand[..., 2] < 100)).mean()
-    return {"tan": float(tan), "red": float(red), "wood": float(wood), "mean": float(a.mean())}
+    return {"tan": float(tan), "paper": float(paper), "red": float(red), "wood": float(wood), "mean": float(a.mean())}
+
+
+# The map after Moonlit Port is lighter paper, (168,138,105): tan 0.066, so it read as
+# unknown and run 20261031-114119 stopped there. Over 3,079 recorded frames, every frame
+# without the fight HUD or the shop that has paper > 0.12 is a map (0.257-0.43); fights in
+# Moonlit Port reach 0.29, so the rule needs the HUD to be absent [0.38].
+PAPER_MAP = 0.2
 
 
 def classify(rgb: np.ndarray) -> str | None:
@@ -296,6 +304,8 @@ def classify(rgb: np.ndarray) -> str | None:
         return "reward"
     if shop(rgb):
         return "shop"
+    if f["paper"] > PAPER_MAP and not combat_hud(rgb):
+        return "map"
     if f["red"] > 0.5:
         if f["wood"] > 0.08:
             return "camp"
