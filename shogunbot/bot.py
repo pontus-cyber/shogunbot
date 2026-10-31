@@ -54,7 +54,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.42"
+VERSION = "0.43"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -323,7 +323,9 @@ class Bot:
             label = action.split(":", 1)[1]
             tile = kit[label].tile if label in kit else label
             # the face the bridge gave this label; with two copies of a tile, any ready copy
-            slot = match_faces(kit, p.hand, charge).get(label) if label in kit else None
+            queued = set((getattr(p, "hero", None) or {}).get("queue") or [])
+            skip = tuple(kt.label for kt in kit if kt.tile in queued and kt.label != label)
+            slot = match_faces(kit, p.hand, charge, skip=skip).get(label) if label in kit else None
             if slot is None or not slot.get("ready", True):
                 faces = [h for h in p.hand if h["tile"] == tile]
                 slot = next((h for h in faces if h.get("ready")), slot or (faces[0] if faces else None))

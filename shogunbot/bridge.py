@@ -59,10 +59,13 @@ def hand_unsettled(p, kit: Kit) -> str | None:
     return None
 
 
-def match_faces(kit: Kit, faces: list[dict], charge: dict | None = None) -> dict[str, dict]:
+def match_faces(kit: Kit, faces: list[dict], charge: dict | None = None, guess: bool = True,
+                skip: tuple = ()) -> dict[str, dict]:
     """Assign hand faces to kit labels by tile id. With copies of a tile (swirl,
     swirl#2) the assignment that best fits each copy's cooldown, damage and
-    tracked charge wins, also when only some copies are in view."""
+    tracked charge wins, also when only some copies are in view. guess: a face
+    whose icon was not recognised goes to the one kit label left over (not in
+    skip, e.g. queued) whose cooldown and damage it shows (_guess_unread)."""
     charge = charge or {}
     out = {}
     tiles = []
@@ -100,7 +103,29 @@ def match_faces(kit: Kit, faces: list[dict], charge: dict | None = None) -> dict
                 if best_c is None or c < best_c:
                     best, best_c = list(zip(perm, fs)), c
         out.update(dict(best))
+    if guess:
+        _guess_unread(kit, faces, out, skip)
     return out
+
+
+def _guess_unread(kit: Kit, faces: list[dict], out: dict, skip: tuple = ()) -> None:
+    """An upgraded or enchanted face can miss its icon template (tile None, conf about 0.42): in run
+    20261031-154544 the Swirl and the Shuriken were 'not found in hand' 30 times, the shrine lost 4
+    upgrades, and in run 20261031-180506 swirl#2 stayed 'planned as recharging' for 200 turns while
+    the hero had nothing to attack with [0.43]. Such a face is given to the only kit label not yet
+    matched (and not in skip) whose cooldown it shows, and whose damage too when that read is sure;
+    with no such label or more than one it stays unread."""
+    free = [kt for kt in kit if kt.label not in out and kt.label not in skip]
+    for f in faces:
+        if f.get("tile") or f.get("cooldown") is None:
+            continue
+        cands = [kt for kt in free if kt.cooldown == f["cooldown"]
+                 and (f.get("damage") is None or f.get("damage_conf", 0) < 0.75 or kt.damage == f["damage"])]
+        if len(cands) == 1:
+            kt = cands[0]
+            f["tile"], f["guessed"] = kt.tile, True
+            out[kt.label] = f
+            free.remove(kt)
 
 
 def kit_from_faces(kit: Kit, faces: list[dict], notes: list | None = None) -> Kit:
@@ -109,7 +134,7 @@ def kit_from_faces(kit: Kit, faces: list[dict], notes: list | None = None) -> Ki
     kit lacks are added; kit tiles the read misses are kept."""
     notes = notes if notes is not None else []
     tiles = list(kit.tiles)
-    matched = match_faces(kit, faces)
+    matched = match_faces(kit, faces, guess=False)
     for i, kt in enumerate(tiles):
         f = matched.get(kt.label)
         if f is None:
@@ -281,7 +306,7 @@ class Tracker:
         kit = self.kit
         queue = self._queue(h, p.hand)
         charge = dict(self.charge)
-        faces = match_faces(kit, p.hand, charge)
+        faces = match_faces(kit, p.hand, charge, skip=tuple(queue))
         hand_read = any(f.get("tile") for f in p.hand)
         unseen = []
         for kt in kit:
@@ -514,7 +539,7 @@ class Tracker:
         icons where those name kit tiles, else from what the bot queued."""
         kit = self.kit
         bubbles = [BUBBLE_ALIAS.get(b, b) for b in h.get("queue", [])]
-        in_hand = match_faces(kit, hand, self.charge)
+        in_hand = match_faces(kit, hand, self.charge, guess=False)   # queue count: as before 0.43
         missing = [lb for lb in kit.labels if lb not in in_hand]
         track = [x for x in self.queue_track if x in kit]
 

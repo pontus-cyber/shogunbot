@@ -67,3 +67,20 @@ def test_weak_contrary_hero_facing_reads_override_after_three():
     assert tr._hero_facing({"facing": -1}, 0.5) == 1
     assert tr._hero_facing({"facing": -1}, 0.5) == -1
     assert tr._hero_facing({"facing": 1}, 0.06) == -1          # a weak read below 0.5 never counts
+
+
+# 0.43: an unrecognised hand face goes to the one free kit label with its cooldown and damage
+# [run 20261031-154544: 'queue:swirl: tile not found in hand' 18 times, the face read tile None, 2/5]
+def test_unread_face_goes_to_the_only_label_with_its_stats():
+    from shogunbot.bridge import match_faces
+    from shogunbot.model import Kit
+    kit = Kit.from_list([{"label": "swirl", "tile": "swirl", "damage": 2, "cooldown": 5},
+                         {"label": "arrow", "tile": "arrow", "damage": 2, "cooldown": 8},
+                         {"label": "spear", "tile": "spear", "damage": 2, "cooldown": 5},
+                         {"label": "shuriken", "tile": "shuriken", "damage": 1, "cooldown": 3}])
+    face = {"tile": None, "conf": 0.42, "damage": 2, "damage_conf": 0.8, "cooldown": 5, "charged": 5,
+            "ready": True, "cx": 960}
+    assert match_faces(kit, [dict(face)]) == {}                              # swirl or spear: unread
+    got = match_faces(kit, [dict(face)], skip=("spear",))                   # the spear is queued
+    assert list(got) == ["swirl"] and got["swirl"]["guessed"]
+    assert match_faces(kit, [dict(face)], skip=("spear",), guess=False) == {}
