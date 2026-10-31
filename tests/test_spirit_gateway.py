@@ -317,6 +317,21 @@ def test_hp_lost_ends_a_tracked_shield():
     assert not tr.shield and not s.hero.shield
 
 
+def test_a_hero_moved_by_an_enemy_ends_a_tracked_shield():
+    # run 20261029-095311 t76: Rei's Dragon Punch pushed the hero from cell 4 to the wall; the shield took the hit (no
+    # HP lost) and stayed on in the tracker, so t82's -2 was planned as -1
+    tr = Tracker()
+    ash = [{"x": 6, "kind": "ashigaru", "hp": 3}]
+    tr.shield = True
+    s = tr.state(_synthetic(4, 10, ash, cells=7))
+    tr.acted(s, "wait")
+    s = tr.state(_synthetic(4, 10, ash, cells=7))
+    assert s.hero.shield                                                    # where his action left him: kept
+    tr.acted(s, "wait")
+    s = tr.state(_synthetic(0, 10, ash, cells=7))
+    assert not tr.shield and not s.hero.shield
+
+
 def test_a_quick_unit_fires_on_its_rule_only_with_its_own_tile_read_sure():
     # rec2 f1051: a Shinobi's bubble read 'swap_toss' at 0.06 (no tile of its own, set to its Shuriken); 0.36 had
     # it firing on the hero two cells away, and nothing came

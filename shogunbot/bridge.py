@@ -197,6 +197,7 @@ class Tracker:
         self.freeze_left = 0          # turns of Mass Ice left
         self.shield = False           # Kami Brew active
         self.last_hp: int | None = None   # the hero's HP in the last state
+        self.hero_x_after: int | None = None   # the hero's cell after his last action, before the enemies moved
         self.cursed = False           # Mass Curse on every enemy until our next attack
         self.swapped_uid_x: int | None = None
         self.cycle: dict | None = None      # The Statue when the bot last acted: its tile count, stack, telegraph, holds
@@ -268,6 +269,7 @@ class Tracker:
             self.facing_known = False
             self.prev = []
             self.prev_hp = {}
+            self.hero_x_after = None
             self.hist = []
             self.cycle = self._cycle_now = None
 
@@ -324,6 +326,12 @@ class Tracker:
             # f0875, where a Charger's 1 was planned as blocked)
             self.shield = False
             self.notes.append(f"HP {self.last_hp} -> {hp}: no shield")
+        if self.shield and self.hero_x_after is not None and h["x"] != self.hero_x_after:
+            # an enemy moved him (Dragon Punch, the Hook, the Smoke Bomb), so it hit him and the shield took the hit:
+            # run 20261029-095311 t76, Rei's punch pushed the hero to the wall without HP lost, the tracked shield
+            # stayed on, and t82's -2 was planned as -1
+            self.shield = False
+            self.notes.append(f"hero moved from {self.hero_x_after} to {h['x']} by an enemy: no shield")
         if hp:
             self.last_hp = hp
         # the red ticks under the hero count the turns his swap still needs (Quick Recovery shortens it)
@@ -684,6 +692,7 @@ class Tracker:
             if outs and not max(outs, key=lambda t: t[0])[1].hero.shield:
                 self.shield = False  # the likeliest outcome used it up
         s2 = apply_hero(s, action, Events())
+        self.hero_x_after = s2.hero.x
         self.charge = dict(s2.hero.charge)
         self.queue_track = list(s2.hero.queue)
         # where each enemy stands once the hero has acted (a swap moves one), and its telegraph
