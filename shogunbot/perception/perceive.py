@@ -470,6 +470,10 @@ def hp_squares(rgb: np.ndarray, cx: int, row_y: int) -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------- hand
+GREY_CONF = 0.5             # confidence of the grey fallback; a sprite read at least this sure wins
+GREY_SPREAD = 14             # max - min of a neutral-grey shoulder-patch pixel under red light (hero_patch_facing)
+
+
 def hero_patch_facing(rgb: np.ndarray, cx: int) -> tuple[int, float]:
     """Hero facing from the grey shoulder patch: large on the back, barely
     visible on the front [user]. Patch pixels right of centre = back on the
@@ -482,7 +486,19 @@ def hero_patch_facing(rgb: np.ndarray, cx: int) -> tuple[int, float]:
     m = (g > r + 6) & (b >= r - 6) & (b <= g + 2) & (g > 35) & (g < 120)
     xs = np.nonzero(m)[1]
     if len(xs) < 15:
-        return 0, 0.0
+        # Spirit Gateway's red light turns the patch neutral grey, (56,48,48)-(80,80,72): the green test
+        # found nothing, the sprite read 'left' at confidence 0.06, the tracker kept 'right', and the hero
+        # attacked the wall five times while a Guardian hit him for 2 each time [run 20261031-165514
+        # t568-t605, 12 -> 2 HP] [0.42]. Fallback only: a frame the green test reads is unchanged.
+        mx, mn = c.max(axis=2), c.min(axis=2)
+        m = (mx - mn <= GREY_SPREAD) & (g >= 44) & (g <= 110)
+        xs = np.nonzero(m)[1]
+        if len(xs) < 15 or abs(float(xs.mean() - 38)) <= 8:
+            return 0, 0.0
+        # weaker than the green test: on the grey backdrops of later regions it disagreed with 18 of
+        # 500 confident sprite reads (collect/20261029-160032 f1765-f2006), so the caller takes it only
+        # over a sprite read below GREY_CONF
+        return (-1 if xs.mean() - 38 > 0 else 1), GREY_CONF
     dx = float(xs.mean() - 38)
     if abs(dx) <= 8:
         return 0, 0.0
@@ -769,7 +785,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 g1, r1, g2, r2 = hero_hp(rgb, cx)
                 wt, rt = swap_ticks(rgb, cx)
                 pf, pc = hero_patch_facing(rgb, cx)
-                if pf:
+                if pf and (pc > GREY_CONF or kind != "hero" or kc < pc):
                     facing, kind, kc = pf, "hero", pc
                 p.hero = {"x": i, "cx": cx, "facing": facing if kind == "hero" else 0,
                           "hp": g1 + g2, "hp_max": g1 + g2 + r1 + r2,

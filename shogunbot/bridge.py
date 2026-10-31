@@ -21,6 +21,7 @@ BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
 # a Quick unit counts as loaded for the fire rule (Tracker.state) on a read of its own tile at least this sure: the
 # Shinobi's Shuriken read 0.96-1.0 when it fired (rec1 f0694, f0711, f0712); reads of tiles it does not carry 0.02-0.16
 QUICK_READ_CONF = 0.5
+HERO_FACING_WEAK_N = 3     # weak contrary hero-facing reads in a row that override the tracked facing [0.42]
 # sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
 # symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
 # left on all 40 turns, and his sprite read 'facing right' on 12 of them, flipping 12 times
@@ -184,6 +185,7 @@ class Tracker:
         self.facing = 1
         self.facing_known = False
         self.facing_disagree = 0
+        self.facing_weak = 0
         self.level = ""
         self.stage, self.level_i = 1, -1   # the run's stage and level within it (-1: no fight yet)
         self.route: list[str] = ["bamboo_grove"]   # the run's regions in order (bot, replay)
@@ -566,6 +568,16 @@ class Tracker:
                 self.facing, self.facing_disagree = seen, 0
         else:
             self.facing_disagree = 0
+        # a weaker contrary read (perceive's grey-patch fallback, 0.5) that holds on HERO_FACING_WEAK_N
+        # reads in a row also overrides: in run 20261031-165514 (t568-t605) the tracked 'right' was never
+        # corrected and the hero attacked the wall five times [0.42]
+        if seen and seen != self.facing and conf >= 0.5:
+            self.facing_weak += 1
+            if self.facing_weak >= HERO_FACING_WEAK_N:
+                self.notes.append(f"hero facing re-read as {seen} (weak reads)")
+                self.facing, self.facing_weak = seen, 0
+        else:
+            self.facing_weak = 0
         return self.facing
 
     def _enemy_facing(self, kind: str, e: dict, queue: list, intent: str, hero_x: int, conf: float) -> int:

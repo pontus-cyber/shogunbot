@@ -49,3 +49,21 @@ def test_split_run_does_not_set_the_grid():
     cs = board.cells(frame("runs/20261031-144722/frames/stuck.png"))
     assert [(c["x0"], c["kind"]) for c in cs] == [(520, "empty"), (660, "empty"), (800, "empty"),
                                                    (940, "enemy"), (1080, "hero")]
+
+
+# 0.42: Spirit Gateway's red light made the hero's shoulder patch grey; the facing went unread and the
+# tracker kept 'right' while he faced the wall [run 20261031-165514 t568-t605: 12 -> 2 HP]
+def test_hero_facing_under_red_light():
+    from shogunbot.perception import perceive
+    for rel in ("runs/20261031-165514/frames/t0572_before.png", "runs/20261031-165514/frames/t0572_after.png"):
+        assert perceive.perceive(frame(rel)).hero["facing"] == -1
+
+
+def test_weak_contrary_hero_facing_reads_override_after_three():
+    from shogunbot.bridge import Tracker
+    tr = Tracker()
+    tr.facing, tr.facing_known = 1, True
+    assert tr._hero_facing({"facing": -1}, 0.5) == 1
+    assert tr._hero_facing({"facing": -1}, 0.5) == 1
+    assert tr._hero_facing({"facing": -1}, 0.5) == -1
+    assert tr._hero_facing({"facing": 1}, 0.06) == -1          # a weak read below 0.5 never counts
