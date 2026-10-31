@@ -62,8 +62,18 @@ def stall_push(candidates: list[dict], action: str, budget: int, hp_weight: floa
         return None
     best = max((c["value"] for c in candidates), default=None)
     att = next((c for c in candidates if c["action"] == "attack"), None)
-    if best is None or att is None:
+    if best is None:
         return None
+    if att is None:
+        # nothing loaded: load the best tile within budget, so the next turn has an attack to push.
+        # Run 20261031-180506 (0.41, Moonlit Port II t219-t419): with no tile queued there was no
+        # 'attack' line, and the hero walked back and forth with a 3-HP Guardian for 200 turns while
+        # queue:arrow#2 (0 expected damage) scored about 220 below 'left' every turn [0.44]
+        if action.startswith("queue:"):
+            return None
+        qs = [c for c in candidates if c["action"].startswith("queue:")
+              and c["value"] >= best - hp_weight * (budget + 0.5) and c.get("exp_damage", 0) <= budget]
+        return max(qs, key=lambda c: c["value"])["action"] if qs else None
     if att["value"] >= best - hp_weight * (budget + 0.5) and att.get("exp_damage", 0) <= budget:
         return "attack"
     return None

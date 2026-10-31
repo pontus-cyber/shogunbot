@@ -54,7 +54,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.43"
+VERSION = "0.44"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -1543,7 +1543,7 @@ class Bot:
                     if push:
                         log.event("stall_push", turn=turn, quiet_turns=turn - last_progress, budget=budget,
                                   planned=d.action, played=push, board=s.render())
-                        self.say(f"   stall: {turn - last_progress} quiet turns; attacking instead of '{d.action}'")
+                        self.say(f"   stall: {turn - last_progress} quiet turns; {push} instead of '{d.action}'")
                         d.action = push
                 # loop breaker [run 20261027-182237: a misread facing made 'right' a
                 # blocked move; the board never changed and the bot repeated it ~40 times]

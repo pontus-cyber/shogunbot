@@ -108,3 +108,16 @@ def test_stall_push_ends_the_iwao_wait():
     assert d1.action != "attack" and stall_push(d1.candidates, d1.action, 1) is None   # 1-HP budget: still waits
     d2 = plan_live(State.from_dict(IWAO_T627), stall_weights(WEIGHTS, 9, 2))
     assert stall_push(d2.candidates, d2.action, 2) == "attack"                          # 40+ quiet turns: attack
+
+
+def test_stall_push_loads_a_tile_when_nothing_is_queued():
+    # run 20261031-180506 t419 (0.41, Moonlit Port II): no tile queued, so no attack line; the hero
+    # walked with a 3-HP Guardian for 200 turns [0.44]
+    cands = [{"action": "left", "value": 7318.88, "exp_damage": 0.0},
+             {"action": "queue:arrow#2", "value": 7094.26, "exp_damage": 0.0},
+             {"action": "turn", "value": 7094.08, "exp_damage": 0.0},
+             {"action": "wait", "value": 7017.85, "exp_damage": 0.0},
+             {"action": "queue:swirl", "value": 6988.95, "exp_damage": 0.0}]
+    assert stall_push(cands, "left", 1) is None                 # below a 2-HP budget nothing changes
+    assert stall_push(cands, "left", 2) == "queue:arrow#2"
+    assert stall_push(cands, "queue:swirl", 2) is None          # already loading
