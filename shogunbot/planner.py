@@ -40,9 +40,45 @@ WEIGHTS: dict[str, float] = {
 SPAWN_THRESHOLD = 1  # [web] Normal rooms spawn the next wave at 1-2 alive; HYP: 1
 
 STALL_TURNS = 15     # [user 2026-10-28] turns in which no enemy lost HP, died or appeared
+# [user 2026-10-31: "HP is the priority, it is needed in the long run, but ease the lever to 3
+# instead of 1"; run 20261031-102644 waited 450 turns at Iwao, where every way forward cost 2 HP]
+# the stall budget grows with the quiet turns: (quiet turns, HP the trade may cost)
+STALL_STEPS = ((STALL_TURNS, 1), (40, 2), (60, 3))
+STALL_MIN_HP = 3     # a trade never takes the hero below this (below it, the 1-HP budget as before)
+STALL_STUCK_TURNS = 200   # quiet turns after which the bot ends the run as 'stuck'
 
 
-def stall_weights(w: dict[str, float], hp: int) -> dict[str, float]:
+def stall_push(candidates: list[dict], action: str, budget: int, hp_weight: float = 1000.0) -> str | None:
+    """From a 2-HP stall budget on, attack when the attack line costs at most the budget.
+
+    Run 20261031-102644 (0.36, Iwao, t180-t629): the hero waited at the wall for 450 turns
+    with Shuriken, Swirl and Charge loaded. Every turn the search scored waiting highest
+    (3781) because its line expected Iwao to walk into reach, but loaded Iwao held for 459
+    turns; the attack line (it kills the 1-HP Yari Master and charges Iwao) scored 1415,
+    about 2 HP lower. Waiting never makes progress, so once the stall budget allows the
+    trade [user 2026-10-31] the attack is taken when it is within budget * hp_weight
+    (+ half an HP) of the best line. Returns the action to play instead, or None."""
+    if budget < 2 or action == "attack":
+        return None
+    best = max((c["value"] for c in candidates), default=None)
+    att = next((c for c in candidates if c["action"] == "attack"), None)
+    if best is None or att is None:
+        return None
+    if att["value"] >= best - hp_weight * (budget + 0.5) and att.get("exp_damage", 0) <= budget:
+        return "attack"
+    return None
+
+
+def stall_budget(quiet: int) -> int:
+    """HP a stalled fight may trade for progress after `quiet` quiet turns (0: not stalled)."""
+    budget = 0
+    for turns, hp in STALL_STEPS:
+        if quiet >= turns:
+            budget = hp
+    return budget
+
+
+def stall_weights(w: dict[str, float], hp: int, budget: int = 1) -> dict[str, float]:
     """Weights for a stalled fight: after STALL_TURNS quiet turns a 1-HP trade that
     makes progress is allowed [user 2026-10-28]. Seen in self-play (seeds 9008 and
     9023, Bamboo Grove II at depth 3): a loaded Charger waits behind the last other
@@ -54,9 +90,12 @@ def stall_weights(w: dict[str, float], hp: int) -> dict[str, float]:
     its footprint, a loaded Charger with a clear lane) counts about as much as a hit
     taken: otherwise every line kills on the last ply, the Charger's answer falls
     past the horizon, and the kill is put off again on every turn [self-play seed
-    9008 turn 40, depth 3]."""
+    9008 turn 40, depth 3].
+    `budget` (stall_budget) widens the trade to 2 and 3 HP as the stall lasts, never below
+    STALL_MIN_HP [user 2026-10-31]; HP still comes first: a cheaper line always scores higher."""
+    floor = max(hp - budget, min(hp - 1, STALL_MIN_HP))
     return {**w, "enemy_hp": -1000.0, "hp_lost_now": 0.0, "threat_dmg": -1000.0, "open_charge_lane": -600.0,
-            "hp_floor": hp - 1, "below_floor": -5000.0}
+            "hp_floor": floor, "below_floor": -5000.0}
 
 
 def progress_key(s: State) -> tuple:
@@ -394,7 +433,7 @@ _WORDS = {
     "cornered_no_swap": (None, lambda n: "not cornered", lambda n: "cornered without a swap"),
     "spawn_unready": ("spawn_unready", lambda n: f"{_pl(n, 'more tile', 'more tiles')} recharged for the next wave",
                       lambda n: f"{_pl(n, 'fewer tile', 'fewer tiles')} recharged for the next wave"),
-    "below_floor": (None, lambda n: "stays within the 1-HP stall budget", lambda n: "goes past the 1-HP stall budget"),
+    "below_floor": (None, lambda n: "stays within the stall budget", lambda n: "goes past the stall budget"),
     "death": (None, lambda n: "survives", lambda n: "dies"),
 }
 

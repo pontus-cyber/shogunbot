@@ -40,7 +40,7 @@ from dataclasses import dataclass
 
 from .catalogue import CAT
 from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_KINDS, HERO_MAX_HP, Enemy, Hero, Kit, State
-from .planner import STALL_TURNS, WEIGHTS, auto_depth, plan, progress_key, stall_weights
+from .planner import STALL_TURNS, WEIGHTS, auto_depth, plan, progress_key, stall_budget, stall_weights
 from . import behaviour, levelgen, rules
 from .rules import ENEMY_TILE_DAMAGE, _hits_hero, enemy_options, step
 
@@ -227,7 +227,7 @@ class _Stall:
         self.key = k
         if self.quiet < STALL_TURNS:
             return depth, w
-        return (depth or auto_depth(s)) + 1, stall_weights(w, s.hero.hp)
+        return (depth or auto_depth(s)) + 1, stall_weights(w, s.hero.hp, stall_budget(self.quiet))
 
 
 def _play_turn(s: State, rng: random.Random, depth: int, w: dict, telegraphs: bool,

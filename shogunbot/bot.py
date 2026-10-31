@@ -47,14 +47,14 @@ from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HEAVY_KINDS, HERO
 from .perception import map_screen, reward_screen, screens, shop_screen
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
 from .perception.tiles import FACE_H, FACE_W
-from .planner import STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_weights
+from .planner import STALL_STUCK_TURNS, STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_budget, stall_push, stall_weights
 from .rules import POISON_TICK, POISON_TURNS, free_action, legal_hero_actions, step
 from .live import LiveView
 from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.36"
+VERSION = "0.37"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -1498,16 +1498,31 @@ class Bot:
                 if pk != progress:
                     progress, last_progress = pk, turn
                 stalled = turn - last_progress >= STALL_TURNS
+                budget = stall_budget(turn - last_progress)
+                if turn - last_progress >= STALL_STUCK_TURNS:
+                    # [run 20261031-102644: 450 quiet turns at Iwao] never wait forever
+                    log.event("stall_stop", turn=turn, quiet_turns=turn - last_progress, board=s.render())
+                    log.save_frame(frame, "stuck_stall")
+                    self.say(f"   {turn - last_progress} turns without progress: the run stops as stuck")
+                    result = "stuck"
+                    break
 
                 t1 = time.time()
                 try:
-                    d = plan_live(s, stall_weights(WEIGHTS, s.hero.hp) if stalled else WEIGHTS, explain=True)
+                    d = plan_live(s, stall_weights(WEIGHTS, s.hero.hp, budget) if stalled else WEIGHTS, explain=True)
                 except Exception as e:  # a bad read must not end the run
                     log.exception("plan", e, frame=frame)
                     self.say(f"   planner error ({e!r}); re-reading the screen")
                     time.sleep(0.5)
                     continue
                 plan_ms = (time.time() - t1) * 1000
+                if stalled:
+                    push = stall_push(d.candidates, d.action, budget)
+                    if push:
+                        log.event("stall_push", turn=turn, quiet_turns=turn - last_progress, budget=budget,
+                                  planned=d.action, played=push, board=s.render())
+                        self.say(f"   stall: {turn - last_progress} quiet turns; attacking instead of '{d.action}'")
+                        d.action = push
                 # loop breaker [run 20261027-182237: a misread facing made 'right' a
                 # blocked move; the board never changed and the bot repeated it ~40 times]
                 key = s.key()
@@ -1557,7 +1572,7 @@ class Bot:
                 if stalled:
                     log.event("stall_mode", turn=turn, quiet_turns=turn - last_progress, action=d.action,
                               value=round(d.value, 1), board=s.render())
-                    self.say(f"   stall: {turn - last_progress} turns without progress; a 1-HP trade is allowed")
+                    self.say(f"   stall: {turn - last_progress} turns without progress; a {budget}-HP trade is allowed")
                 conf = dict(p.confidence)
                 log.turn(state=s, confidence=conf, perceive_ms=perceive_ms, decision=d,
                          plan_ms=plan_ms, frame=frame)

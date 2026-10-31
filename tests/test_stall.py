@@ -80,3 +80,31 @@ def test_progress_key_changes_on_damage_kills_and_spawns_only():
     hurt.enemies[0].hp = 1
     assert progress_key(hurt) != k
     assert STALL_TURNS == 15
+
+
+# [user 2026-10-31: HP stays the priority, but the stall lever goes to 3 instead of 1]
+from shogunbot.planner import STALL_MIN_HP, STALL_STUCK_TURNS, stall_budget, stall_push, plan_live
+import json, os
+
+def test_stall_budget_grows_with_the_quiet_turns():
+    assert [stall_budget(q) for q in (0, 14, 15, 39, 40, 59, 60, 500)] == [0, 0, 1, 1, 2, 2, 3, 3]
+    assert STALL_STUCK_TURNS == 200
+
+
+def test_stall_floor_never_below_three_hp():
+    assert stall_weights(WEIGHTS, 10, 3)["hp_floor"] == 7
+    assert stall_weights(WEIGHTS, 5, 3)["hp_floor"] == STALL_MIN_HP == 3
+    assert stall_weights(WEIGHTS, 3, 3)["hp_floor"] == 2      # at 3 HP only the 1-HP trade, as before
+    assert stall_weights(WEIGHTS, 10)["hp_floor"] == 9          # default budget unchanged
+
+
+# run 20261031-102644 t627 (Iwao): the hero waited 450 turns at the wall with three tiles loaded
+IWAO_T627 = {"cells": 7, "hero": {"x": 0, "facing": 1, "hp": 9, "queue": ["shuriken", "swirl", "charge"], "charge": {"swirl": 3, "arrow": 5, "charge": 4, "shuriken": 3}, "swap_charge": 4, "shield": False, "kit": [{"label": "swirl", "tile": "swirl", "damage": 3, "cooldown": 3, "enchant": None, "levels": 3, "used": 2}, {"label": "arrow", "tile": "arrow", "damage": 2, "cooldown": 5, "enchant": None, "levels": 3, "used": 0}, {"label": "charge", "tile": "charge", "damage": 2, "cooldown": 4, "enchant": None, "levels": 3, "used": 1}, {"label": "shuriken", "tile": "shuriken", "damage": 1, "cooldown": 3, "enchant": None, "levels": 3, "used": 0}]}, "enemies": [{"kind": "yari_master", "x": 3, "facing": -1, "hp": 1, "queue": [], "uid": 1, "frozen": 0, "cd": 0, "intent": "move-right", "primed": False, "wind": 1, "cursed": False, "poison": 0, "last": "fire", "fage": 0, "alt": None, "elite": False, "aim": None}, {"kind": "iwao", "x": 5, "facing": -1, "hp": 8, "queue": ["earth_impale", "swirl"], "uid": 2, "frozen": 0, "cd": 0, "intent": "hold", "primed": False, "wind": 1, "cursed": False, "poison": 0, "last": "hold", "fage": 459, "alt": None, "elite": False, "aim": None}], "level": "stage2-boss", "wave": 0, "waves_total": 0, "turn": 627}
+
+
+def test_stall_push_ends_the_iwao_wait():
+    s = State.from_dict(IWAO_T627)
+    d1 = plan_live(s, stall_weights(WEIGHTS, 9, 1))
+    assert d1.action != "attack" and stall_push(d1.candidates, d1.action, 1) is None   # 1-HP budget: still waits
+    d2 = plan_live(State.from_dict(IWAO_T627), stall_weights(WEIGHTS, 9, 2))
+    assert stall_push(d2.candidates, d2.action, 2) == "attack"                          # 40+ quiet turns: attack
