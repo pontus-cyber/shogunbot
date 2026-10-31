@@ -28,6 +28,11 @@ PAIRED = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).pair > 1)   # bosses wh
 ALTERNATE = {k: tuple(CAT.enemy(k).behaviour["alternate"]) for k in ENEMY_KINDS if CAT.enemy(k).behaviour.get("alternate")}
 # bosses whose allies vanish when they die (catalogue behaviour 'allies_vanish': Kowa)
 VANISH = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).behaviour.get("allies_vanish"))
+
+
+def effect_tile(kind: str, effect: str) -> str | None:
+    """The kind's tile with this effect (catalogue 'attack' 'effect'): the Shielder's Ally Shield or Shield."""
+    return next((t for t in CAT.enemy(kind).tiles if CAT.tile(t).attack.get("effect") == effect), None)
 HERO_ACTIONS = MOVES + DEFAULT_KIT.queue_actions + ("attack",)   # default kit; see hero_actions()
 POISON_TICK = next(c.effect["damage"] for c in CAT.consumables.values() if c.effect["type"] == "poison_all")
 POISON_TURNS = next(c.effect["turns"] for c in CAT.consumables.values() if c.effect["type"] == "poison_all")
@@ -533,6 +538,11 @@ def _intent_options(s: State, e: Enemy, move_or_wait):
     if it == "queue":
         if e.kind in BOSS_KINDS:
             return _boss_queue(s, e, move_or_wait)
+        if CAT.enemy(e.kind).behaviour.get("guard"):
+            # the Shielder: Ally Shield with a shieldless ally ahead, else Shield on itself [rec: survey of 2026-10-31,
+            # collect/20261028-190026 f1002, f1117, f1181, f1215; collect/20261029-160032 f1162, f1315]
+            ally = behaviour.shieldless_ally(s, e, e.facing) is not None
+            return [(1.0, ("queue", effect_tile(e.kind, "ally_shield" if ally else "self_shield")))]
         seq = CAT.enemy(e.kind).behaviour.get("sequence")
         if seq and len(e.queue) < len(seq):
             # the Grappler loads its Hook, then its Sword [rec: collect/20261028-190026 f0776-f0778,

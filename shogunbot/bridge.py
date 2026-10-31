@@ -232,6 +232,7 @@ class Tracker:
         self.loaded_tile: dict = {}         # kind -> the tile it loaded last, for a kind that alternates (Kowa)
         self._cycle_now: dict | None = None
         self._queue_conf: dict = {}         # cell -> the confidence of each tile read in its unit's bubbles
+        self._orbs: set = set()             # cells whose unit shows the Shielder's fire orb
 
     # ------------------------------------------------------------------
     def next_level(self) -> None:
@@ -461,6 +462,7 @@ class Tracker:
             _, _, it, fage = self.hist[i]
             enemies[j].last, enemies[j].fage = behaviour.carry(it, fage)
         self._queue_conf = {e["x"]: list(e.get("queue_conf") or []) for e in p.enemies}
+        self._orbs = {e["x"] for e in p.enemies if e.get("orb")}
         self._cycle(enemies)
 
         s = State(cells, hero, enemies, level=level,
@@ -476,31 +478,41 @@ class Tracker:
                 # a later region's unit with its pips (rec2 f1294, f1331, f1854) fired no Shuriken
                 self.notes.append(f"enemy at {en.x}: quick and loaded, the hero in its reach; fires this turn")
                 en.intent = "fire"
-        self._coward(s)
+        self._rule_telegraphs(s)
         return s
 
-    def _coward(self, s: State) -> None:
-        """Kowa's telegraph from his rules (behaviour.coward_intent) where the screen does not show it, and the tile
-        he loaded last (he alternates Shield and Smoke Bomb). The phase after a use he rests (12 of 12): the empty
-        bubble left over and the cast flash read as '+' then (rec1 f1284, f1311; f1306, f1318). A tile loaded in an
-        earlier phase is used on his rule: a use turn's bubble blinks yellow and red, so a red read says nothing (rec1
-        f1317 and f1334 read red on their only frame, f1295 and f1342 on their last). A marker on his plate and a
-        yellow bubble are kept as read."""
+    def _rule_telegraphs(self, s: State) -> None:
+        """Kowa's and the Shielder's telegraphs from their rules (behaviour.coward_intent, guard_intent) where the
+        screen does not show them, and the tile Kowa loaded last (he alternates Shield and Smoke Bomb). The phase after
+        a use they rest (Kowa 12 of 12, the Shielder in every use seen): the empty bubble left over and the cast flash
+        read as '+' then (rec1 f1284, f1311; f1306, f1318), and a Shielder's idle bubble on 38 frames (rec1 f0960-f0963,
+        f1120-f1121; rec2 f1186-f1189). A tile loaded in an earlier phase is used on the rule: a use turn's bubble
+        blinks yellow and red, so a red read says nothing (rec1 f1317 and f1334 read red on their only frame, f1295
+        and f1342 on their last), and the Shielder's fire orb shows it (perceive.orb_pixels). A marker on the plate
+        and a yellow bubble are kept as read."""
         for e in s.enemies:
-            if e.kind not in BOSS_KINDS or not CAT.enemy(e.kind).behaviour.get("coward"):
+            b = CAT.enemy(e.kind).behaviour
+            coward, guard = e.kind in BOSS_KINDS and b.get("coward"), b.get("guard")
+            if not (coward or guard):
                 continue
-            if e.queue:
-                self.loaded_tile[e.kind] = e.queue[-1]
-            e.loaded = self.loaded_tile.get(e.kind)
+            if coward:
+                if e.queue:
+                    self.loaded_tile[e.kind] = e.queue[-1]
+                e.loaded = self.loaded_tile.get(e.kind)
+            if e.queue and e.x in self._orbs and e.intent != "fire":
+                self.notes.append(f"{e.kind} at {e.x}: the fire orb; fires this turn")
+                e.intent = "fire"
+                continue
             if e.fage == 0:
                 if e.intent != "hold":
-                    self.notes.append(f"{e.kind}: read {e.intent} the phase after a use; he rests")
+                    self.notes.append(f"{e.kind} at {e.x}: read {e.intent} the phase after a use; rests")
                 e.intent = "hold"
                 continue
             if e.queue and e.intent in ("hold", "queue", None):
-                rule = behaviour.coward_intent(s, e, behaviour.features(s, e, e.last, e.fage))
+                f = behaviour.features(s, e, e.last, e.fage)
+                rule = behaviour.coward_intent(s, e, f) if coward else behaviour.guard_intent(s, e, f)
                 if rule in ("hold", "fire") and rule != e.intent:
-                    self.notes.append(f"{e.kind}: read {e.intent} with {e.queue[0]} loaded; his rule says {rule}")
+                    self.notes.append(f"{e.kind} at {e.x}: read {e.intent} with {e.queue[0]} loaded; its rule says {rule}")
                     e.intent = rule
 
     def _cycle(self, enemies: list) -> None:

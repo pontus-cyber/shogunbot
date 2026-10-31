@@ -249,6 +249,34 @@ def coward_intent(s: State, e, f: dict) -> str:
     return "queue"
 
 
+def shieldless_ally(s: State, e, d: int):
+    """The first unit after e in direction d that is an enemy without a shield, passing the hero and shielded allies:
+    what Ally Shield shields [wiki: Tiles] [rec: collect/20261028-190026 f1063-f1064, f1204-f1205]."""
+    nx = e.x + d
+    while s.in_bounds(nx):
+        u = s.enemy_at(nx)
+        if u is not None and not u.shield:
+            return u
+        nx += d
+    return None
+
+
+def guard_intent(s: State, e, f: dict) -> str:
+    """The Shielder's telegraph [rec: collect/20261028-190026 f0945-f1266, collect/20261029-160032 f1150-f1468; survey
+    of 2026-10-31]: the phase after it fired it rests; a loaded tile is held one phase (R1), then fired; else, a
+    shieldless ally ahead: it loads (Ally Shield); one behind: it turns to it; unshielded itself: it loads (Shield);
+    shielded with nothing to shield: it turns, every phase. f: features()."""
+    if e.fage == 0:
+        return "hold"
+    if e.queue:
+        return "hold" if f["last"] == "queue" or e.wind < 1 else "fire"
+    if shieldless_ally(s, e, e.facing) is not None:
+        return "queue"
+    if shieldless_ally(s, e, -e.facing) is not None:
+        return "turn"
+    return "turn" if e.shield else "queue"
+
+
 def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | None:
     """[(p, telegraph)] for an enemy without a read telegraph, decided on the
     board at the start of the hero's turn. None when no model is available."""
@@ -270,6 +298,8 @@ def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | No
     if b.get("coward"):
         return [(1.0, coward_intent(s, e, f))]
     own = CAT.enemy(e.kind).behaviour if not boss and e.kind in CAT.enemies else {}
+    if own.get("guard"):
+        return [(1.0, guard_intent(s, e, f))]
     sync = own.get("synced_with")
     if sync:
         # The Summoner loads its bell with the Statue's first load of a cycle and summons with its second [rec: rec1

@@ -288,22 +288,42 @@ def elite_pixels(rgb: np.ndarray, cx: int) -> int:
     return int(((r >= 150) & (r <= 230) & (g >= 85) & (g <= 150) & (b < 45) & (r - g >= 40) & (r - g <= 80)).sum())
 
 
-# A shield (0.45) is a translucent pale grey-green sphere around its bearer, about 140 x 150 px, centred near y 662: inside
-# it the dark sprite turns teal, about RGB (45-61, 65-81, 55-69), and the backdrop gains about +45 G and +40 B. The
-# fraction of teal pixels in the box over the torso read 0.54-0.70 on all 29 shielded Kowa frames and 0.00 on all 83
-# unshielded ones; the hero at most 0.07, Kowa's allies 0.00 [rec: collect/20261028-190026 f1271-f1352,
-# collect/20261029-160032 f1473-f1505; survey of 2026-10-31]
-SHIELD_Y0, SHIELD_Y1, SHIELD_HALF = 625, 700, 35
-SHIELD_FRAC = 0.3
+# A shield (0.45) is a translucent sphere about 144 px across around its bearer, resting on the plate, centred near
+# (cx, 684): inside it the scene is blended about 38% toward a pale teal (115, 177, 157), so a dark sprite (25, 19, 22)
+# turns (59, 81, 73) and Kowa's black body (45-61, 65-81, 55-69). shield_frac counts the teal pixels in a disc of radius
+# 62 there, less the box where the Shielder's fire orb glows: on the 1,850 unit-frames of both recordings' Hot Springs
+# levels, 128 of 133 shielded ones read 0.04 or more (the misses: a one-frame white glint on the sphere, short sprites)
+# and 4 of the 1,717 others (the Shielder's load beam, hit flashes); Kowa 0.40 and more on all 29 shielded frames, at
+# most 0.01 on his 81 others [rec: collect/20261028-190026 f0945-f1352, collect/20261029-160032 f1150-f1505; surveys of
+# 2026-10-31]. Mass Ice's crystals are teal too (rec1 f1056-f1060, rec2 f1287-f1292).
+SHIELD_CY, SHIELD_R = 684, 62
+SHIELD_FRAC = 0.04
+_yy, _xx = np.mgrid[-SHIELD_R:SHIELD_R + 1, -SHIELD_R:SHIELD_R + 1]
+SHIELD_DISC = ((_yy ** 2 + _xx ** 2) <= SHIELD_R ** 2) & ~((_yy >= 680 - SHIELD_CY) & (_yy < 740 - SHIELD_CY)
+                                                            & (np.abs(_xx) <= 40))
 # read only where a unit of the route can give a shield: Bamboo Grove's green backdrop is no shield
 SHIELD_TILES = frozenset(t.id for t in CAT.tiles.values() if t.attack.get("effect") in ("self_shield", "ally_shield"))
+# The Shielder's tile glows as a pale cyan orb at its chest, about (140-190, 185-213, 142-200), on the frame of the turn
+# it fires, even when its blinking bubble is caught red: 194-1,357 px on the 21 such frames checked, none on its load or
+# hold frames (rec1 f0952, f0998, f1052, f1111, f1210; rec2 f1293, f1330, f1431, f1439); it may linger a frame after.
+ORB_PX = 150
 
 
 def shield_frac(rgb: np.ndarray, cx: int) -> float:
-    """Fraction of shield-teal pixels over a unit's torso (SHIELD_FRAC and up: shielded)."""
-    box = rgb[SHIELD_Y0:SHIELD_Y1, max(0, cx - SHIELD_HALF):cx + SHIELD_HALF].astype(np.int16)
+    """Fraction of shield-teal pixels in the sphere's disc around a unit (SHIELD_FRAC and up: shielded)."""
+    if cx - SHIELD_R < 0 or cx + SHIELD_R + 1 > rgb.shape[1]:
+        return 0.0
+    sub = rgb[SHIELD_CY - SHIELD_R:SHIELD_CY + SHIELD_R + 1, cx - SHIELD_R:cx + SHIELD_R + 1].astype(np.int16)
+    r, g, b = sub[..., 0], sub[..., 1], sub[..., 2]
+    teal = (g - r >= 7) & (b - r >= -12) & (sub.sum(axis=2) <= 420)
+    return float(teal[SHIELD_DISC].mean())
+
+
+def orb_pixels(rgb: np.ndarray, cx: int) -> int:
+    """Pale cyan pixels of the Shielder's fire orb at a unit's chest (ORB_PX and up: it fires this turn)."""
+    box = rgb[650:740, max(0, cx - 45):cx + 45].astype(np.int16)
     r, g, b = box[..., 0], box[..., 1], box[..., 2]
-    return float(((g > r + 8) & (g > 45) & (g < 140) & (b < g + 10)).mean())
+    return int(((r >= 130) & (r <= 195) & (g >= 180) & (g <= 225) & (b >= 135) & (b <= 210) & (g - r >= 15)).sum())
 
 
 def stack_kind(tile: str, pips: int, base_hp: dict, elites: bool) -> str | None:
@@ -785,7 +805,11 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
     bk = boss_kind(regions, len(cs))
     boss_tiles = CAT.enemies[bk].tiles                                # icons open on a unit without pips
     partner = BOSS_PARTNER.get(bk)                                    # a unit that fights beside this boss
-    shields = bool(SHIELD_TILES & ({t for k in base_hp for t in CAT.enemies[k].tiles} | set(boss_tiles)))
+    # shields are read in a region whose own units or boss give them (Hot Springs): the later regions' backdrops tint
+    # many units teal (recording 1 after Hot Springs: 258 of 938 unit-frames at SHIELD_FRAC or more)
+    here = regions[-1] if regions else REGION
+    shields = bool(SHIELD_TILES & ({t for e in CAT.region_enemies(here) + CAT.region_visitors(here) for t in e.tiles}
+                                   | set(boss_tiles)))
     red_sky = bool(regions) and regions[-1] == "spirit_gateway"
     hero_i = next(i for i, c in enumerate(cs) if c["kind"] == "hero")
     cell_list = []
@@ -869,7 +893,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                       "hp_max": g + r, "queue": [t["tile"] for t in tiles], "queue_conf": [t["conf"] for t in tiles],
                       "fire_now": bool(tiles and tiles[0]["colour"] == "yellow"),
                       "intent": intent, "spawning": spawning, "elite": elite, "alt": alt,
-                      "shield": shields and shield_frac(rgb, cx) >= SHIELD_FRAC}
+                      "shield": shields and shield_frac(rgb, cx) >= SHIELD_FRAC,
+                      "orb": shields and orb_pixels(rgb, cx) >= ORB_PX}
                 p.enemies.append(en)
                 conf[f"enemy{i}"] = round(kc, 2)
             entry["unit"] = kind

@@ -208,3 +208,109 @@ def test_the_tracker_plays_kowas_rules_where_the_screen_says_nothing():
     k.fage = None
     (_, s2, _), = [o for o in step(s, "wait")]
     assert next(e for e in s2.enemies if e.kind == "kowa").queue == ["smoke_bomb"]
+
+
+# ---------------------------------------------------------------- the Shielder
+def test_ally_shield_goes_to_the_first_shieldless_ally_ahead_past_the_hero_and_shielded_allies():
+    # rec1 f1063-f1064: the Shielder on cell 4 facing left shielded the Charger on cell 1 past the hero on cell 2;
+    # f1204-f1205: it passed the shielded Yari Master on cell 6 for the one on cell 4
+    sh = Enemy("shielder", 4, -1, 4, ["ally_shield"], uid=1)
+    ch = Enemy("charger", 1, 1, 1, uid=2)
+    s = State(7, Hero(2, 1), [sh, ch])
+    _enemy_fire(s, sh, Events())
+    assert ch.shield and not sh.shield
+    sh = Enemy("shielder", 7, -1, 4, ["ally_shield"], uid=1)
+    y6, y4 = Enemy("yari_master", 6, -1, 4, uid=2, shield=True), Enemy("yari_master", 4, -1, 4, uid=3)
+    s = State(9, Hero(1, 1), [sh, y6, y4])
+    _enemy_fire(s, sh, Events())
+    assert y4.shield and y6.shield and not sh.shield
+    sh = Enemy("shielder", 0, 1, 4, ["shield"], uid=1)    # Shield: on itself (rec1 f1118-f1119)
+    s = State(7, Hero(3, 1), [sh])
+    _enemy_fire(s, sh, Events())
+    assert sh.shield and s.hero.hp == 10
+
+
+def test_the_shielder_loads_holds_fires_rests_and_picks_its_tile():
+    # rec2's turn counter: '+', one phase red, then it fires (f1156-f1161, f1292-f1296), then a phase of rest
+    a = Enemy("ashigaru", 2, 1, 3, uid=2)
+    sh = Enemy("shielder", 5, -1, 4, uid=1, last="turn")
+    s = State(7, Hero(0, 1), [sh, a])
+    assert behaviour.intents(s, sh) == [(1.0, "queue")]                   # a shieldless ally ahead
+    sh.intent = "queue"
+    (_, s2, _), = step(s, "wait")
+    sh2 = next(e for e in s2.enemies if e.kind == "shielder")
+    assert sh2.queue == ["ally_shield"]
+    sh2.intent = None
+    assert behaviour.intents(s2, sh2) == [(1.0, "hold")]                  # R1
+    sh2.last, sh2.wind = "hold", 1
+    assert behaviour.intents(s2, sh2) == [(1.0, "fire")]
+    sh2.queue, sh2.fage = [], 0
+    assert behaviour.intents(s2, sh2) == [(1.0, "hold")]                  # rests after a use
+    sh2.fage = 1
+    a2 = next(e for e in s2.enemies if e.kind == "ashigaru")
+    a2.shield = True                                                      # nothing ahead to shield, unshielded: Shield
+    assert behaviour.intents(s2, sh2) == [(1.0, "queue")]
+    sh2.intent = "queue"
+    sh2.queue = []
+    out = step(s2, "wait")
+    assert {tuple(e.queue) for _, s3, _ in out for e in s3.enemies if e.kind == "shielder"} == {("shield",)}
+    sh2.intent, sh2.shield = None, True                                   # shielded, nothing to shield: it turns
+    assert behaviour.intents(s2, sh2) == [(1.0, "turn")]
+    a2.shield, a2.x, sh2.facing = False, 6, -1                            # a shieldless ally behind: it turns to it
+    assert behaviour.intents(s2, sh2) == [(1.0, "turn")]
+
+
+def test_hot_springs_icons_shields_and_the_fire_orb_read_on_frames_outside_the_samples():
+    def units(rec, n, route):
+        return {e["x"]: (e["kind"], e["queue"], e["shield"], e["orb"]) for e in _p(rec, n, route).enemies}
+    u = units(REC1, 1052, ROUTE1)
+    assert u[4][:2] == ("shielder", ["ally_shield"]) and u[2][2]           # and the Tachi it shielded
+    assert units(REC1, 1177, ROUTE1)[0] == ("shielder", ["ally_shield"], False, True)    # yellow, the fire orb
+    assert units(REC1, 1217, ROUTE1)[7][:2] == ("shielder", ["shield"])
+    assert units(REC2, 1330, ROUTE2)[4][:2] == ("shielder", ["ally_shield"])
+    assert units(REC2, 1164, ROUTE2)[6] == ("shielder", ["shield"], False, True)
+    assert units(REC1, 1317, ROUTE1)[3][:2] == ("kowa", ["shield"])       # Kowa's Shield, red
+    assert units(REC1, 1310, ROUTE1)[1][1:3] == (["smoke_bomb"], True)    # his Smoke Bomb, and his sphere
+    assert not units(REC1, 1283, ROUTE1)[5][2]                            # unshielded
+    # shields on the hand-labelled frames of the survey: rec1 f1113 cell 2, f1205 cells 4 and 6; rec2 f1319 cell 4
+    assert units(REC1, 1113, ROUTE1)[2][2] and not units(REC1, 1110, ROUTE1).get(2, (0, 0, False))[2]
+    assert units(REC1, 1205, ROUTE1)[4][2] and units(REC1, 1205, ROUTE1)[6][2]
+    assert units(REC2, 1319, ROUTE2)[4][2] and not units(REC2, 1316, ROUTE2)[4][2]
+
+
+def test_shields_are_read_only_on_a_route_with_a_shield_giver():
+    # Spirit Gateway's route has none: the same frame reads no shield and no orb there
+    route4 = ROUTE1[:4]
+    assert all(not e["shield"] and not e["orb"] for e in _p(REC1, 1113, route4).enemies)
+
+
+def test_the_tracker_fires_a_shielder_on_its_orb_or_its_rule_and_rests_it_after():
+    # rec1 f1176-f1178: the bubble blinks, the orb at its chest shows the fire; rec2's counter: load, red, fire, rest
+    from shogunbot.perception.perceive import Perception
+
+    def frame_(sh: dict):
+        ens = [dict({"x": 5, "kind": "shielder", "hp": 4, "hp_max": 4}, **sh), {"x": 2, "kind": "ashigaru", "hp": 3,
+                                                                                 "hp_max": 3}]
+        return Perception(screen="combat", cells=[{"x": i, "cx": 300 + 140 * i, "kind": "plate"} for i in range(7)],
+                          hero={"x": 0, "cx": 300, "facing": 1, "hp": 10, "hp_max": 10, "queue": [], "swap_red": 0},
+                          enemies=[dict({"cx": 300 + 140 * e["x"], "queue": [], "queue_conf": [], "intent": None,
+                                         "facing": -1, "alt": None, "elite": False, "spawning": False, "shield": False,
+                                         "orb": False}, **e) for e in ens])
+    tr = Tracker()
+    tr.route = list(ROUTE1)
+    tr.stage, tr.level_i, tr.advance, tr.level = 5, 0, True, "stage4-boss"
+    seq = [({"intent": "queue"}, "queue"),
+           ({"queue": ["ally_shield"], "queue_conf": [1.0]}, "hold"),               # R1
+           ({"queue": ["ally_shield"], "queue_conf": [1.0], "orb": True}, "fire"),  # the orb
+           ({"intent": "queue"}, "hold")]                                           # rests; the '+' is a phantom
+    for sh, want in seq:
+        s = tr.state(frame_(sh))
+        e = next(x for x in s.enemies if x.kind == "shielder")
+        assert e.intent == want, (sh, e.intent)
+        tr.acted(s, "wait")
+    # without the orb, a tile loaded earlier fires on the rule
+    for sh, want in (({"intent": "queue"}, "queue"), ({"queue": ["ally_shield"], "queue_conf": [1.0]}, "hold"),
+                     ({"queue": ["ally_shield"], "queue_conf": [1.0]}, "fire")):
+        s = tr.state(frame_(sh))
+        assert next(x for x in s.enemies if x.kind == "shielder").intent == want
+        tr.acted(s, "wait")
