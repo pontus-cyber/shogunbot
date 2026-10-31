@@ -38,6 +38,9 @@ SPR_F = _spr["F"]
 _ico = np.load(ASSETS / "icons.npz")
 ICO_X = _ico["X"].reshape(len(_ico["X"]), -1).astype(np.float32) / 255
 ICO_K = _ico["K"]
+# a template labelled 'tile@kind' is that tile as one kind draws it (The Statue's Sword sits lower in its window
+# than an Ashigaru's): read as the tile, and open only where that kind can stand (open_icons)
+ICO_TILE = np.array([str(k).split("@")[0] for k in ICO_K])
 
 SPRITE_Y0, SPRITE_Y1 = 610, 765
 # A unit appears in a red spawn beam, then flames, then its sprite. Red pixels (R >= 150, G <= 100,
@@ -109,13 +112,13 @@ def roster_tables(regions: tuple[str, ...] = ROSTER) -> tuple[dict, dict]:
     for r in regions:
         for e in CAT.region_enemies(r):
             base.setdefault(e.id, e.hp)
-            if e.tile:
-                by_tile.setdefault(e.tile, e.id)
+            for t in e.tiles:                   # each of its tiles (the Shinobi's Smoke Bomb as well as its Shuriken)
+                by_tile.setdefault(t, e.id)
     # then the regions' visitors (roster_visitors), after every native kind
     for e in roster_visitors(regions):
         base.setdefault(e, CAT.enemies[e].hp)
-        if CAT.enemies[e].tile:
-            by_tile.setdefault(CAT.enemies[e].tile, e)
+        for t in CAT.enemies[e].tiles:
+            by_tile.setdefault(t, e)
     return base, by_tile
 
 
@@ -156,14 +159,25 @@ SPRITE_KIND_CONF = 0.8   # the sprite's kind counts as evidence from this confid
 # sword, boss tiles). It is open on a unit whose HP pips fit a kind of the route's roster that carries it
 # (perceive, open_icons): then only the Sniper's 161 reads change (the 3-pip elite Tachis of the Day 2 run
 # 20261029-045856 have the pips but not the route), and routes without the Sniper read as before.
-GATED_ICONS = frozenset({"volley"})
+# Spirit Gateway's icons (0.36) are gated the same way: the Grappler's Grappling Hook, the Shinobi's Shuriken and
+# Smoke Bomb, The Statue's Shadow Kama (and its Hook and Shuriken), and the 'tile@kind' templates of tiles one kind
+# draws its own way (The Statue's Sword, Spear, Arrow, Tetsubo and Earth Impale, the Grappler's upper Sword), so
+# routes without Spirit Gateway read as before.
+GATED_ICONS = (frozenset({"volley", "grappling_hook", "shuriken", "smoke_bomb", "shadow_kama"})
+               | frozenset(str(k) for k in ICO_K if "@" in str(k)))
 
 
-def open_icons(pips: int, base_hp: dict, elites: bool) -> frozenset:
-    """The gated icons a unit with these HP pips may carry: those of the roster's kinds whose HP fits."""
+def open_icons(pips: int, base_hp: dict, elites: bool, boss_tiles=(), boss: str | None = None) -> frozenset:
+    """The gated icons a unit with these HP pips may carry: those of the roster's kinds whose HP fits (and their
+    'tile@kind' templates), and for a unit without pips (a boss) those of the route's current boss."""
     bonus = (0,) + (ELITE_BONUS if elites else ())
-    return frozenset(t for k, hp in base_hp.items() for t in CAT.enemies[k].tiles
-                     if t in GATED_ICONS and pips - hp in bonus)
+    fits = {k for k, hp in base_hp.items() if pips - hp in bonus}
+    out = {t for k in fits for t in CAT.enemies[k].tiles if t in GATED_ICONS}
+    out |= {g for g in GATED_ICONS if "@" in g and g.split("@")[1] in fits}
+    if pips == 0:
+        out |= {t for t in boss_tiles if t in GATED_ICONS}
+        out |= {g for g in GATED_ICONS if boss and g.endswith("@" + boss)}
+    return frozenset(out)
 
 
 def classify_icon(interior: np.ndarray, allowed: tuple | None = None,
@@ -177,8 +191,8 @@ def classify_icon(interior: np.ndarray, allowed: tuple | None = None,
         # hand was read as Spear (conf 0.01) and the bot could not find its Arrow]
         d = np.where(np.isin(ICO_K, allowed), d, np.inf)
     i = int(d.argmin())
-    k = ICO_K[i]
-    rest = d[(ICO_K != k) & np.isfinite(d)]
+    k = ICO_TILE[i]
+    rest = d[(ICO_TILE != k) & np.isfinite(d)]
     other = rest.min() if len(rest) else d[i] * 2
     if allowed:
         return str(k), float(np.clip((other - d[i]) / max(d[i], 1e-3), 0, 1))
@@ -271,6 +285,37 @@ def elite_pixels(rgb: np.ndarray, cx: int) -> int:
     box = rgb[ELITE_Y0:ELITE_Y1, cx - ELITE_HALF:cx + ELITE_HALF + 1].astype(np.int16)
     r, g, b = box[..., 0], box[..., 1], box[..., 2]
     return int(((r >= 150) & (r <= 230) & (g >= 85) & (g <= 150) & (b < 45) & (r - g >= 40) & (r - g <= 80)).sum())
+
+
+def stack_kind(tile: str, pips: int, base_hp: dict, elites: bool) -> str | None:
+    """The first simulated kind of the route's roster (base_hp, route order) whose HP fits the pips and that can
+    show this tile at the bottom of its stack: one of its tiles, and for a kind that loads a fixed sequence (catalogue
+    behaviour 'sequence') that sequence's first. The Grappler loads its Hook under its Sword (rec1 f0776-f0779; rec2
+    f0816-f0821, f0866-f0871), so a 5-pip unit with a Sword at the bottom is a Guardian: the first 0.36 replay planned
+    the Guardians of rec1 f0656, f0794, f1389 and f1654 and rec2 f0841, f0925, f1207 and f1211 as maybe Grapplers,
+    whose Hook would have hit the hero at any distance; he lost nothing. Kinds the simulator lacks are left to the tile's first carrier
+    (roster_tables), as before 0.36: they are planned as a stand-in either way (rec1 f1719: a 5-pip unit with a
+    Charge named a Shadow Charger here read as a Guardian on the next frame). None when no kind fits."""
+    allowed = (0,) + (ELITE_BONUS if elites else ())
+    return next((k for k, hp in base_hp.items()
+                 if pips - hp in allowed and CAT.enemies.get(k) and CAT.enemies[k].sim and bottom_ok(k, tile)), None)
+
+
+def bottom_ok(kind: str, tile: str) -> bool:
+    """Can this kind show this tile at the bottom of its stack? One of its tiles, and for a kind that loads a fixed
+    sequence (catalogue behaviour 'sequence': the Grappler's Hook, then its Sword) that sequence's first."""
+    e = CAT.enemies.get(kind)
+    if e is None:
+        return False
+    seq = e.behaviour.get("sequence")
+    return tile == seq[0] if seq else tile in e.tiles
+
+
+# a pip tie's other kind is dropped when the bubble's bottom tile, read at least this sure, is one that kind never
+# shows there: rec1 f1434 (a Summon read at 1.0) and rec2 f1840 (a Spear at 1.0), 5-pip units planned as maybe
+# Grapplers, whose bottom tile is always the Hook; reads of a tile the unit does not carry mostly stay below it
+# (0.02-0.16: rec2 f1051, f1294, f1836)
+ALT_TILE_CONF = 0.5
 
 
 def decide_kind(pips: int, tile_kind: str | None, sprite_kind: str | None, elite: bool,
@@ -390,6 +435,22 @@ def hero_hp(rgb: np.ndarray, cx: int) -> tuple[int, int, int, int]:
         g, r = g + gk, r + rk
         full = gk + rk == 5
     return g1, r1, g, r
+
+
+def enemy_hp(rgb: np.ndarray, cx: int) -> tuple[int, int]:
+    """(green, red) HP pips under an enemy's plate. Units with more than 5 HP show more rows of five: The Statue's
+    Summoner has 15 in three (rec1 f0857, rec2 f1071; with 3 left they read 3 green and 12 red, rec2 f1080). A row
+    below a full one counts only when it is full too [0.36, every recorded fight frame: under a full first row two more
+    full rows show only under the Summoner (37 frames); a partial row showed 6 times, 1-5 squares that were no unit's
+    pips (Stage 1 runs and recording 1)]."""
+    g, r = hp_squares(rgb, cx, HP_ROWS[0])
+    k = 1
+    while g + r == 5 * k and k < HP_ROWS_MAX:
+        gk, rk = hp_squares(rgb, cx, HP_ROWS[0] + k * HP_ROW_PITCH)
+        if gk + rk != 5:
+            break
+        g, r, k = g + gk, r + rk, k + 1
+    return g, r
 
 
 def hp_squares(rgb: np.ndarray, cx: int, row_y: int) -> tuple[int, int]:
@@ -659,6 +720,10 @@ class Perception:
                  "confidence", "warn")}
 
 
+# units that fight beside a boss from its fight's start: The Statue's Summoner [catalogue 'synced_with']
+BOSS_PARTNER = {e.behaviour["synced_with"]: k for k, e in CAT.enemies.items() if e.sim and e.behaviour.get("synced_with")}
+
+
 def boss_kind(regions: tuple[str, ...], cells: int) -> str:
     """The boss of the route's current region (its last) whose arena is this wide: Daisuke on 5
     cells, Rei the Ruthless on 7 [wiki]. 0.26 read Rei as Daisuke, and her Dragon Punch, which
@@ -682,6 +747,10 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
     if screen not in ("combat", "boss"):
         return p
     conf = {}
+    bk = boss_kind(regions, len(cs))
+    boss_tiles = CAT.enemies[bk].tiles                                # icons open on a unit without pips
+    partner = BOSS_PARTNER.get(bk)                                    # a unit that fights beside this boss
+    red_sky = bool(regions) and regions[-1] == "spirit_gateway"
     hero_i = next(i for i, c in enumerate(cs) if c["kind"] == "hero")
     cell_list = []
     for i, c in enumerate(cs):
@@ -691,8 +760,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
             crop = rgb[SPRITE_Y0:SPRITE_Y1, cx - 64:cx + 64]
             kind, facing, kc = classify_sprite(crop)
             if c["kind"] == "enemy":
-                g, r = hp_squares(rgb, cx, HP_ROWS[0])
-                stack = read_stack(rgb, cx, exclude=GATED_ICONS - open_icons(g + r, base_hp, day != 1))
+                g, r = enemy_hp(rgb, cx)
+                stack = read_stack(rgb, cx, exclude=GATED_ICONS - open_icons(g + r, base_hp, day != 1, boss_tiles, bk))
             else:
                 stack = read_stack(rgb, cx)
             marker = plate_marker(rgb, cx)
@@ -730,7 +799,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 # HP pips (its HP is the boss bar); pips win over its sprite: a summoned Charger in
                 # the boss arena was read as a second Daisuke [run 20261028-053637, turns 101-161].
                 # Which boss: the arena of the route's current region (boss_kind)
-                by_tile = by_tile_kind.get(tiles[0]["tile"]) if tiles else None
+                by_tile = ((stack_kind(tiles[0]["tile"], g + r, base_hp, day != 1) or by_tile_kind.get(tiles[0]["tile"]))
+                           if tiles else None)
                 elite = day != 1 and elite_pixels(rgb, cx) >= ELITE_PX     # Day 1 has no elites
                 alt = None
                 if (g + r) == 0 and (screen == "boss" or (kind in CAT.enemies and CAT.enemies[kind].boss)):
@@ -741,16 +811,26 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 else:
                     by_pips, alt = decide_kind(g + r, by_tile, kind if kc >= SPRITE_KIND_CONF else None, elite,
                                                base_hp, elites=day != 1, visitors=visitors)
+                    if alt and tiles and tiles[0]["conf"] >= ALT_TILE_CONF and not bottom_ok(alt, tiles[0]["tile"]):
+                        alt = None
                     if by_pips:
                         kind = by_pips
+                    elif g + r > 5 and partner:
+                        kind = partner          # The Statue's Summoner: 15 pips, no standard unit has more than 5
                     elif by_tile:
                         kind = by_tile
+                if (plus and not marker and red_sky and kind in CAT.enemies and not CAT.enemies[kind].boss
+                        and len(tiles) >= (len(CAT.enemies[kind].behaviour.get("sequence", ())) or 1)):
+                    # Spirit Gateway's red sky passes the bubble frame's colour test, so a '+' reads above a unit's
+                    # full stack where there is none: over the Grappler's Hook and Sword on 13 frames of the two
+                    # recordings (rec1 f0615-f0621, f0837; rec2 f0870, f1032-f1035), where it would hide a fire
+                    intent = "fire" if tiles[0]["colour"] == "yellow" else None
                 if kind == "ashigaru" and tiles and intent != "fire" and windup_pixels(rgb, cx) >= WINDUP_MIN:
                     intent = "fire"
                     tiles[0] = dict(tiles[0], colour="yellow")
                 spawning = spawn_pixels(rgb, cx) >= SPAWN_RED_PX
                 en = {"x": i, "cx": cx, "kind": kind, "facing": 0 if spawning else facing, "hp": g,
-                      "hp_max": g + r, "queue": [t["tile"] for t in tiles],
+                      "hp_max": g + r, "queue": [t["tile"] for t in tiles], "queue_conf": [t["conf"] for t in tiles],
                       "fire_now": bool(tiles and tiles[0]["colour"] == "yellow"),
                       "intent": intent, "spawning": spawning, "elite": elite, "alt": alt}
                 p.enemies.append(en)

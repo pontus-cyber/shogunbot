@@ -13,16 +13,20 @@ from itertools import permutations
 
 from . import behaviour
 from .catalogue import CAT
-from .model import BOSS_KINDS, DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, Enemy, Hero, Kit, KitTile, State
-from .rules import SPEC, apply_hero, Events
+from .model import BOSS_KINDS, DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, HEAVY_KINDS, Enemy, Hero, Kit, KitTile, State
+from .rules import ICE_TURNS, SPEC, apply_hero, Events
 
 BOSS_HP = {k: CAT.enemy(k).hp for k in BOSS_KINDS}         # the bar's full width [wiki]: Daisuke 15, Rei 13
 BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
+# a Quick unit counts as loaded for the fire rule (Tracker.state) on a read of its own tile at least this sure: the
+# Shinobi's Shuriken read 0.96-1.0 when it fired (rec1 f0694, f0711, f0712); reads of tiles it does not carry 0.02-0.16
+QUICK_READ_CONF = 0.5
 # sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
 # symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
 # left on all 40 turns, and his sprite read 'facing right' on 12 of them, flipping 12 times
-FRONT_FACING = ("charger", "iwao", "the_twins")   # the Twins' facing read '?' on most of their frames
-                                                # [rec: collect/20261028-190026 f0544-f0580]
+FRONT_FACING = ("charger", "iwao", "the_twins", "the_statue", "summoner")   # the Twins' facing read '?' on most of
+# their frames [rec: collect/20261028-190026 f0544-f0580]; The Statue (cell 6) and its Summoner (cell 0) face the
+# hero from the start and never turn [rec: collect/20261028-190026 f0857-f0921]
 # hero tiles whose queue bubble shows another tile's art: a queued Katana has the enemy
 # Sword's icon [run 20261028-092419 t117-t150: read as Sword or Spear, the bot thought
 # Katana was still in the hand and tried to queue it 47 times]
@@ -31,6 +35,27 @@ BUBBLE_ALIAS = {"sword": "katana"}
 
 def h_queue(p) -> list:
     return list((p.hero or {}).get("queue", []))
+
+
+def hand_unsettled(p, kit: Kit) -> str | None:
+    """Why the hand read and the hero's queue bubbles do not account for the kit, or None.
+
+    Every kit tile is in the hand (bright or dimmed) or queued, so faces + bubbles = tiles on a
+    settled screen. Two animations break that, and the screen's overall change stays under
+    grab_stable's threshold while they play [user review of run 20261030-213120, item 2]: a tile that
+    comes ready flashes (a white bar sweeps over its face: t62 read the Arrow as nothing and the
+    Charge as an unknown face, t95 the Swirl as nothing), and after an attack the fired tiles fly back
+    into the hand (t241, t291; t168 read an empty hand while the Arrow flashed). Of the 1,339 saved
+    fight frames of the bot's runs, 9 read so, all in one of these two moments."""
+    faces = list(getattr(p, "hand", None) or [])
+    unread = sum(1 for f in faces if f.get("tile") is None)
+    if unread:
+        return f"{unread} hand face(s) unread"
+    bubbles = h_queue(p)
+    if len(faces) + len(bubbles) < len(kit):
+        # (more than the kit is a tile taken at the last reward: the tracker adds it at the level's start)
+        return f"{len(faces)} hand faces and {len(bubbles)} queue bubbles for {len(kit)} kit tiles"
+    return None
 
 
 def match_faces(kit: Kit, faces: list[dict], charge: dict | None = None) -> dict[str, dict]:
@@ -165,13 +190,19 @@ class Tracker:
         self.advance = False               # a reward screen ended the level: the next fight is the next level
         self.notes: list[str] = []
         self.prev: list = []          # enemies of the last state (for facing persistence)
+        self.prev_hp: dict = {}       # cell -> HP of the last state's units
         self.fresh: list = []         # (x, kind, facing) of the units new in the last state
         self.hist: list = []          # enemies when the bot last acted: (kind, x, telegraph, fage), for the
                                       # behaviour model's history features (behaviour.carry)
         self.freeze_left = 0          # turns of Mass Ice left
         self.shield = False           # Kami Brew active
+        self.last_hp: int | None = None   # the hero's HP in the last state
+        self.hero_x_after: int | None = None   # the hero's cell after his last action, before the enemies moved
         self.cursed = False           # Mass Curse on every enemy until our next attack
         self.swapped_uid_x: int | None = None
+        self.cycle: dict | None = None      # The Statue when the bot last acted: its tile count, stack, telegraph, holds
+        self._cycle_now: dict | None = None
+        self._queue_conf: dict = {}         # cell -> the confidence of each tile read in its unit's bubbles
 
     # ------------------------------------------------------------------
     def next_level(self) -> None:
@@ -188,10 +219,10 @@ class Tracker:
         stage = self.stage if stage is None else stage
         return region_boss_index(self.route[stage - 1] if 0 < stage <= len(self.route) else None)
 
-    def _level(self, screen: str, cells: int) -> str:
+    def _level_pos(self, screen: str, cells: int) -> tuple[int, int]:
+        """(stage, level index) of the fight on screen, without moving the tracker there."""
         stage, i = self.stage, self.level_i
         if self.advance:
-            self.advance = False
             stage, i = (stage + 1, 0) if i >= self.boss_index(stage) else (stage, i + 1)
         elif i < 0:                          # the run's first fight: by the board
             i = self.boss_index(stage) if screen == "boss" else 1 if cells == 7 and stage == 1 else 0
@@ -201,6 +232,16 @@ class Tracker:
             i = 1                            # Bamboo Grove II without its reward screen read
         elif stage == 1 and i == 1 and cells == 5:
             i = 2                            # Daisuke's arena shows a turn or two before the boss bar
+        return stage, i
+
+    def peek_level(self, screen: str, cells: int) -> str:
+        """The name state() would give the fight on screen; the tracker stays where it is."""
+        stage, i = self._level_pos(screen, cells)
+        return level_name(stage, i, self.boss_index(stage))
+
+    def _level(self, screen: str, cells: int) -> str:
+        stage, i = self._level_pos(screen, cells)
+        self.advance = False
         self.stage, self.level_i = stage, i
         return level_name(stage, i, self.boss_index(stage))
 
@@ -227,7 +268,10 @@ class Tracker:
             self.level = level
             self.facing_known = False
             self.prev = []
+            self.prev_hp = {}
+            self.hero_x_after = None
             self.hist = []
+            self.cycle = self._cycle_now = None
 
         h = p.hero
         facing = self._hero_facing(h, p.confidence.get("hero_facing", 0.0))
@@ -276,6 +320,20 @@ class Tracker:
                 self.notes.append(f"{lb} is not in the hand and not queued; planned as recharging")
 
         hp = h["hp"] if h["hp_max"] else 0
+        if self.shield and self.last_hp and 0 < hp < self.last_hp:
+            # a shield negates the next attack [wiki], so HP lost means it is gone: one the predicted line did not
+            # use stayed on (recording 2's Kami Brew at The Twins, f0758, was still tracked at Spirit Gateway I
+            # f0875, where a Charger's 1 was planned as blocked)
+            self.shield = False
+            self.notes.append(f"HP {self.last_hp} -> {hp}: no shield")
+        if self.shield and self.hero_x_after is not None and h["x"] != self.hero_x_after:
+            # an enemy moved him (Dragon Punch, the Hook, the Smoke Bomb), so it hit him and the shield took the hit:
+            # run 20261029-095311 t76, Rei's punch pushed the hero to the wall without HP lost, the tracked shield
+            # stayed on, and t82's -2 was planned as -1
+            self.shield = False
+            self.notes.append(f"hero moved from {self.hero_x_after} to {h['x']} by an enemy: no shield")
+        if hp:
+            self.last_hp = hp
         # the red ticks under the hero count the turns his swap still needs (Quick Recovery shortens it)
         swap_charge = kit.swap_cooldown - min(kit.swap_cooldown, h.get("swap_red", 0))
         hero = Hero(h["x"], facing, hp=hp, queue=queue, charge=plan_charge, swap_charge=swap_charge,
@@ -287,6 +345,7 @@ class Tracker:
         warn = list(getattr(p, "warn", []) or [])
         aimed_fire = any(e["queue"] and SPEC.get(e["queue"][0], ("",))[0] == "aim" and e.get("intent") == "fire"
                          for e in p.enemies)
+        sure = set()          # cells whose unit's bubble showed its own tiles, read sure (the Quick rule below)
         for i, e in enumerate(p.enemies):
             kind = e["kind"] if e["kind"] in ENEMY_KINDS else "ashigaru"
             if kind != e["kind"]:
@@ -314,10 +373,13 @@ class Tracker:
                 if fixed != queue:
                     self.notes.append(f"{kind} queue read {queue}; set to {fixed}")
                 queue = fixed
-            elif queue and any(t != ENEMY_KINDS[kind][1] for t in queue):
-                # regular enemies only carry their own tile; an odd read is an animation overlay
+            elif queue and any(t not in CAT.enemy(kind).tiles for t in queue):
+                # regular enemies only carry their own tiles (the Grappler and the Shinobi two each); an odd
+                # read is an animation overlay
                 self.notes.append(f"enemy at {e['x']} queue read {queue}; set to {ENEMY_KINDS[kind][1]}")
                 queue = [ENEMY_KINDS[kind][1]]
+            elif queue and min(e.get("queue_conf") or [1.0]) >= QUICK_READ_CONF:
+                sure.add(e["x"])
             aim = None
             if queue and SPEC.get(queue[0], ("",))[0] == "aim" and warn and (intent == "fire" or not aimed_fire):
                 # the warning sign: an aimed Volley fires this turn at that cell, the hero's, whatever the
@@ -345,24 +407,100 @@ class Tracker:
             # summoned units whose pips were hidden [run 20261028-053637: Chargers]
             last = next((q[1] for q in self.prev if q[0] in BOSS_KINDS), None)
             keep = min(bosses, key=lambda en: abs(en.x - last)) if last is not None else max(bosses, key=lambda en: len(en.queue))
-            unit = CAT.enemy(keep.kind).summons or "charger"
+            # (The Statue summons through its Summoner: the Summoner's unit)
+            unit = (CAT.enemy(keep.kind).summons or next((e.summons for e in CAT.enemies.values()
+                                                          if e.behaviour.get("synced_with") == keep.kind), None)
+                    or "charger")
             for en in bosses:
                 if en is not keep:
-                    en.kind, en.hp = unit, ENEMY_KINDS[unit][0]
-                    en.queue = [t for t in en.queue if t == ENEMY_KINDS[unit][1]][:1]
+                    # a unit that stood there last turn keeps its kind and HP: the Summoner on cell 0 read as
+                    # The Statue while the Hook pulled the hero past it, and a summoned Tachi on cell 3 the
+                    # turn after it came [rec: collect/20261028-190026 f0868-f0869, f0879]
+                    was = next((q for q in self.prev if q[0] not in BOSS_KINDS and q[1] == en.x), None)
+                    k = was[0] if was else unit
+                    en.kind, en.hp = k, (self.prev_hp.get(en.x) if was else None) or ENEMY_KINDS[k][0]
+                    en.queue = [t for t in en.queue if t in CAT.enemy(k).tiles][:1]
             self.notes.append(f"{len(bosses)} {keep.kind} reads; kept cell {keep.x}")
         self.fresh = [(en.x, en.kind, en.facing) for en in self._unmatched(enemies)]
         self.prev = [(en.kind, en.x, en.facing, en.intent) for en in enemies]
+        self.prev_hp = {en.x: en.hp for en in enemies}
         self.swapped_uid_x = None
         # what each enemy did last turn and how long since it fired: the learned model's
         # history features, matched the way shogunbot.mine matches logged turns
         for j, i in behaviour.match(self.hist, [(en.kind, en.x) for en in enemies]).items():
             _, _, it, fage = self.hist[i]
             enemies[j].last, enemies[j].fage = behaviour.carry(it, fage)
+        self._queue_conf = {e["x"]: list(e.get("queue_conf") or []) for e in p.enemies}
+        self._cycle(enemies)
 
         s = State(cells, hero, enemies, level=level,
                   wave=1, waves_total=0 if level.endswith("boss") else 99)
+        from .rules import _hits_hero
+        for en in enemies:
+            if (en.kind in behaviour.QUICK and en.queue and en.intent in ("hold", None) and en.x in sure
+                    and _hits_hero(s, en, en.queue[0])):
+                # Quick: loaded, it fires the phase after it loaded once the hero is the first unit ahead, whatever
+                # one frame of its bubble shows (the Shinobi's Shuriken 3 of 3, red on the frames read) [rec:
+                # collect/20261028-190026 f0694-f0695, f0711-f0713; collect/20261029-160032 f0892-f0895]. Only on a
+                # sure read of its own tile: a ghost read set to its Shuriken (rec2 f1051, 'swap_toss' at 0.06) or
+                # a later region's unit with its pips (rec2 f1294, f1331, f1854) fired no Shuriken
+                self.notes.append(f"enemy at {en.x}: quick and loaded, the hero in its reach; fires this turn")
+                en.intent = "fire"
         return s
+
+    def _cycle(self, enemies: list) -> None:
+        """The Statue's telegraph from its 9-turn cycle (behaviour.cycle_intent), and its stack kept from turn to
+        turn: its bubbles bob in 4-px steps and shake on the fire turn, so a single read can name a tile wrongly or
+        miss the yellow [rec: collect/20261028-190026 f0857-f0921, collect/20261029-160032 f1071-f1120]. What it did
+        in the phase just played comes from its tile count against the last turn's (one more: it loaded; none after
+        three: it fired; the same: it rested or held). The Summoner follows it."""
+        st = next((e for e in enemies if CAT.enemy(e.kind).behaviour.get("cycle")), None)
+        if st is None:
+            self._cycle_now = None
+            return
+        conf = list(self._queue_conf.get(st.x, [])) + [0.0] * len(st.queue)
+        read, prev = [(t, conf[i]) for i, t in enumerate(st.queue)], self.cycle
+        q = len(read)
+        if prev is None:
+            # its first turn rests [wiki: 'needing an extra turn to add a Tile']; a '+' on the first frame read
+            # means that turn was missed and it loads now
+            last, holds, slots = ("hold" if q == 0 and st.intent == "queue" else None), 0, read
+        else:
+            pq = prev["q"]
+            # each slot keeps its most confident read: a tile just loaded glows and the stack shakes on the fire
+            # turn (rec1 f0863: Hook, Spear read Arrow 0.08, Sword 0.24; f0913: Spear read Sword 0.01), settled
+            # frames read 1.0
+            slots = [max(a, b, key=lambda tc: tc[1]) for a, b in zip(prev["slots"], read)] + read[len(prev["slots"]):]
+            if q == pq + 1:
+                last = "queue"
+            elif q == 0 and pq >= 3:
+                last = "fire"
+            elif q == pq:
+                last = "hold"
+            else:
+                last, slots = prev["intent"], read
+                self.notes.append(f"the_statue: {q} tiles read after {pq}")
+            slots = slots[:q]
+            holds = prev["holds"] + 1 if (q >= 3 and pq >= 3) else 0
+        stack = [t for t, _ in slots]
+        it = behaviour.cycle_intent(q, last, holds)
+        if st.intent != it:
+            self.notes.append(f"the_statue: read {st.intent}, its cycle says {it}")
+        if stack != list(st.queue):
+            self.notes.append(f"the_statue: stack read {st.queue}, kept {stack}")
+        st.queue, st.last, st.intent = stack, last, it
+        st.wind = holds if q >= 3 else 1
+        self._cycle_now = {"q": q, "slots": slots, "intent": it, "holds": holds}
+        for e in enemies:
+            if CAT.enemy(e.kind).behaviour.get("synced_with") == st.kind:
+                # the Summoner loads its bell with the Statue's first load and summons with its second
+                want = ("queue" if it == "queue" and q == 0 and not e.queue else
+                        "fire" if it == "queue" and q == 1 else "hold")
+                if want == "fire" and not e.queue:
+                    e.queue = ["summon"]
+                if e.intent != want:
+                    self.notes.append(f"summoner: read {e.intent}, the Statue's cycle says {want}")
+                e.intent = want
 
     # ------------------------------------------------------------------ queue
     def _queue(self, h: dict, hand: list[dict]) -> list[str]:
@@ -513,10 +651,27 @@ class Tracker:
     def freeze(self, turns: int) -> None:
         self.freeze_left = turns
 
+    def item_used(self, item: str) -> None:
+        """An item used up (gone from its slot): its effect on the tracked state, by the catalogue's effect type.
+        The bot calls it after a use; the replay too, for the items a recording used (0.36: recording 1's Mass Ice
+        at f0726 froze the Shinobi on cell 0 for three turns, which 0.35's replay did not know)."""
+        cons = CAT.consumable_by_screen(item)
+        kind = cons.effect.get("type") if cons else None
+        if kind == "freeze_all":
+            self.freeze(ICE_TURNS)        # Mass Ice: all enemies frozen for 3 turns [catalogue]
+        elif kind == "shield":
+            self.shield = True            # Kami Brew: negates the next attack [wiki]
+        elif kind == "curse_all":
+            self.cursed = True            # Mass Curse: next hit on each enemy is doubled [wiki]
+        elif kind == "turn_all":
+            self.mirror()                 # Rain of Mirrors: every enemy turned around [wiki]
+        # Lucky Die rerolls every enemy's intent [wiki] [user 2026-10-28]: nothing to model, the next frame shows
+        # the new telegraphs; brews change HP and charge, which the next frame shows too
+
     def mirror(self) -> None:
         """Rain of Mirrors turned every enemy: flip the remembered facings, or the
         facing-persistence rule would undo the flip."""
-        self.prev = [(k, x, -f, None) for k, x, f, _ in self.prev]
+        self.prev = [(k, x, f if k in HEAVY_KINDS else -f, None) for k, x, f, _ in self.prev]
 
     def recharging(self, label: str) -> None:
         """The game refused to queue this tile (it stayed in the hand): it is recharging, whatever was read
@@ -537,11 +692,13 @@ class Tracker:
             if outs and not max(outs, key=lambda t: t[0])[1].hero.shield:
                 self.shield = False  # the likeliest outcome used it up
         s2 = apply_hero(s, action, Events())
+        self.hero_x_after = s2.hero.x
         self.charge = dict(s2.hero.charge)
         self.queue_track = list(s2.hero.queue)
         # where each enemy stands once the hero has acted (a swap moves one), and its telegraph
         self.hist = [(e.kind, s.hero.x if (e.x == s2.hero.x and s2.hero.x != s.hero.x) else e.x, e.intent, e.fage)
                      for e in s.alive()]
+        self.cycle = self._cycle_now
         if action == "turn":
             self.facing = -s.hero.facing
         if s2.hero.x != s.hero.x and s.enemy_at(s2.hero.x) is not None:

@@ -41,20 +41,20 @@ import types
 import numpy as np
 
 from . import rewards
-from .bridge import Tracker, kit_from_faces, level_name, match_faces
+from .bridge import Tracker, hand_unsettled, kit_from_faces, level_name, match_faces
 from .catalogue import CAT
-from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HERO_MAX_HP
+from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HEAVY_KINDS, HERO_MAX_HP
 from .perception import map_screen, reward_screen, screens, shop_screen
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
 from .perception.tiles import FACE_H, FACE_W
 from .planner import STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_weights
-from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS, free_action, legal_hero_actions, step
+from .rules import POISON_TICK, POISON_TURNS, free_action, legal_hero_actions, step
 from .live import LiveView
 from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.35"
+VERSION = "0.36"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -72,7 +72,8 @@ POISON_MIN_VALUE = 4      # use Mass Poison when it deals at least this much in 
 # ended five runs holding Mass Ice, Edamame, Cool Up and Kami Brew]. With --stage1 that is Stage
 # 1's boss; a --full run is won, and in a series given up, after the boss of FULL_LAST_STAGE
 # [m4-plan: the bot clears the region 2 boss]. Items carry over between stages [user 2026-10-29].
-FULL_LAST_STAGE = 3       # Moonlit Port, The Twins [user 2026-10-29: extend --full to region 3]
+FULL_LAST_STAGE = 4       # Spirit Gateway, The Statue [user review of run 20261030-213120: "raise FULL_LAST_STAGE
+                          # to 4 (Spirit Gateway, The Statue)"; region 3 since 2026-10-29]
 MAP_TRIES_MAX = 12        # map inputs that leave the map unchanged before the run stops as 'stuck'
                           # [run 20261029-072042: 18 inputs on a Stage 2 map, none applied]
 START_GIVE_UPS_MAX = 2    # give-ups at a run start that still do not reach the camp: 'stuck'
@@ -86,12 +87,26 @@ NO_CHANGE_STOP = 20       # inputs in a row that change nothing on screen before
 # turns it on, the up/down arrows move the mark among the reachable nodes, Enter travels there, and
 # any mouse click turns it off again (perception/map_screen.py). Regions in order of preference;
 # a shop is always taken (both shops after Bamboo Grove led to both regions).
-MAP_REGIONS = ("whispering_caves", "moonlit_port")   # [user 2026-10-28: Whispering Caves first; 2026-10-29:
-                                                     # region 3, the one region after the Caves]
+MAP_REGIONS = ("whispering_caves", "moonlit_port", "spirit_gateway")   # [user 2026-10-28: Whispering Caves
+# first; 2026-10-29: region 3, the one region after the Caves; review of run 20261030-213120: region 4, Spirit
+# Gateway, which both recordings took after Moonlit Port's shop (collect/20261028-190026 f0597,
+# collect/20261029-160032 f0798)]
 MAP_LOOKS_MAX = 4         # arrow presses spent looking for a preferred region before taking the mark
 MOUSE_MODE_SPOT = (0.97, 0.27)   # an empty spot: a click there turns keyboard-only mode off
 BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink
 BLINK_GAP_S = 0.15
+# a hand read that does not account for the kit (bridge.hand_unsettled: a tile's ready flash, tiles flying
+# back after an attack) is read again for up to HAND_WAIT_S before planning [user review of run
+# 20261030-213120, item 2: t62 and t168 planned a tile the hand did not show]; after HAND_STALE_TURNS
+# turns in a row whose wait ran out, the bot stops waiting until a read adds up again
+HAND_WAIT_S = 1.5
+HAND_GAP_S = 0.15
+HAND_STALE_TURNS = 3
+# a boss level's first frames show its intro ('THE WANDERER V.S. THE TWINS') before the boss bar, and the
+# boss reads as an ordinary unit until the bar is up [user review of run 20261030-213120, item 4: t303
+# planned the Twins as two 3-HP Ashigaru; 7 of the 41 boss levels of the bot's runs began so]. The bot
+# waits for the bar up to BOSS_INTRO_S once per boss level
+BOSS_INTRO_S = 5.0
 UNKNOWN_FRAME_S = 6.0     # save a frame when a screen stays unknown this long
 UNKNOWN_GIVE_UP_S = 90.0  # end the run as 'stuck'
 GIVE_UP_WAIT_S = 20.0     # after a win: wait up to this long for the map before pausing
@@ -588,7 +603,8 @@ class Bot:
             return "ice_card", "last level: an enemy is armed or adjacent"
         if "dice_card" in have and any(e.intent == "fire" for e in active):
             return "dice_card", "last level: an enemy telegraphs fire"
-        if "mirror_card" in have and any(e.facing == (1 if hx > e.x else -1) for e in armed):
+        if "mirror_card" in have and any(e.facing == (1 if hx > e.x else -1) and e.kind not in HEAVY_KINDS
+                                         for e in armed):
             return "mirror_card", "last level: an armed enemy faces you"
         if "white_potion" in have and self._best_tile_recharging(s):
             return "white_potion", "last level: the best tile is recharging"
@@ -631,7 +647,8 @@ class Bot:
         """Would turning every enemy around leave a zero-damage move?"""
         m = s.clone()
         for e in m.enemies:
-            e.facing = -e.facing
+            if e.kind not in HEAVY_KINDS:       # Heavy: cannot be turned [wiki: Traits]
+                e.facing = -e.facing
         d = plan(m, 2)
         return min(c["exp_damage"] for c in d.candidates) < 0.5
 
@@ -663,17 +680,9 @@ class Bot:
         self.log.event("item_result", item=item, consumed=not still)
         if not still:
             tries[item] = 0
-            # the effect goes into the model only once the item is really gone
-            if item == "ice_card":
-                tr.freeze(ICE_TURNS)  # Mass Ice: all enemies frozen for 3 turns [catalogue]
-            elif item == "blue_potion":
-                tr.shield = True  # Kami Brew: negates the next attack [wiki]
-            elif item == "curse_card":
-                tr.cursed = True  # Mass Curse: next hit on each enemy is doubled [wiki]
-            elif item == "mirror_card":
-                tr.mirror()       # Rain of Mirrors: every enemy turned around [wiki]
-            # Lucky Die (dice_card) rerolls every enemy's intent [wiki] [user 2026-10-28]: nothing
-            # to model, the next frame shows the new telegraphs
+            # the effect goes into the model only once the item is really gone (Mass Ice, Kami Brew, Mass
+            # Curse, Rain of Mirrors; Tracker.item_used)
+            tr.item_used(item)
         else:
             self.say(f"   {item} still in its slot; the click may not have registered")
 
@@ -1147,6 +1156,8 @@ class Bot:
         map_tries, map_look = 0, {}
         zero_hp = 0
         last_key, last_action = None, None
+        hand_since, hand_why, hand_stale, hand_turn = None, None, 0, None   # the wait for a hand read that adds up
+        intro_since, intro_done = None, None  # the wait for a boss bar (BOSS_INTRO_S), and the level it ended on
         potion_check = None
         item_tries: dict = {}
         seen_items: set = set()
@@ -1168,6 +1179,8 @@ class Bot:
 
                 if scr != "unknown":
                     unknown_since, unknown_saved = None, False
+                if scr not in ("combat", "boss", "unknown"):
+                    hand_since = None
                 if scr not in ("combat", "boss"):
                     self.live.status({"unknown": "waiting"}.get(scr, scr))
                 if scr not in ("map", "black") and map_screen.keyboard_mode(normalize(frame)):
@@ -1368,6 +1381,35 @@ class Bot:
 
                 # ---------------- combat / boss
                 map_tries, map_look = 0, {}
+                # the hand and the queue bubbles must account for the kit before planning (HAND_WAIT_S)
+                unsettled = hand_unsettled(p, tr.kit)
+                if unsettled is None:
+                    hand_stale = 0
+                elif hand_stale < HAND_STALE_TURNS and hand_turn != turn:
+                    now = time.time()
+                    if hand_since is None:
+                        hand_since, hand_why = now, unsettled
+                    if now - hand_since < HAND_WAIT_S:
+                        time.sleep(HAND_GAP_S)
+                        continue
+                    hand_stale += 1               # waited it out: this read is planned on,
+                    hand_turn = turn              # and this turn waits no more
+                if hand_since is not None:
+                    log.event("hand_wait", turn=turn, seconds=round(time.time() - hand_since, 2),
+                              reason=hand_why, settled=unsettled is None)
+                    hand_since = None
+                # a boss level before its bar is up (BOSS_INTRO_S)
+                upcoming = tr.peek_level(p.screen, len(p.cells))
+                if upcoming.endswith("boss") and upcoming != intro_done:
+                    now = time.time()
+                    if p.screen != "boss" and now - (intro_since or now) < BOSS_INTRO_S:
+                        intro_since = intro_since or now
+                        time.sleep(0.3)
+                        continue
+                    if intro_since is not None:
+                        log.event("boss_intro_wait", level=upcoming, turn=turn,
+                                  seconds=round(now - intro_since, 2), bar=p.screen == "boss")
+                    intro_since, intro_done = None, upcoming
                 if p.screen in ("combat", "boss") and any(e.get("spawning") for e in p.enemies):
                     frame, p = self._wait_spawns(frame, p, tr, turn)
                 if p.screen in ("combat", "boss") and any(e["queue"] or e["intent"] is None for e in p.enemies):
@@ -1548,6 +1590,10 @@ class Bot:
                     banned.setdefault(key, set()).add(d.action)
                     log.event("loop_break", turn=turn, banned=sorted(banned[key]), board=s.render(),
                               reason="action could not be sent")
+                    # nothing reached the game: the loop breaker above must not take the unchanged board
+                    # for a refused click [run 20261030-213120 t62: the Arrow, never clicked, was then
+                    # planned as recharging]
+                    last_key, last_action = None, None
                     time.sleep(0.25)
                     continue
                 # not reacted: [run 20261027-180145] small changes (an enemy queuing) fell under the

@@ -75,7 +75,8 @@ def analyze(run_dir: Path) -> str:
         if e["event"] in ("exception",):
             tb = (e.get("traceback") or "").strip().splitlines()
             L.append(f"  EXCEPTION at {e.get('where')}: {e.get('error')}  last: {tb[-3].strip() if len(tb) >= 3 else ''}  {e.get('frame') or ''}")
-        elif e["event"] in ("loop_break", "potion_use", "potion_result", "item_use", "item_result", "item_seen", "act_failed", "unknown_screen"):
+        elif e["event"] in ("loop_break", "potion_use", "potion_result", "item_use", "item_result", "item_seen", "act_failed",
+                            "unknown_screen", "hand_wait", "boss_intro_wait"):
             L.append("  " + json.dumps({k: v for k, v in e.items() if k != "ts"}))
     # rewards (M2): what was offered, how each option scored, what was taken
     for e in events:

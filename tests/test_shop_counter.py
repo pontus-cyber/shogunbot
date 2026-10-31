@@ -264,24 +264,38 @@ def test_a_simulated_pure_gain_skill_is_reported_as_such(tmp_path):
     assert "no simulation needed" in text and "not simulated" not in text
 
 
-# ---- 0.34 [user 2026-10-30, enchantments: "rather more use than less, and we learn from that"] -----------
-def test_the_shop_buys_an_enchantment_unless_it_is_a_net_loss():
-    # run 20261030-041652, shop 1: Shockwave for 20 of 23 coins scored +0.13 over keeping the coins on Swirl and
-    # was not bought (0.29-0.33 wanted a trade-off above the noise); an enchantment now follows the shrine's rule
+# ---- 0.36 [user review of run 20261030-213120, item 1: "a purchase costs coins that later shops could use.
+# For paid items, require a gain above the noise"] ----------------------------------------------------------
+def _ev(diff, se):
+    def f(opts, hp, seeds, depth, workers, scenario, **kw):
+        for o in opts:
+            o.scores = [5.0] * 4
+        for o in opts[1:]:
+            o.diff, o.se = diff, se
+    return f
+
+
+def test_the_shop_buys_an_enchantment_only_above_the_noise():
+    # run 20261030-213120, shop 1: Perfect Strike (+1 cooldown) for 20 of 29 coins; every option scored below
+    # keeping the coins, the best (Arrow) -0.00 +- 0.11 HP, and 0.34-0.35 bought it as a loss within the noise
     from shogunbot import rewards
     from shogunbot.model import Kit
+    kit = Kit.of("swirl", "arrow", "charge")
+    d = rewards.decide_shop(kit, "perfect_strike", 20, 29, 10, evaluator=_ev(-0.004, 0.11))
+    assert d.best.name == "skip" and "coins kept" in d.rule
+    # run 20261030-041652, shop 1: Shockwave on Swirl at +0.13 +- 0.15 stays unbought, as in 0.29-0.33
+    assert rewards.decide_shop(kit, "shockwave", 20, 23, 10, evaluator=_ev(0.13, 0.15)).best.name == "skip"
+    # a gain above the noise is bought
+    d = rewards.decide_shop(kit, "shockwave", 20, 23, 10, evaluator=_ev(0.5, 0.1))
+    assert d.best.name != "skip" and "against keeping the coins" in d.rule
+    assert rewards.decide_shop(kit, "shockwave", 20, 19, 10, evaluator=_ev(0.5, 0.1)).best.name == "skip"  # coins
+    # stat trade-offs: the same rule
+    assert rewards.decide_shop(kit, "damage_2_cooldown_3", 20, 30, 10, evaluator=_ev(0.13, 0.15)).best.name == "skip"
 
-    def ev(diff, se):
-        def f(opts, hp, seeds, depth, workers, scenario, **kw):
-            for o in opts:
-                o.scores = [5.0] * 4
-            for o in opts[1:]:
-                o.diff, o.se = diff, se
-        return f
-    kit = Kit.of("swirl", "arrow", "katana")
-    d = rewards.decide_shop(kit, "shockwave", 20, 23, 10, evaluator=ev(0.13, 0.15))
-    assert d.best.name != "skip" and "an enchantment" in d.rule
-    assert rewards.decide_shop(kit, "shockwave", 20, 23, 10, evaluator=ev(-0.5, 0.1)).best.name == "skip"  # net loss
-    assert rewards.decide_shop(kit, "shockwave", 20, 19, 10, evaluator=ev(0.5, 0.1)).best.name == "skip"   # coins
-    # a stat trade-off keeps the stricter rule
-    assert rewards.decide_shop(kit, "damage_2_cooldown_3", 20, 30, 10, evaluator=ev(0.13, 0.15)).best.name == "skip"
+
+def test_free_enchantments_keep_the_shrines_rule():
+    # a shrine's enchantment costs nothing: taken unless every option is a net loss [user, after run 20261028-082756]
+    from shogunbot import rewards
+    from shogunbot.model import Kit
+    d = rewards.decide_upgrade(Kit.of("swirl", "arrow", "charge"), "perfect_strike", 10, evaluator=_ev(-0.004, 0.11))
+    assert d.best.name != "skip" and "a loss within the noise" in d.rule

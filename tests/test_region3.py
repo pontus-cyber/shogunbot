@@ -113,7 +113,8 @@ def test_the_replay_accepts_the_kind_a_unit_was_planned_as_too():
     obs = {"hero": (2, 8), "enemies": [(0, "ashigaru", 3), (1, "ashigaru_archer", 2), (6, "tachi", 2)]}
     assert matches(pred, {(1, "tachi"): "ashigaru_archer", (6, "tachi"): "ashigaru_archer"}, obs)
     assert not matches(pred, {}, obs)                                     # no alt: a different kind
-    # a kind the simulator lacks is still scored on its cell and HP alone, and a spawn is no error
+    # a kind the simulator lacks is still scored on its cell and HP alone, and a spawn is no error (0.36 simulates
+    # the Shinobi, so the Shielder stands in for it here)
     assert matches({"hero": (2, 8), "enemies": [(1, "tachi", 2)]}, {},
-                   {"hero": (2, 8), "enemies": [(1, "shinobi", 2), (4, "guardian", 5)]})
+                   {"hero": (2, 8), "enemies": [(1, "shielder", 2), (4, "guardian", 5)]})
     assert not matches(pred, {}, {"hero": (3, 8), "enemies": obs["enemies"]})

@@ -38,6 +38,8 @@ LEVELS = (
 )
 ALPHA = 4.0        # pseudo-counts taken from the level above (best log-loss of 0.5-8 in leave-one-run-out)
 MIN_P = 0.08       # options rarer than this are dropped (mostly read noise) and the rest renormalised
+# simulated kinds with the Quick trait (catalogue 'traits'): they may fire the phase right after loading
+QUICK = frozenset(k for k in ENEMY_KINDS if "quick" in CAT.enemy(k).traits)
 DATA = Path(__file__).parent / "data" / "behaviour.json"
 
 
@@ -210,6 +212,19 @@ def model() -> Model | None:
 
 
 # ------------------------------------------------------------------ intents
+def cycle_intent(q: int, last: str | None, holds: int) -> str:
+    """The Statue's telegraph [rec: collect/20261028-190026 f0857-f0921, collect/20261029-160032 f1071-f1120; wiki:
+    The Statue]: a fixed 9-turn cycle from the player's first action, with no exception in 7 fires and 25 loads: rest,
+    load, rest, load, rest, load, hold, hold, fire (all three tiles, the bottom first, wherever the player is).
+    q: its tiles now; last: what it did in the phase just played ('queue', 'fire', anything else a rest, None
+    before its first phase); holds: phases it has held its three tiles."""
+    if q >= 3:
+        return "fire" if holds >= 2 else "hold"
+    if last == "queue" or (q == 0 and last in (None, "fire")):
+        return "hold"
+    return "queue"
+
+
 def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | None:
     """[(p, telegraph)] for an enemy without a read telegraph, decided on the
     board at the start of the hero's turn. None when no model is available."""
@@ -217,12 +232,36 @@ def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | No
     if m is None:
         return None
     f = features(s, e, getattr(e, "last", None), getattr(e, "fage", None))
-    loaded_earlier = bool(e.queue) and e.wind >= 1 and f["last"] != "queue"
+    # Quick [wiki: "can attack immediately after a tile is added to its attack queue"]: R1 does not hold
+    quick = e.kind in QUICK
+    loaded_earlier = bool(e.queue) and (quick or (e.wind >= 1 and f["last"] != "queue"))
     # rules confirmed in play come first; the model fills in everything else
     boss = e.kind in BOSS_KINDS
     kind = CAT.enemy(e.kind) if boss else None
     b = kind.behaviour if boss else {}
     toward = 1 if s.hero.x > e.x else -1
+    if b.get("cycle"):
+        # The Statue never moves or turns; its loads and its fire follow the cycle (wind: phases held at three)
+        return [(1.0, cycle_intent(len(e.queue), f["last"], e.wind if len(e.queue) >= 3 else 0))]
+    own = CAT.enemy(e.kind).behaviour if not boss and e.kind in CAT.enemies else {}
+    sync = own.get("synced_with")
+    if sync:
+        # The Summoner loads its bell with the Statue's first load of a cycle and summons with its second [rec: rec1
+        # T2-T4 and T11-T13, rec2 T2-T4]; it never moves, turns or attacks
+        lead = next((o for o in s.alive() if o.kind == sync), None)
+        if lead is None:
+            return [(1.0, "hold")]
+        li = cycle_intent(len(lead.queue), getattr(lead, "last", None), lead.wind if len(lead.queue) >= 3 else 0)
+        if li == "queue" and len(lead.queue) == 0 and not e.queue:
+            return [(1.0, "queue")]
+        if li == "queue" and len(lead.queue) == 1 and e.queue:
+            return [(1.0, "fire")]
+        return [(1.0, "hold")]
+    seq = own.get("sequence")
+    if seq and 0 < len(e.queue) < len(seq) and e.queue == seq[:len(e.queue)]:
+        # the Grappler adds its Sword the phase after its Hook (4 of 4) [rec: collect/20261028-190026 f0776-f0778,
+        # collect/20261029-160032 f0816-f0819, f0824-f0828, f0866-f0870]
+        return [(1.0, "queue")]
 
     def step(d: int) -> str:                   # a move telegraph, or hold when the cell is taken
         nx = e.x + d
@@ -257,7 +296,7 @@ def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | No
         p["fire"] = 0.0
     elif not boss:
         p["queue"] = 0.0                      # one tile per regular enemy
-    if e.queue and (f["last"] == "queue" or e.wind < 1):
+    if e.queue and not quick and (f["last"] == "queue" or e.wind < 1):
         p["fire"] = 0.0                       # R1: never fires the phase right after loading
     if e.kind != "daisuke" and not f["in_fp"]:
         p["fire"] = 0.0                       # regular enemies fire only at the hero: 1 of 424 telegraphs

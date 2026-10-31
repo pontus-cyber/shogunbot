@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 from . import behaviour
 from .catalogue import CAT
 from .model import (
-    BOSS_KINDS, DEFAULT_KIT, ENEMY_KINDS, ENEMY_TILE_COOLDOWN, ENEMY_TILE_DAMAGE, QUEUE_MAX, SWAP_COOLDOWN,
-    Enemy, Hero, State,
+    BOSS_KINDS, DEFAULT_KIT, ENEMY_KINDS, ENEMY_TILE_COOLDOWN, ENEMY_TILE_DAMAGE, HEAVY_KINDS, QUEUE_MAX,
+    SWAP_COOLDOWN, Enemy, Hero, State,
 )
 
 MOVES = ("left", "right", "turn", "wait")
@@ -121,7 +121,8 @@ def legal_hero_actions(s: State) -> list[str]:
             if not s.in_bounds(nx):
                 continue
             occ = s.enemy_at(nx)
-            if occ is not None and not ((h.facing == d or h.kit.swap_both_ways) and h.swap_ready):
+            if occ is not None and (occ.kind in HEAVY_KINDS
+                                    or not ((h.facing == d or h.kit.swap_both_ways) and h.swap_ready)):
                 continue
         out.append(a)
     q = h.queue
@@ -252,6 +253,14 @@ def _hero_attack(s: State, kt, ev: Events, boost: int = 0, dyn: int = 0) -> bool
                  else _furthest_unit_ahead(s, h.x, d))
             if isinstance(u, Enemy):
                 recharge |= _hero_hit(s, u, kt, spec, ev, boost=boost)
+                if spec.get("pull_adjacent") and u.hp > 0:
+                    _pull(s, u, h.x + d)
+        elif k == "other" and spec.get("effect") == "swap_first":
+            u = _first_unit_ahead(s, h.x, d)
+            if isinstance(u, Enemy):
+                recharge |= _hero_hit(s, u, kt, spec, ev, boost=boost)
+                if u.hp > 0 and u.kind not in HEAVY_KINDS:
+                    h.x, u.x = u.x, h.x
         elif k == "damaged":
             for e in [e for e in s.alive() if e.hp < e.max_hp]:
                 recharge |= _hero_hit(s, e, kt, spec, ev, boost=boost)
@@ -398,6 +407,8 @@ def _tile_hits_hero(s: State, e: Enemy, tile: str) -> bool:
         return _first_unit_ahead(s, e.x, e.facing * dr, skip_uid=e.uid, rng=rng) is s.hero
     if k == "furthest":
         return _furthest_unit_ahead(s, e.x, e.facing * dr) is s.hero
+    if k == "other" and CAT.tile(tile).attack.get("effect") == "swap_first":
+        return _first_unit_ahead(s, e.x, e.facing * dr, skip_uid=e.uid) is s.hero
     if k == "aim":
         # the Volley: aimed at the hero's cell when the turn it fires begins, so the hero is always in reach
         # until then; once aimed, only that cell is hit [data/tiles.json 'volley']
@@ -504,6 +515,11 @@ def _intent_options(s: State, e: Enemy, move_or_wait):
     if it == "queue":
         if e.kind in BOSS_KINDS:
             return _boss_queue(s, e, move_or_wait)
+        seq = CAT.enemy(e.kind).behaviour.get("sequence")
+        if seq and len(e.queue) < len(seq):
+            # the Grappler loads its Hook, then its Sword [rec: collect/20261028-190026 f0776-f0778,
+            # collect/20261029-160032 f0816-f0819, f0824-f0828, f0866-f0870]
+            return [(1.0, ("queue", seq[len(e.queue)]))]
         return [(1.0, ("queue", ENEMY_KINDS[e.kind][1]))]
     if it in ("hold", "fire"):
         return [(1.0, ("wait",))]
@@ -532,7 +548,12 @@ def _boss_queue(s: State, e: Enemy, move_or_wait) -> list[tuple[float, tuple]]:
     learned = m.boss_tile(abs(e.x - s.hero.x), e.queue, e.kind) if m else None
     if learned:
         return [(p, ("queue", t)) for p, t in learned]
-    loads = b.get("loads", {}).get(str(min(dist, 3))) if not e.queue else None
+    loads = b.get("loads", {})
+    if "first" in loads:
+        # The Statue: random tiles, a ranged one only at the bottom [wiki: The Statue]; the 9 recorded queues' counts
+        loads = loads["first" if not e.queue else "later"]
+    else:
+        loads = loads.get(str(min(dist, 3))) if not e.queue else None
     if loads:
         tot = sum(loads.values())
         return [(n / tot, ("queue", t)) for t, n in sorted(loads.items())]
@@ -651,6 +672,15 @@ def _enemy_hit(s: State, e: Enemy, u, dmg: int, tile: str, ev: Events) -> None:
         _damage_enemy(s, u, dmg + s.hero.kit.fx.get("enemy_friendly_fire", 0), f"{e.kind}:{tile}", ev)
 
 
+def _pull(s: State, u, dest: int) -> None:
+    """The Grappling Hook: its target lands on the cell directly ahead of the user [wiki: Tiles]; the cells
+    between were empty, as it hit the first unit ahead."""
+    if isinstance(u, Enemy) and u.kind in HEAVY_KINDS:
+        return                                  # Heavy: cannot be moved [wiki: Traits]
+    if s.in_bounds(dest) and s.unit_at(dest) is None:
+        u.x = dest
+
+
 def _swap_cells(s: State, a: int, b: int) -> None:
     """Swap Toss: whatever stands on cells a and b changes places (a cell off the board holds nothing)."""
     ua = s.unit_at(a) if s.in_bounds(a) else None
@@ -687,7 +717,18 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
                           f"{e.kind}:{tile}", e, shielded)
         elif k in ("first", "furthest"):
             fn = _first_unit_ahead if k == "first" else _furthest_unit_ahead
-            _enemy_hit(s, e, fn(s, e.x, e.facing * spec.get("dir", 1)), dmg, tile, ev)
+            dd = e.facing * spec.get("dir", 1)
+            u = fn(s, e.x, dd)
+            _enemy_hit(s, e, u, dmg, tile, ev)
+            if spec.get("pull_adjacent") and u is not None and (u is h or u.hp > 0):
+                _pull(s, u, e.x + dd)
+        elif k == "other" and spec.get("effect") == "swap_first":
+            u = _first_unit_ahead(s, e.x, e.facing * spec.get("dir", 1), skip_uid=e.uid)
+            if u is not None:
+                if dmg:
+                    _enemy_hit(s, e, u, dmg, tile, ev)
+                if u is h or (u.hp > 0 and u.kind not in HEAVY_KINDS):
+                    e.x, u.x = u.x, e.x
         elif k == "dash_strike":
             dd = e.facing * spec.get("dir", 1)
             u = _first_unit_ahead(s, e.x, dd, skip_uid=e.uid)
@@ -730,9 +771,12 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
             _enemy_hit(s, e, s.unit_at(cell) if s.in_bounds(cell) else None, dmg, tile, ev)
         elif k == "summon":
             # the summoner's unit (Daisuke: Spike Chargers, Rei: Twin Tachi) [wiki]; HYP: random
-            # cells, the planner assumes those farthest from the hero
+            # cells, the planner assumes those farthest from the hero. The Statue's Summoner put its unit on
+            # none of them (catalogue 'summon_cell' random: rec1 f0863, f0876; rec2 f1077), so its unit is not
+            # placed and is read when it comes, as a wave's (0.36)
             kind = CAT.enemy(e.kind).summons or spec.get("unit", "charger")
-            for _ in range(spec.get("count", 1)):
+            placed = CAT.enemy(e.kind).behaviour.get("summon_cell") != "random"
+            for _ in range(spec.get("count", 1) if placed else 0):
                 empties = [x for x in range(s.cells) if s.unit_at(x) is None]
                 if not empties:
                     break
@@ -874,7 +918,7 @@ def step(s: State, action: str, validate: bool = True) -> list[tuple[float, Stat
     # work: the swapped enemy keeps its facing and fires away from the hero
     # [user; run 20261028-053637]. A red enemy instead turns or waits.
     primed = {e.uid for e in s.alive()
-              if e.armed and e.wind >= 1 and ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0
+              if e.armed and (e.wind >= 1 or e.kind in behaviour.QUICK) and ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0
               and _hits_hero(s, e, e.queue[0])}
     # an aimed tile (Volley) takes the hero's cell as the turn begins, before he acts: the warning sign at his
     # feet [rec: collect/20261029-160032 f0199, f0203, f0215, f0222; bot: run 20261030-115221 t174, t178]
