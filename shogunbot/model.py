@@ -183,6 +183,10 @@ ENEMY_TILE_COOLDOWN: dict[str, int] = {t: CAT.tile(t).cooldown or 0 for t in _EN
 ENEMY_TAG: dict[str, str] = {e.id: e.tag for e in CAT.enemies.values()}
 # simulated bosses (no HP pips: HP from the boss bar) [catalogue]: Daisuke, and Rei since 0.27
 BOSS_KINDS: frozenset[str] = frozenset(e.id for e in CAT.enemies.values() if e.boss and e.sim)
+# Heavy [wiki: Traits, 'cannot be turned or moved']: The Statue and its Summoner never move or turn in their fights
+# [rec: collect/20261028-190026 f0857-f0921, collect/20261029-160032 f1071-f1120]; the hero cannot swap with them,
+# and Rain of Mirrors does not turn them
+HEAVY_KINDS: frozenset[str] = frozenset(e.id for e in CAT.enemies.values() if e.sim and "heavy" in e.traits)
 
 
 @dataclass

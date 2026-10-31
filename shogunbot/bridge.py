@@ -13,7 +13,7 @@ from itertools import permutations
 
 from . import behaviour
 from .catalogue import CAT
-from .model import BOSS_KINDS, DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, Enemy, Hero, Kit, KitTile, State
+from .model import BOSS_KINDS, DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, HEAVY_KINDS, Enemy, Hero, Kit, KitTile, State
 from .rules import SPEC, apply_hero, Events
 
 BOSS_HP = {k: CAT.enemy(k).hp for k in BOSS_KINDS}         # the bar's full width [wiki]: Daisuke 15, Rei 13
@@ -21,8 +21,9 @@ BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
 # sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
 # symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
 # left on all 40 turns, and his sprite read 'facing right' on 12 of them, flipping 12 times
-FRONT_FACING = ("charger", "iwao", "the_twins")   # the Twins' facing read '?' on most of their frames
-                                                # [rec: collect/20261028-190026 f0544-f0580]
+FRONT_FACING = ("charger", "iwao", "the_twins", "the_statue", "summoner")   # the Twins' facing read '?' on most of
+# their frames [rec: collect/20261028-190026 f0544-f0580]; The Statue (cell 6) and its Summoner (cell 0) face the
+# hero from the start and never turn [rec: collect/20261028-190026 f0857-f0921]
 # hero tiles whose queue bubble shows another tile's art: a queued Katana has the enemy
 # Sword's icon [run 20261028-092419 t117-t150: read as Sword or Spear, the bot thought
 # Katana was still in the hand and tried to queue it 47 times]
@@ -192,6 +193,9 @@ class Tracker:
         self.shield = False           # Kami Brew active
         self.cursed = False           # Mass Curse on every enemy until our next attack
         self.swapped_uid_x: int | None = None
+        self.cycle: dict | None = None      # The Statue when the bot last acted: its tile count, stack, telegraph, holds
+        self._cycle_now: dict | None = None
+        self._queue_conf: dict = {}         # cell -> the confidence of each tile read in its unit's bubbles
 
     # ------------------------------------------------------------------
     def next_level(self) -> None:
@@ -258,6 +262,7 @@ class Tracker:
             self.facing_known = False
             self.prev = []
             self.hist = []
+            self.cycle = self._cycle_now = None
 
         h = p.hero
         facing = self._hero_facing(h, p.confidence.get("hero_facing", 0.0))
@@ -390,10 +395,74 @@ class Tracker:
         for j, i in behaviour.match(self.hist, [(en.kind, en.x) for en in enemies]).items():
             _, _, it, fage = self.hist[i]
             enemies[j].last, enemies[j].fage = behaviour.carry(it, fage)
+        self._queue_conf = {e["x"]: list(e.get("queue_conf") or []) for e in p.enemies}
+        self._cycle(enemies)
 
         s = State(cells, hero, enemies, level=level,
                   wave=1, waves_total=0 if level.endswith("boss") else 99)
+        from .rules import _hits_hero
+        for en in enemies:
+            if en.kind in behaviour.QUICK and en.queue and en.intent in ("hold", None) and _hits_hero(s, en, en.queue[0]):
+                # Quick: loaded, it fires the phase after it loaded once the hero is the first unit ahead, whatever
+                # one frame of its bubble shows (the Shinobi's Shuriken 3 of 3, red on the frames read) [rec:
+                # collect/20261028-190026 f0694-f0695, f0711-f0713; collect/20261029-160032 f0892-f0895]
+                self.notes.append(f"enemy at {en.x}: quick and loaded, the hero in its reach; fires this turn")
+                en.intent = "fire"
         return s
+
+    def _cycle(self, enemies: list) -> None:
+        """The Statue's telegraph from its 9-turn cycle (behaviour.cycle_intent), and its stack kept from turn to
+        turn: its bubbles bob in 4-px steps and shake on the fire turn, so a single read can name a tile wrongly or
+        miss the yellow [rec: collect/20261028-190026 f0857-f0921, collect/20261029-160032 f1071-f1120]. What it did
+        in the phase just played comes from its tile count against the last turn's (one more: it loaded; none after
+        three: it fired; the same: it rested or held). The Summoner follows it."""
+        st = next((e for e in enemies if CAT.enemy(e.kind).behaviour.get("cycle")), None)
+        if st is None:
+            self._cycle_now = None
+            return
+        conf = list(self._queue_conf.get(st.x, [])) + [0.0] * len(st.queue)
+        read, prev = [(t, conf[i]) for i, t in enumerate(st.queue)], self.cycle
+        q = len(read)
+        if prev is None:
+            # its first turn rests [wiki: 'needing an extra turn to add a Tile']; a '+' on the first frame read
+            # means that turn was missed and it loads now
+            last, holds, slots = ("hold" if q == 0 and st.intent == "queue" else None), 0, read
+        else:
+            pq = prev["q"]
+            # each slot keeps its most confident read: a tile just loaded glows and the stack shakes on the fire
+            # turn (rec1 f0863: Hook, Spear read Arrow 0.08, Sword 0.24; f0913: Spear read Sword 0.01), settled
+            # frames read 1.0
+            slots = [max(a, b, key=lambda tc: tc[1]) for a, b in zip(prev["slots"], read)] + read[len(prev["slots"]):]
+            if q == pq + 1:
+                last = "queue"
+            elif q == 0 and pq >= 3:
+                last = "fire"
+            elif q == pq:
+                last = "hold"
+            else:
+                last, slots = prev["intent"], read
+                self.notes.append(f"the_statue: {q} tiles read after {pq}")
+            slots = slots[:q]
+            holds = prev["holds"] + 1 if (q >= 3 and pq >= 3) else 0
+        stack = [t for t, _ in slots]
+        it = behaviour.cycle_intent(q, last, holds)
+        if st.intent != it:
+            self.notes.append(f"the_statue: read {st.intent}, its cycle says {it}")
+        if stack != list(st.queue):
+            self.notes.append(f"the_statue: stack read {st.queue}, kept {stack}")
+        st.queue, st.last, st.intent = stack, last, it
+        st.wind = holds if q >= 3 else 1
+        self._cycle_now = {"q": q, "slots": slots, "intent": it, "holds": holds}
+        for e in enemies:
+            if CAT.enemy(e.kind).behaviour.get("synced_with") == st.kind:
+                # the Summoner loads its bell with the Statue's first load and summons with its second
+                want = ("queue" if it == "queue" and q == 0 and not e.queue else
+                        "fire" if it == "queue" and q == 1 else "hold")
+                if want == "fire" and not e.queue:
+                    e.queue = ["summon"]
+                if e.intent != want:
+                    self.notes.append(f"summoner: read {e.intent}, the Statue's cycle says {want}")
+                e.intent = want
 
     # ------------------------------------------------------------------ queue
     def _queue(self, h: dict, hand: list[dict]) -> list[str]:
@@ -547,7 +616,7 @@ class Tracker:
     def mirror(self) -> None:
         """Rain of Mirrors turned every enemy: flip the remembered facings, or the
         facing-persistence rule would undo the flip."""
-        self.prev = [(k, x, -f, None) for k, x, f, _ in self.prev]
+        self.prev = [(k, x, f if k in HEAVY_KINDS else -f, None) for k, x, f, _ in self.prev]
 
     def recharging(self, label: str) -> None:
         """The game refused to queue this tile (it stayed in the hand): it is recharging, whatever was read
@@ -573,6 +642,7 @@ class Tracker:
         # where each enemy stands once the hero has acted (a swap moves one), and its telegraph
         self.hist = [(e.kind, s.hero.x if (e.x == s2.hero.x and s2.hero.x != s.hero.x) else e.x, e.intent, e.fage)
                      for e in s.alive()]
+        self.cycle = self._cycle_now
         if action == "turn":
             self.facing = -s.hero.facing
         if s2.hero.x != s.hero.x and s.enemy_at(s2.hero.x) is not None:

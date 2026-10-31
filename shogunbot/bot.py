@@ -43,7 +43,7 @@ import numpy as np
 from . import rewards
 from .bridge import Tracker, hand_unsettled, kit_from_faces, level_name, match_faces
 from .catalogue import CAT
-from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HERO_MAX_HP
+from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HEAVY_KINDS, HERO_MAX_HP
 from .perception import map_screen, reward_screen, screens, shop_screen
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
 from .perception.tiles import FACE_H, FACE_W
@@ -603,7 +603,8 @@ class Bot:
             return "ice_card", "last level: an enemy is armed or adjacent"
         if "dice_card" in have and any(e.intent == "fire" for e in active):
             return "dice_card", "last level: an enemy telegraphs fire"
-        if "mirror_card" in have and any(e.facing == (1 if hx > e.x else -1) for e in armed):
+        if "mirror_card" in have and any(e.facing == (1 if hx > e.x else -1) and e.kind not in HEAVY_KINDS
+                                         for e in armed):
             return "mirror_card", "last level: an armed enemy faces you"
         if "white_potion" in have and self._best_tile_recharging(s):
             return "white_potion", "last level: the best tile is recharging"
@@ -646,7 +647,8 @@ class Bot:
         """Would turning every enemy around leave a zero-damage move?"""
         m = s.clone()
         for e in m.enemies:
-            e.facing = -e.facing
+            if e.kind not in HEAVY_KINDS:       # Heavy: cannot be turned [wiki: Traits]
+                e.facing = -e.facing
         d = plan(m, 2)
         return min(c["exp_damage"] for c in d.candidates) < 0.5
 
