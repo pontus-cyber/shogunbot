@@ -14,10 +14,13 @@ from itertools import permutations
 from . import behaviour
 from .catalogue import CAT
 from .model import BOSS_KINDS, DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, HEAVY_KINDS, Enemy, Hero, Kit, KitTile, State
-from .rules import SPEC, apply_hero, Events
+from .rules import ICE_TURNS, SPEC, apply_hero, Events
 
 BOSS_HP = {k: CAT.enemy(k).hp for k in BOSS_KINDS}         # the bar's full width [wiki]: Daisuke 15, Rei 13
 BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
+# a Quick unit counts as loaded for the fire rule (Tracker.state) on a read of its own tile at least this sure: the
+# Shinobi's Shuriken read 0.96-1.0 when it fired (rec1 f0694, f0711, f0712); reads of tiles it does not carry 0.02-0.16
+QUICK_READ_CONF = 0.5
 # sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
 # symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
 # left on all 40 turns, and his sprite read 'facing right' on 12 of them, flipping 12 times
@@ -49,7 +52,8 @@ def hand_unsettled(p, kit: Kit) -> str | None:
     if unread:
         return f"{unread} hand face(s) unread"
     bubbles = h_queue(p)
-    if len(faces) + len(bubbles) != len(kit):
+    if len(faces) + len(bubbles) < len(kit):
+        # (more than the kit is a tile taken at the last reward: the tracker adds it at the level's start)
         return f"{len(faces)} hand faces and {len(bubbles)} queue bubbles for {len(kit)} kit tiles"
     return None
 
@@ -192,6 +196,7 @@ class Tracker:
                                       # behaviour model's history features (behaviour.carry)
         self.freeze_left = 0          # turns of Mass Ice left
         self.shield = False           # Kami Brew active
+        self.last_hp: int | None = None   # the hero's HP in the last state
         self.cursed = False           # Mass Curse on every enemy until our next attack
         self.swapped_uid_x: int | None = None
         self.cycle: dict | None = None      # The Statue when the bot last acted: its tile count, stack, telegraph, holds
@@ -313,6 +318,14 @@ class Tracker:
                 self.notes.append(f"{lb} is not in the hand and not queued; planned as recharging")
 
         hp = h["hp"] if h["hp_max"] else 0
+        if self.shield and self.last_hp and 0 < hp < self.last_hp:
+            # a shield negates the next attack [wiki], so HP lost means it is gone: one the predicted line did not
+            # use stayed on (recording 2's Kami Brew at The Twins, f0758, was still tracked at Spirit Gateway I
+            # f0875, where a Charger's 1 was planned as blocked)
+            self.shield = False
+            self.notes.append(f"HP {self.last_hp} -> {hp}: no shield")
+        if hp:
+            self.last_hp = hp
         # the red ticks under the hero count the turns his swap still needs (Quick Recovery shortens it)
         swap_charge = kit.swap_cooldown - min(kit.swap_cooldown, h.get("swap_red", 0))
         hero = Hero(h["x"], facing, hp=hp, queue=queue, charge=plan_charge, swap_charge=swap_charge,
@@ -324,6 +337,7 @@ class Tracker:
         warn = list(getattr(p, "warn", []) or [])
         aimed_fire = any(e["queue"] and SPEC.get(e["queue"][0], ("",))[0] == "aim" and e.get("intent") == "fire"
                          for e in p.enemies)
+        sure = set()          # cells whose unit's bubble showed its own tiles, read sure (the Quick rule below)
         for i, e in enumerate(p.enemies):
             kind = e["kind"] if e["kind"] in ENEMY_KINDS else "ashigaru"
             if kind != e["kind"]:
@@ -356,6 +370,8 @@ class Tracker:
                 # read is an animation overlay
                 self.notes.append(f"enemy at {e['x']} queue read {queue}; set to {ENEMY_KINDS[kind][1]}")
                 queue = [ENEMY_KINDS[kind][1]]
+            elif queue and min(e.get("queue_conf") or [1.0]) >= QUICK_READ_CONF:
+                sure.add(e["x"])
             aim = None
             if queue and SPEC.get(queue[0], ("",))[0] == "aim" and warn and (intent == "fire" or not aimed_fire):
                 # the warning sign: an aimed Volley fires this turn at that cell, the hero's, whatever the
@@ -413,10 +429,13 @@ class Tracker:
                   wave=1, waves_total=0 if level.endswith("boss") else 99)
         from .rules import _hits_hero
         for en in enemies:
-            if en.kind in behaviour.QUICK and en.queue and en.intent in ("hold", None) and _hits_hero(s, en, en.queue[0]):
+            if (en.kind in behaviour.QUICK and en.queue and en.intent in ("hold", None) and en.x in sure
+                    and _hits_hero(s, en, en.queue[0])):
                 # Quick: loaded, it fires the phase after it loaded once the hero is the first unit ahead, whatever
                 # one frame of its bubble shows (the Shinobi's Shuriken 3 of 3, red on the frames read) [rec:
-                # collect/20261028-190026 f0694-f0695, f0711-f0713; collect/20261029-160032 f0892-f0895]
+                # collect/20261028-190026 f0694-f0695, f0711-f0713; collect/20261029-160032 f0892-f0895]. Only on a
+                # sure read of its own tile: a ghost read set to its Shuriken (rec2 f1051, 'swap_toss' at 0.06) or
+                # a later region's unit with its pips (rec2 f1294, f1331, f1854) fired no Shuriken
                 self.notes.append(f"enemy at {en.x}: quick and loaded, the hero in its reach; fires this turn")
                 en.intent = "fire"
         return s
@@ -623,6 +642,23 @@ class Tracker:
 
     def freeze(self, turns: int) -> None:
         self.freeze_left = turns
+
+    def item_used(self, item: str) -> None:
+        """An item used up (gone from its slot): its effect on the tracked state, by the catalogue's effect type.
+        The bot calls it after a use; the replay too, for the items a recording used (0.36: recording 1's Mass Ice
+        at f0726 froze the Shinobi on cell 0 for three turns, which 0.35's replay did not know)."""
+        cons = CAT.consumable_by_screen(item)
+        kind = cons.effect.get("type") if cons else None
+        if kind == "freeze_all":
+            self.freeze(ICE_TURNS)        # Mass Ice: all enemies frozen for 3 turns [catalogue]
+        elif kind == "shield":
+            self.shield = True            # Kami Brew: negates the next attack [wiki]
+        elif kind == "curse_all":
+            self.cursed = True            # Mass Curse: next hit on each enemy is doubled [wiki]
+        elif kind == "turn_all":
+            self.mirror()                 # Rain of Mirrors: every enemy turned around [wiki]
+        # Lucky Die rerolls every enemy's intent [wiki] [user 2026-10-28]: nothing to model, the next frame shows
+        # the new telegraphs; brews change HP and charge, which the next frame shows too
 
     def mirror(self) -> None:
         """Rain of Mirrors turned every enemy: flip the remembered facings, or the

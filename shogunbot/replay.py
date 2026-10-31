@@ -71,6 +71,22 @@ def to_action(rec: dict, p) -> str | None:
     return None
 
 
+ITEM_FX = 0.12        # the item column at the screen's left edge: recorded item clicks at fx 0.058-0.072
+
+
+def item_click(rec: dict, p) -> str | None:
+    """The item a recorded click used: the bot logs it ('item'), a recording only the click, so the item read in
+    the slot nearest the click [rec: collect/20261028-190026 f0726, Mass Ice at fx 0.058; collect/20261029-160032
+    f1098]."""
+    if rec.get("action") != "CLICK" or not rec.get("click") or rec["click"][0] >= ITEM_FX:
+        return None
+    if rec.get("item"):
+        return rec["item"]
+    fy = rec["click"][1]
+    near = [it for it in (p.items or []) if it.get("item") not in (None, "unknown") and abs(it["fy"] - fy) < 0.04]
+    return min(near, key=lambda it: abs(it["fy"] - fy))["item"] if near else None
+
+
 def logged_route(folder: Path) -> tuple[list | None, int | None]:
     """A bot run's route and day from its event log beside the frames folder: Bamboo Grove, then
     each region the map took it to (map_travel), and the day chosen at the camp (day_select)."""
@@ -131,6 +147,15 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
         if p.screen == "reward":
             tr.next_level()             # as the bot does: the next fight is the next level (0.24)
         if p.screen not in ("combat", "boss") or not p.enemies:
+            continue
+        item = item_click(recs[i], p)
+        if item:
+            # an item used up (fewer of it on one of the next two frames) acts on the tracked state as the bot's
+            # own use does (Tracker.item_used): Mass Ice freezes every enemy for three turns (0.36)
+            held = sum(1 for it in p.items if it["item"] == item)
+            if any(sum(1 for it in P(j).items if it["item"] == item) < held
+                   for j in range(i + 1, min(i + 3, len(recs)))):
+                tr.item_used(item)
             continue
         act = to_action(recs[i], p)
         if act is None:

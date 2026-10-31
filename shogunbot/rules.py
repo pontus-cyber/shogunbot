@@ -771,9 +771,12 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
             _enemy_hit(s, e, s.unit_at(cell) if s.in_bounds(cell) else None, dmg, tile, ev)
         elif k == "summon":
             # the summoner's unit (Daisuke: Spike Chargers, Rei: Twin Tachi) [wiki]; HYP: random
-            # cells, the planner assumes those farthest from the hero
+            # cells, the planner assumes those farthest from the hero. The Statue's Summoner put its unit on
+            # none of them (catalogue 'summon_cell' random: rec1 f0863, f0876; rec2 f1077), so its unit is not
+            # placed and is read when it comes, as a wave's (0.36)
             kind = CAT.enemy(e.kind).summons or spec.get("unit", "charger")
-            for _ in range(spec.get("count", 1)):
+            placed = CAT.enemy(e.kind).behaviour.get("summon_cell") != "random"
+            for _ in range(spec.get("count", 1) if placed else 0):
                 empties = [x for x in range(s.cells) if s.unit_at(x) is None]
                 if not empties:
                     break

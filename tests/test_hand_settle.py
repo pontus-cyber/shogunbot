@@ -48,6 +48,14 @@ def test_a_hand_read_that_does_not_account_for_the_kit_is_unsettled(name, kit, r
     assert (got is None) if why is None else (why in got)
 
 
+def test_a_tile_taken_at_the_last_reward_does_not_hold_the_level_start():
+    # run 213120 t23, Bamboo Grove II's first turn: the Charge taken at the tile choice is a third face while the
+    # tracker's kit still holds two tiles (it adds the Charge at the level's start, Tracker.state)
+    p = _p("t0023_before.png", T62_KIT)
+    assert [f["tile"] for f in p.hand] == ["swirl", "arrow", "charge"]
+    assert hand_unsettled(p, Kit.of("swirl", "arrow")) is None
+
+
 def _run_on(tmp_path, monkeypatch, frames, kit, do=None):
     from shogunbot import bot as B
     monkeypatch.setattr("time.sleep", lambda s: None)

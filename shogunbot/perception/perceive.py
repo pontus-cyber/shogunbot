@@ -287,6 +287,37 @@ def elite_pixels(rgb: np.ndarray, cx: int) -> int:
     return int(((r >= 150) & (r <= 230) & (g >= 85) & (g <= 150) & (b < 45) & (r - g >= 40) & (r - g <= 80)).sum())
 
 
+def stack_kind(tile: str, pips: int, base_hp: dict, elites: bool) -> str | None:
+    """The first simulated kind of the route's roster (base_hp, route order) whose HP fits the pips and that can
+    show this tile at the bottom of its stack: one of its tiles, and for a kind that loads a fixed sequence (catalogue
+    behaviour 'sequence') that sequence's first. The Grappler loads its Hook under its Sword (rec1 f0776-f0779; rec2
+    f0816-f0821, f0866-f0871), so a 5-pip unit with a Sword at the bottom is a Guardian: the first 0.36 replay planned
+    the Guardians of rec1 f0656, f0794, f1389 and f1654 and rec2 f0841, f0925, f1207 and f1211 as maybe Grapplers,
+    whose Hook would have hit the hero at any distance; he lost nothing. Kinds the simulator lacks are left to the tile's first carrier
+    (roster_tables), as before 0.36: they are planned as a stand-in either way (rec1 f1719: a 5-pip unit with a
+    Charge named a Shadow Charger here read as a Guardian on the next frame). None when no kind fits."""
+    allowed = (0,) + (ELITE_BONUS if elites else ())
+    return next((k for k, hp in base_hp.items()
+                 if pips - hp in allowed and CAT.enemies.get(k) and CAT.enemies[k].sim and bottom_ok(k, tile)), None)
+
+
+def bottom_ok(kind: str, tile: str) -> bool:
+    """Can this kind show this tile at the bottom of its stack? One of its tiles, and for a kind that loads a fixed
+    sequence (catalogue behaviour 'sequence': the Grappler's Hook, then its Sword) that sequence's first."""
+    e = CAT.enemies.get(kind)
+    if e is None:
+        return False
+    seq = e.behaviour.get("sequence")
+    return tile == seq[0] if seq else tile in e.tiles
+
+
+# a pip tie's other kind is dropped when the bubble's bottom tile, read at least this sure, is one that kind never
+# shows there: rec1 f1434 (a Summon read at 1.0) and rec2 f1840 (a Spear at 1.0), 5-pip units planned as maybe
+# Grapplers, whose bottom tile is always the Hook; reads of a tile the unit does not carry mostly stay below it
+# (0.02-0.16: rec2 f1051, f1294, f1836)
+ALT_TILE_CONF = 0.5
+
+
 def decide_kind(pips: int, tile_kind: str | None, sprite_kind: str | None, elite: bool,
                 base_hp: dict | None = None, elites: bool = True,
                 visitors: frozenset = frozenset()) -> tuple[str | None, str | None]:
@@ -768,7 +799,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 # HP pips (its HP is the boss bar); pips win over its sprite: a summoned Charger in
                 # the boss arena was read as a second Daisuke [run 20261028-053637, turns 101-161].
                 # Which boss: the arena of the route's current region (boss_kind)
-                by_tile = by_tile_kind.get(tiles[0]["tile"]) if tiles else None
+                by_tile = ((stack_kind(tiles[0]["tile"], g + r, base_hp, day != 1) or by_tile_kind.get(tiles[0]["tile"]))
+                           if tiles else None)
                 elite = day != 1 and elite_pixels(rgb, cx) >= ELITE_PX     # Day 1 has no elites
                 alt = None
                 if (g + r) == 0 and (screen == "boss" or (kind in CAT.enemies and CAT.enemies[kind].boss)):
@@ -779,6 +811,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 else:
                     by_pips, alt = decide_kind(g + r, by_tile, kind if kc >= SPRITE_KIND_CONF else None, elite,
                                                base_hp, elites=day != 1, visitors=visitors)
+                    if alt and tiles and tiles[0]["conf"] >= ALT_TILE_CONF and not bottom_ok(alt, tiles[0]["tile"]):
+                        alt = None
                     if by_pips:
                         kind = by_pips
                     elif g + r > 5 and partner:

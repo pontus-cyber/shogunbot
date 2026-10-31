@@ -48,7 +48,7 @@ from .perception import map_screen, reward_screen, screens, shop_screen
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
 from .perception.tiles import FACE_H, FACE_W
 from .planner import STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_weights
-from .rules import ICE_TURNS, POISON_TICK, POISON_TURNS, free_action, legal_hero_actions, step
+from .rules import POISON_TICK, POISON_TURNS, free_action, legal_hero_actions, step
 from .live import LiveView
 from .runlog import RunLogger
 from .waves import Waves
@@ -680,17 +680,9 @@ class Bot:
         self.log.event("item_result", item=item, consumed=not still)
         if not still:
             tries[item] = 0
-            # the effect goes into the model only once the item is really gone
-            if item == "ice_card":
-                tr.freeze(ICE_TURNS)  # Mass Ice: all enemies frozen for 3 turns [catalogue]
-            elif item == "blue_potion":
-                tr.shield = True  # Kami Brew: negates the next attack [wiki]
-            elif item == "curse_card":
-                tr.cursed = True  # Mass Curse: next hit on each enemy is doubled [wiki]
-            elif item == "mirror_card":
-                tr.mirror()       # Rain of Mirrors: every enemy turned around [wiki]
-            # Lucky Die (dice_card) rerolls every enemy's intent [wiki] [user 2026-10-28]: nothing
-            # to model, the next frame shows the new telegraphs
+            # the effect goes into the model only once the item is really gone (Mass Ice, Kami Brew, Mass
+            # Curse, Rain of Mirrors; Tracker.item_used)
+            tr.item_used(item)
         else:
             self.say(f"   {item} still in its slot; the click may not have registered")
 
