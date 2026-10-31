@@ -288,6 +288,24 @@ def elite_pixels(rgb: np.ndarray, cx: int) -> int:
     return int(((r >= 150) & (r <= 230) & (g >= 85) & (g <= 150) & (b < 45) & (r - g >= 40) & (r - g <= 80)).sum())
 
 
+# A shield (0.45) is a translucent pale grey-green sphere around its bearer, about 140 x 150 px, centred near y 662: inside
+# it the dark sprite turns teal, about RGB (45-61, 65-81, 55-69), and the backdrop gains about +45 G and +40 B. The
+# fraction of teal pixels in the box over the torso read 0.54-0.70 on all 29 shielded Kowa frames and 0.00 on all 83
+# unshielded ones; the hero at most 0.07, Kowa's allies 0.00 [rec: collect/20261028-190026 f1271-f1352,
+# collect/20261029-160032 f1473-f1505; survey of 2026-10-31]
+SHIELD_Y0, SHIELD_Y1, SHIELD_HALF = 625, 700, 35
+SHIELD_FRAC = 0.3
+# read only where a unit of the route can give a shield: Bamboo Grove's green backdrop is no shield
+SHIELD_TILES = frozenset(t.id for t in CAT.tiles.values() if t.attack.get("effect") in ("self_shield", "ally_shield"))
+
+
+def shield_frac(rgb: np.ndarray, cx: int) -> float:
+    """Fraction of shield-teal pixels over a unit's torso (SHIELD_FRAC and up: shielded)."""
+    box = rgb[SHIELD_Y0:SHIELD_Y1, max(0, cx - SHIELD_HALF):cx + SHIELD_HALF].astype(np.int16)
+    r, g, b = box[..., 0], box[..., 1], box[..., 2]
+    return float(((g > r + 8) & (g > 45) & (g < 140) & (b < g + 10)).mean())
+
+
 def stack_kind(tile: str, pips: int, base_hp: dict, elites: bool) -> str | None:
     """The first simulated kind of the route's roster (base_hp, route order) whose HP fits the pips and that can
     show this tile at the bottom of its stack: one of its tiles, and for a kind that loads a fixed sequence (catalogue
@@ -767,6 +785,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
     bk = boss_kind(regions, len(cs))
     boss_tiles = CAT.enemies[bk].tiles                                # icons open on a unit without pips
     partner = BOSS_PARTNER.get(bk)                                    # a unit that fights beside this boss
+    shields = bool(SHIELD_TILES & ({t for k in base_hp for t in CAT.enemies[k].tiles} | set(boss_tiles)))
     red_sky = bool(regions) and regions[-1] == "spirit_gateway"
     hero_i = next(i for i, c in enumerate(cs) if c["kind"] == "hero")
     cell_list = []
@@ -849,7 +868,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 en = {"x": i, "cx": cx, "kind": kind, "facing": 0 if spawning else facing, "hp": g,
                       "hp_max": g + r, "queue": [t["tile"] for t in tiles], "queue_conf": [t["conf"] for t in tiles],
                       "fire_now": bool(tiles and tiles[0]["colour"] == "yellow"),
-                      "intent": intent, "spawning": spawning, "elite": elite, "alt": alt}
+                      "intent": intent, "spawning": spawning, "elite": elite, "alt": alt,
+                      "shield": shields and shield_frac(rgb, cx) >= SHIELD_FRAC}
                 p.enemies.append(en)
                 conf[f"enemy{i}"] = round(kc, 2)
             entry["unit"] = kind

@@ -24,6 +24,10 @@ from .model import (
 
 MOVES = ("left", "right", "turn", "wait")
 PAIRED = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).pair > 1)   # bosses whose units share one HP bar
+# kinds that alternate their loads (catalogue behaviour 'alternate': Kowa's Shield, then Smoke Bomb)
+ALTERNATE = {k: tuple(CAT.enemy(k).behaviour["alternate"]) for k in ENEMY_KINDS if CAT.enemy(k).behaviour.get("alternate")}
+# bosses whose allies vanish when they die (catalogue behaviour 'allies_vanish': Kowa)
+VANISH = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).behaviour.get("allies_vanish"))
 HERO_ACTIONS = MOVES + DEFAULT_KIT.queue_actions + ("attack",)   # default kit; see hero_actions()
 POISON_TICK = next(c.effect["damage"] for c in CAT.consumables.values() if c.effect["type"] == "poison_all")
 POISON_TURNS = next(c.effect["turns"] for c in CAT.consumables.values() if c.effect["type"] == "poison_all")
@@ -157,6 +161,11 @@ def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events, cannot_
     ev.enemy_damage.append((e.kind, e.uid, dmg, source))
     if e.hp <= 0:
         ev.kills.append((e.kind, e.uid, source))
+        if e.kind in VANISH:
+            # his allies vanish and the fight ends [rec: collect/20261028-190026 f1353-f1354, -160032 f1506-f1507]
+            for o in s.enemies:
+                if o is not e and o.hp > 0:
+                    o.hp = 0
     if e.kind in PAIRED:
         # The Twins share one HP bar: a hit on either takes it from both, and both die at 0 [wiki]
         # [rec: collect/20261028-190026 f0580, collect/20261029-160032 f0775]
@@ -545,6 +554,12 @@ def _boss_queue(s: State, e: Enemy, move_or_wait) -> list[tuple[float, tuple]]:
     kind = CAT.enemy(e.kind)
     b = kind.behaviour
     dist = abs(e.x - s.hero.x)
+    alt = ALTERNATE.get(e.kind)
+    if alt:
+        # Kowa alternates Shield and Smoke Bomb, Shield first, whatever his shield's state (11 of 11 loads) [rec:
+        # collect/20261028-190026 f1279-f1352, collect/20261029-160032 f1479-f1490]
+        nxt = alt[(alt.index(e.loaded) + 1) % len(alt)] if e.loaded in alt else alt[0]
+        return [(1.0, ("queue", nxt))]
     # a 'queue' telegraph over the first half of a combo adds its second half: he decided at the
     # start of the turn, so Iwao's Swirl comes even if the hero has stepped away since (dist 1)
     nxt = kind.combo_next(e.queue, 1)
@@ -608,6 +623,14 @@ def _boss_options(s, e, d, dist, facing_hero, move_or_wait):
     hero or loads. Iwao ('after_fire': away) steps away from the hero the turn after he fires, or
     holds when blocked, and loads the turn after (8 of 8)."""
     kind = CAT.enemy(e.kind)
+    if kind.behaviour.get("coward"):
+        f = behaviour.features(s, e, e.last, e.fage)
+        saved = e.intent
+        try:
+            e.intent = behaviour.coward_intent(s, e, f)
+            return _intent_options(s, e, move_or_wait) or [(1.0, ("wait",))]
+        finally:
+            e.intent = saved
     if e.armed:
         q = e.queue
         nxt = kind.combo_next(q, dist)
@@ -830,6 +853,8 @@ def _apply_enemy_action(s: State, uid: int, action: tuple, ev: Events) -> None:
         tile = action[1]
         e.queue = e.queue + tile.split("+")
         e.wind = 0
+        if e.kind in ALTERNATE:
+            e.loaded = e.queue[-1]
     elif kind == "fire":
         _enemy_fire(s, e, ev)
     elif kind == "move":

@@ -25,9 +25,10 @@ HERO_FACING_WEAK_N = 3     # weak contrary hero-facing reads in a row that overr
 # sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
 # symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
 # left on all 40 turns, and his sprite read 'facing right' on 12 of them, flipping 12 times
-FRONT_FACING = ("charger", "iwao", "the_twins", "the_statue", "summoner")   # the Twins' facing read '?' on most of
-# their frames [rec: collect/20261028-190026 f0544-f0580]; The Statue (cell 6) and its Summoner (cell 0) face the
-# hero from the start and never turn [rec: collect/20261028-190026 f0857-f0921]
+FRONT_FACING = ("charger", "iwao", "the_twins", "the_statue", "summoner", "kowa")   # the Twins' facing read '?' on
+# most of their frames [rec: collect/20261028-190026 f0544-f0580]; The Statue (cell 6) and its Summoner (cell 0) face
+# the hero from the start and never turn [rec: collect/20261028-190026 f0857-f0921]; Kowa starts on cell 4 facing the
+# hero on cell 2 (rec1 f1274, rec2 f1475), and his moves keep his facing, so it follows from his turns
 # hero tiles whose queue bubble shows another tile's art: a queued Katana has the enemy
 # Sword's icon [run 20261028-092419 t117-t150: read as Sword or Spear, the bot thought
 # Katana was still in the hand and tried to queue it 47 times]
@@ -228,6 +229,7 @@ class Tracker:
         self.cursed = False           # Mass Curse on every enemy until our next attack
         self.swapped_uid_x: int | None = None
         self.cycle: dict | None = None      # The Statue when the bot last acted: its tile count, stack, telegraph, holds
+        self.loaded_tile: dict = {}         # kind -> the tile it loaded last, for a kind that alternates (Kowa)
         self._cycle_now: dict | None = None
         self._queue_conf: dict = {}         # cell -> the confidence of each tile read in its unit's bubbles
 
@@ -299,6 +301,7 @@ class Tracker:
             self.hero_x_after = None
             self.hist = []
             self.cycle = self._cycle_now = None
+            self.loaded_tile = {}
 
         h = p.hero
         facing = self._hero_facing(h, p.confidence.get("hero_facing", 0.0))
@@ -473,7 +476,32 @@ class Tracker:
                 # a later region's unit with its pips (rec2 f1294, f1331, f1854) fired no Shuriken
                 self.notes.append(f"enemy at {en.x}: quick and loaded, the hero in its reach; fires this turn")
                 en.intent = "fire"
+        self._coward(s)
         return s
+
+    def _coward(self, s: State) -> None:
+        """Kowa's telegraph from his rules (behaviour.coward_intent) where the screen does not show it, and the tile
+        he loaded last (he alternates Shield and Smoke Bomb). The phase after a use he rests (12 of 12): the empty
+        bubble left over and the cast flash read as '+' then (rec1 f1284, f1311; f1306, f1318). A tile loaded in an
+        earlier phase is used on his rule: a use turn's bubble blinks yellow and red, so a red read says nothing (rec1
+        f1317 and f1334 read red on their only frame, f1295 and f1342 on their last). A marker on his plate and a
+        yellow bubble are kept as read."""
+        for e in s.enemies:
+            if e.kind not in BOSS_KINDS or not CAT.enemy(e.kind).behaviour.get("coward"):
+                continue
+            if e.queue:
+                self.loaded_tile[e.kind] = e.queue[-1]
+            e.loaded = self.loaded_tile.get(e.kind)
+            if e.fage == 0:
+                if e.intent != "hold":
+                    self.notes.append(f"{e.kind}: read {e.intent} the phase after a use; he rests")
+                e.intent = "hold"
+                continue
+            if e.queue and e.intent in ("hold", "queue", None):
+                rule = behaviour.coward_intent(s, e, behaviour.features(s, e, e.last, e.fage))
+                if rule in ("hold", "fire") and rule != e.intent:
+                    self.notes.append(f"{e.kind}: read {e.intent} with {e.queue[0]} loaded; his rule says {rule}")
+                    e.intent = rule
 
     def _cycle(self, enemies: list) -> None:
         """The Statue's telegraph from its 9-turn cycle (behaviour.cycle_intent), and its stack kept from turn to

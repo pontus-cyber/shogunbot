@@ -225,6 +225,30 @@ def cycle_intent(q: int, last: str | None, holds: int) -> str:
     return "queue"
 
 
+def coward_intent(s: State, e, f: dict) -> str:
+    """Kowa the Coward's telegraph [rec: collect/20261028-190026 f1271-f1356, collect/20261029-160032 f1473-f1508;
+    wiki: Kowa the Coward]: the rules that fit all 62 phases of both fights, in this order. The phase after he used a
+    tile he rests (12 of 12); when the cell on his far side from the hero is free he steps there (11 of 11, once
+    holding a loaded Shield, rec2 f1482-f1483); blocked and facing away he turns to the hero (4 of 4); a tile loaded in
+    an earlier phase is used (R1), the Shield always and the Smoke Bomb only with no unit between him and the hero
+    (held four phases behind a Guardian, rec2 f1491-f1499); else he loads (what: rules._boss_queue). f: features()."""
+    if e.fage == 0:
+        return "hold"
+    toward = 1 if s.hero.x > e.x else -1
+    away = e.x - toward
+    if s.in_bounds(away) and s.unit_at(away) is None:
+        return "move-right" if away > e.x else "move-left"
+    if not f["face"]:
+        return "turn"
+    if e.queue:
+        if f["last"] == "queue" or e.wind < 1:
+            return "hold"
+        if ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0:
+            return "fire" if f["in_fp"] else "hold"
+        return "fire"
+    return "queue"
+
+
 def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | None:
     """[(p, telegraph)] for an enemy without a read telegraph, decided on the
     board at the start of the hero's turn. None when no model is available."""
@@ -243,6 +267,8 @@ def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | No
     if b.get("cycle"):
         # The Statue never moves or turns; its loads and its fire follow the cycle (wind: phases held at three)
         return [(1.0, cycle_intent(len(e.queue), f["last"], e.wind if len(e.queue) >= 3 else 0))]
+    if b.get("coward"):
+        return [(1.0, coward_intent(s, e, f))]
     own = CAT.enemy(e.kind).behaviour if not boss and e.kind in CAT.enemies else {}
     sync = own.get("synced_with")
     if sync:
