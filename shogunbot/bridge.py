@@ -25,9 +25,10 @@ HERO_FACING_WEAK_N = 3     # weak contrary hero-facing reads in a row that overr
 # sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
 # symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
 # left on all 40 turns, and his sprite read 'facing right' on 12 of them, flipping 12 times
-FRONT_FACING = ("charger", "iwao", "the_twins", "the_statue", "summoner")   # the Twins' facing read '?' on most of
-# their frames [rec: collect/20261028-190026 f0544-f0580]; The Statue (cell 6) and its Summoner (cell 0) face the
-# hero from the start and never turn [rec: collect/20261028-190026 f0857-f0921]
+FRONT_FACING = ("charger", "iwao", "the_twins", "the_statue", "summoner", "kowa")   # the Twins' facing read '?' on
+# most of their frames [rec: collect/20261028-190026 f0544-f0580]; The Statue (cell 6) and its Summoner (cell 0) face
+# the hero from the start and never turn [rec: collect/20261028-190026 f0857-f0921]; Kowa starts on cell 4 facing the
+# hero on cell 2 (rec1 f1274, rec2 f1475), and his moves keep his facing, so it follows from his turns
 # hero tiles whose queue bubble shows another tile's art: a queued Katana has the enemy
 # Sword's icon [run 20261028-092419 t117-t150: read as Sword or Spear, the bot thought
 # Katana was still in the hand and tried to queue it 47 times]
@@ -228,8 +229,10 @@ class Tracker:
         self.cursed = False           # Mass Curse on every enemy until our next attack
         self.swapped_uid_x: int | None = None
         self.cycle: dict | None = None      # The Statue when the bot last acted: its tile count, stack, telegraph, holds
+        self.loaded_tile: dict = {}         # kind -> the tile it loaded last, for a kind that alternates (Kowa)
         self._cycle_now: dict | None = None
         self._queue_conf: dict = {}         # cell -> the confidence of each tile read in its unit's bubbles
+        self._orbs: set = set()             # cells whose unit shows the Shielder's fire orb
 
     # ------------------------------------------------------------------
     def next_level(self) -> None:
@@ -299,6 +302,7 @@ class Tracker:
             self.hero_x_after = None
             self.hist = []
             self.cycle = self._cycle_now = None
+            self.loaded_tile = {}
 
         h = p.hero
         facing = self._hero_facing(h, p.confidence.get("hero_facing", 0.0))
@@ -421,7 +425,7 @@ class Tracker:
             if alt:
                 self.notes.append(f"enemy at {e['x']}: read as {kind}, may be {alt}")
             en = Enemy(kind, e["x"], facing_e, hp_e, queue, uid=i + 1, intent=intent, alt=alt,
-                       elite=bool(e.get("elite")), aim=aim)
+                       elite=bool(e.get("elite")), aim=aim, shield=bool(e.get("shield")))
             if self.freeze_left > 0:
                 en.frozen, en.intent = self.freeze_left, None
             en.cursed = self.cursed
@@ -458,6 +462,7 @@ class Tracker:
             _, _, it, fage = self.hist[i]
             enemies[j].last, enemies[j].fage = behaviour.carry(it, fage)
         self._queue_conf = {e["x"]: list(e.get("queue_conf") or []) for e in p.enemies}
+        self._orbs = {e["x"] for e in p.enemies if e.get("orb")}
         self._cycle(enemies)
 
         s = State(cells, hero, enemies, level=level,
@@ -473,7 +478,42 @@ class Tracker:
                 # a later region's unit with its pips (rec2 f1294, f1331, f1854) fired no Shuriken
                 self.notes.append(f"enemy at {en.x}: quick and loaded, the hero in its reach; fires this turn")
                 en.intent = "fire"
+        self._rule_telegraphs(s)
         return s
+
+    def _rule_telegraphs(self, s: State) -> None:
+        """Kowa's and the Shielder's telegraphs from their rules (behaviour.coward_intent, guard_intent) where the
+        screen does not show them, and the tile Kowa loaded last (he alternates Shield and Smoke Bomb). The phase after
+        a use they rest (Kowa 12 of 12, the Shielder in every use seen): the empty bubble left over and the cast flash
+        read as '+' then (rec1 f1284, f1311; f1306, f1318), and a Shielder's idle bubble on 38 frames (rec1 f0960-f0963,
+        f1120-f1121; rec2 f1186-f1189). A tile loaded in an earlier phase is used on the rule: a use turn's bubble
+        blinks yellow and red, so a red read says nothing (rec1 f1317 and f1334 read red on their only frame, f1295
+        and f1342 on their last), and the Shielder's fire orb shows it (perceive.orb_pixels). A marker on the plate
+        and a yellow bubble are kept as read."""
+        for e in s.enemies:
+            b = CAT.enemy(e.kind).behaviour
+            coward, guard = e.kind in BOSS_KINDS and b.get("coward"), b.get("guard")
+            if not (coward or guard):
+                continue
+            if coward:
+                if e.queue:
+                    self.loaded_tile[e.kind] = e.queue[-1]
+                e.loaded = self.loaded_tile.get(e.kind)
+            if e.queue and e.x in self._orbs and e.intent != "fire":
+                self.notes.append(f"{e.kind} at {e.x}: the fire orb; fires this turn")
+                e.intent = "fire"
+                continue
+            if e.fage == 0:
+                if e.intent != "hold":
+                    self.notes.append(f"{e.kind} at {e.x}: read {e.intent} the phase after a use; rests")
+                e.intent = "hold"
+                continue
+            if e.queue and e.intent in ("hold", "queue", None):
+                f = behaviour.features(s, e, e.last, e.fage)
+                rule = behaviour.coward_intent(s, e, f) if coward else behaviour.guard_intent(s, e, f)
+                if rule in ("hold", "fire") and rule != e.intent:
+                    self.notes.append(f"{e.kind} at {e.x}: read {e.intent} with {e.queue[0]} loaded; its rule says {rule}")
+                    e.intent = rule
 
     def _cycle(self, enemies: list) -> None:
         """The Statue's telegraph from its 9-turn cycle (behaviour.cycle_intent), and its stack kept from turn to

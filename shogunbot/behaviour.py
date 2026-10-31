@@ -225,6 +225,58 @@ def cycle_intent(q: int, last: str | None, holds: int) -> str:
     return "queue"
 
 
+def coward_intent(s: State, e, f: dict) -> str:
+    """Kowa the Coward's telegraph [rec: collect/20261028-190026 f1271-f1356, collect/20261029-160032 f1473-f1508;
+    wiki: Kowa the Coward]: the rules that fit all 62 phases of both fights, in this order. The phase after he used a
+    tile he rests (12 of 12); when the cell on his far side from the hero is free he steps there (11 of 11, once
+    holding a loaded Shield, rec2 f1482-f1483); blocked and facing away he turns to the hero (4 of 4); a tile loaded in
+    an earlier phase is used (R1), the Shield always and the Smoke Bomb only with no unit between him and the hero
+    (held four phases behind a Guardian, rec2 f1491-f1499); else he loads (what: rules._boss_queue). f: features()."""
+    if e.fage == 0:
+        return "hold"
+    toward = 1 if s.hero.x > e.x else -1
+    away = e.x - toward
+    if s.in_bounds(away) and s.unit_at(away) is None:
+        return "move-right" if away > e.x else "move-left"
+    if not f["face"]:
+        return "turn"
+    if e.queue:
+        if f["last"] == "queue" or e.wind < 1:
+            return "hold"
+        if ENEMY_TILE_DAMAGE.get(e.queue[0], 0) > 0:
+            return "fire" if f["in_fp"] else "hold"
+        return "fire"
+    return "queue"
+
+
+def shieldless_ally(s: State, e, d: int):
+    """The first unit after e in direction d that is an enemy without a shield, passing the hero and shielded allies:
+    what Ally Shield shields [wiki: Tiles] [rec: collect/20261028-190026 f1063-f1064, f1204-f1205]."""
+    nx = e.x + d
+    while s.in_bounds(nx):
+        u = s.enemy_at(nx)
+        if u is not None and not u.shield:
+            return u
+        nx += d
+    return None
+
+
+def guard_intent(s: State, e, f: dict) -> str:
+    """The Shielder's telegraph [rec: collect/20261028-190026 f0945-f1266, collect/20261029-160032 f1150-f1468; survey
+    of 2026-10-31]: the phase after it fired it rests; a loaded tile is held one phase (R1), then fired; else, a
+    shieldless ally ahead: it loads (Ally Shield); one behind: it turns to it; unshielded itself: it loads (Shield);
+    shielded with nothing to shield: it turns, every phase. f: features()."""
+    if e.fage == 0:
+        return "hold"
+    if e.queue:
+        return "hold" if f["last"] == "queue" or e.wind < 1 else "fire"
+    if shieldless_ally(s, e, e.facing) is not None:
+        return "queue"
+    if shieldless_ally(s, e, -e.facing) is not None:
+        return "turn"
+    return "turn" if e.shield else "queue"
+
+
 def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | None:
     """[(p, telegraph)] for an enemy without a read telegraph, decided on the
     board at the start of the hero's turn. None when no model is available."""
@@ -243,7 +295,11 @@ def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | No
     if b.get("cycle"):
         # The Statue never moves or turns; its loads and its fire follow the cycle (wind: phases held at three)
         return [(1.0, cycle_intent(len(e.queue), f["last"], e.wind if len(e.queue) >= 3 else 0))]
+    if b.get("coward"):
+        return [(1.0, coward_intent(s, e, f))]
     own = CAT.enemy(e.kind).behaviour if not boss and e.kind in CAT.enemies else {}
+    if own.get("guard"):
+        return [(1.0, guard_intent(s, e, f))]
     sync = own.get("synced_with")
     if sync:
         # The Summoner loads its bell with the Statue's first load of a cycle and summons with its second [rec: rec1

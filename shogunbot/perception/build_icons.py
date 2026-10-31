@@ -37,6 +37,12 @@ Spirit Gateway (0.36) [rec: collect/20261028-190026 f0600-f0921, collect/2026102
 draws it: The Statue's stack bobs in 4-px steps and its slots sit 4 px apart from the 120-px pitch (its Earth Impale
 28 px lower than Iwao's, its Sword read as Spear at the stack's highest bob), and the Grappler's upper Sword sits 4 px
 high. perceive opens these templates only on a unit that can carry them (GATED_ICONS), so other routes read as before.
+
+Hot Springs (0.45) [rec: collect/20261028-190026 f0945-f1356, collect/20261029-160032 f1150-f1508; surveys of
+2026-10-31]: Kowa's and the Shielder's Shield, a big two-tone blue shield with no digit (read as Dash at 0.02-0.15
+before), and the Shielder's Ally Shield, a blue wavy line and a small shield (read as Dash, Swap Toss, Back Charge or
+Sword at 0.02-0.28, and on yellow frames under the fire flames as Summon at 1.0); Kowa's Smoke Bomb is the Shinobi's and
+reads with its templates once open.
 """
 
 from __future__ import annotations
@@ -338,6 +344,41 @@ SAMPLES = {   # label: [(frame relative to ROOT, the unit's centre x at 1080p, s
         ("collect/20261029-160032/f1110_CLICK.png", 1284, 2),
         ("collect/20261029-160032/f1111_SPACE.png", 1284, 2),
         ("collect/20261029-160032/f1113_A.png", 1284, 2),
+    ],
+    "shield": [   # Kowa's Shield, red and yellow frames, the board panned to either side
+        ("collect/20261028-190026/f1281_idle.png", 1292, 0),
+        ("collect/20261028-190026/f1304_A.png", 584, 0),
+        ("collect/20261028-190026/f1316_CLICK.png", 1011, 0),
+        ("collect/20261028-190026/f1333_A.png", 540, 0),
+        ("collect/20261028-190026/f1334_A.png", 592, 0),
+        ("collect/20261029-160032/f1481_idle.png", 1192, 0),
+        ("collect/20261029-160032/f1483_CLICK.png", 1191, 0),
+        ("collect/20261028-190026/f1282_idle.png", 1292, 0),
+        ("collect/20261029-160032/f1484_CLICK.png", 1332, 0),
+        # the Shielder's Shield, the same drawing (on yellow frames under the fire flames it read as Summon at 1.0 before:
+        # rec1 f1183, f1218)
+        ("collect/20261028-190026/f1118_A.png", 452, 0),
+        ("collect/20261028-190026/f1183_A.png", 304, 0),
+        ("collect/20261028-190026/f1218_SPACE.png", 1284, 0),
+        ("collect/20261029-160032/f1163_A.png", 1480, 0),
+    ],
+    "ally_shield": [   # the Shielder's Ally Shield, a blue wavy line and a small shield; on a yellow frame under the fire
+                       # flames it read as Summon at 1.0 before (rec1 f1045)
+        ("collect/20261028-190026/f0952_CLICK.png", 1292, 0),
+        ("collect/20261028-190026/f0969_SPACE.png", 1099, 0),
+        ("collect/20261028-190026/f0998_D.png", 1432, 0),
+        ("collect/20261028-190026/f1111_CLICK.png", 544, 0),
+        ("collect/20261028-190026/f1210_D.png", 1432, 0),
+        ("collect/20261028-190026/f0999_SPACE.png", 1380, 0),
+        ("collect/20261028-190026/f1045_idle.png", 1292, 0),
+        ("collect/20261028-190026/f1063_CLICK.png", 1240, 0),
+        ("collect/20261028-190026/f1196_idle.png", 1528, 0),
+        ("collect/20261029-160032/f1159_idle.png", 1480, 0),
+        ("collect/20261029-160032/f1293_idle.png", 732, 0),
+        ("collect/20261029-160032/f1431_A.png", 1240, 0),
+        ("collect/20261029-160032/f1439_SPACE.png", 1292, 0),
+        ("collect/20261029-160032/f1295_A.png", 732, 0),
+        ("collect/20261029-160032/f1332_idle.png", 1191, 0),
     ],
     "sword@grappler": [   # the Grappler's Sword, the upper tile of its stack, 4 px higher than the 120-px pitch (read as
                           # Spear 7 of 35 before)

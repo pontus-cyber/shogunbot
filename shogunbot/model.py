@@ -224,6 +224,12 @@ class Enemy:
     # an aimed tile (the Yumi Sniper's Volley): the cell it strikes this turn, the hero's cell when the turn
     # began, shown by a warning sign; None until the turn it fires (rules.step sets it)
     aim: int | None = None
+    # a shield (the Shielder's Shield or Ally Shield, Kowa's Shield): negates the next attack received [wiki:
+    # Tiles]; a sphere around the unit on screen (perceive.shield_frac)
+    shield: bool = False
+    # the tile it loaded last, kept only for a kind that alternates its loads (catalogue behaviour 'alternate':
+    # Kowa's Shield, then Smoke Bomb, 11 of 11 [rec: collect/20261028-190026 f1271-f1356, -160032 f1473-f1508])
+    loaded: str | None = None
 
     @property
     def armed(self) -> bool:
@@ -236,12 +242,12 @@ class Enemy:
     def clone(self) -> "Enemy":
         return Enemy(self.kind, self.x, self.facing, self.hp, list(self.queue), self.uid, self.frozen, self.cd,
                      self.intent, self.primed, self.wind, self.cursed, self.poison, self.last, self.fage,
-                     self.alt, self.elite, self.aim)
+                     self.alt, self.elite, self.aim, self.shield, self.loaded)
 
     def key(self) -> tuple:
         return (self.kind, self.x, self.facing, self.hp, tuple(self.queue), self.frozen, self.cd, self.intent,
                 self.primed, min(self.wind, 1), self.cursed, self.poison, self.last,
-                None if self.fage is None else min(self.fage, 2), self.alt, self.aim)
+                None if self.fage is None else min(self.fage, 2), self.alt, self.aim, self.shield, self.loaded)
 
 
 @dataclass
@@ -351,6 +357,8 @@ class State:
             else:
                 tag = ENEMY_TAG.get(e.kind, "?")
                 tag += str(e.hp)
+                if e.shield:
+                    tag += "o"      # shielded
                 if e.armed:
                     tag += "*"
                 out.append(("<" if e.facing < 0 else "") + tag + (">" if e.facing > 0 else ""))

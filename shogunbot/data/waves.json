@@ -37,64 +37,75 @@
    "20261030-041652",
    "20261030-115221",
    "20261030-213120",
+   "20261031-080407",
+   "20261031-102644",
+   "20261031-114119",
+   "20261031-123442",
+   "20261031-134157",
+   "20261031-144722",
+   "20261031-154544",
+   "20261031-165514",
+   "20261031-180506",
+   "20261031-185210",
+   "20261031-194343",
    "20261027-164727",
    "20261028-190026",
    "20261029-160032"
   ],
-  "source": "learned from 39 recordings (340 waves, every one from the HUD counter) [bot: python -m shogunbot.levelgen build, 2026-10-31]",
+  "source": "learned from 50 recordings (439 waves, every one from the HUD counter) [bot: python -m shogunbot.levelgen build, 2026-10-31]",
   "waves_by_source": {
-   "hud": 340
+   "hud": 439
   }
  },
  "facing": {
   "ashigaru": {
-   "away": 132,
-   "p_toward": 0.52,
-   "toward": 143
+   "away": 162,
+   "p_toward": 0.53,
+   "toward": 183
   },
   "charger": {
-   "away": 64,
-   "p_toward": 0.46,
-   "toward": 54
+   "away": 81,
+   "p_toward": 0.49,
+   "toward": 77
   },
   "tachi": {
-   "away": 164,
-   "p_toward": 0.45,
-   "toward": 132
+   "away": 213,
+   "p_toward": 0.46,
+   "toward": 179
   }
  },
  "levels": {
   "bamboo-1": {
    "cell_counts": {
     "free": {
-     "1": 305,
-     "2": 239,
-     "3": 59,
+     "1": 392,
+     "2": 306,
+     "3": 77,
      "4": 4
     },
     "spawned": {
-     "1": 61,
-     "2": 128,
-     "3": 40,
+     "1": 80,
+     "2": 164,
+     "3": 51,
      "4": 3
     }
    },
    "cell_weight_by_distance": {
-    "1": 0.3,
-    "2": 0.79,
+    "1": 0.31,
+    "2": 0.81,
     "3": 1.0
    },
    "dropped_as_misread": {},
    "templates": {
     "1": [
      {
-      "seen": 22,
+      "seen": 29,
       "units": [
        "tachi"
       ]
      },
      {
-      "seen": 17,
+      "seen": 21,
       "units": [
        "ashigaru"
       ]
@@ -102,13 +113,13 @@
     ],
     "2": [
      {
-      "seen": 22,
+      "seen": 29,
       "units": [
        "ashigaru"
       ]
      },
      {
-      "seen": 17,
+      "seen": 21,
       "units": [
        "tachi"
       ]
@@ -116,14 +127,14 @@
     ],
     "3": [
      {
-      "seen": 21,
+      "seen": 29,
       "units": [
        "tachi",
        "tachi"
       ]
      },
      {
-      "seen": 18,
+      "seen": 21,
       "units": [
        "ashigaru",
        "tachi"
@@ -132,14 +143,14 @@
     ],
     "4": [
      {
-      "seen": 21,
+      "seen": 29,
       "units": [
        "ashigaru",
        "tachi"
       ]
      },
      {
-      "seen": 17,
+      "seen": 20,
       "units": [
        "tachi",
        "tachi"
@@ -149,50 +160,65 @@
    },
    "waves": 4,
    "waves_seen": {
-    "4": 155
+    "4": 199
    }
   },
   "bamboo-2": {
    "cell_counts": {
     "free": {
-     "1": 354,
-     "2": 314,
-     "3": 260,
-     "4": 103,
-     "5": 47,
-     "6": 11
+     "1": 462,
+     "2": 411,
+     "3": 339,
+     "4": 134,
+     "5": 59,
+     "6": 12
     },
     "spawned": {
-     "1": 80,
-     "2": 167,
-     "3": 143,
-     "4": 44,
-     "5": 27,
+     "1": 98,
+     "2": 222,
+     "3": 185,
+     "4": 60,
+     "5": 36,
      "6": 7
     }
    },
    "cell_weight_by_distance": {
-    "1": 0.36,
-    "2": 0.84,
-    "3": 0.86,
-    "4": 0.67,
-    "5": 0.9,
-    "6": 1.0
+    "1": 0.35,
+    "2": 0.89,
+    "3": 0.89,
+    "4": 0.73,
+    "5": 1.0,
+    "6": 0.96
    },
    "dropped_as_misread": {},
    "templates": {
     "1": [
      {
-      "seen": 9,
+      "seen": 10,
       "units": [
        "charger",
        "tachi"
       ]
      },
      {
-      "seen": 9,
+      "seen": 10,
+      "units": [
+       "charger",
+       "tachi",
+       "tachi"
+      ]
+     },
+     {
+      "seen": 10,
       "units": [
        "ashigaru",
+       "ashigaru",
+       "charger"
+      ]
+     },
+     {
+      "seen": 8,
+      "units": [
        "ashigaru",
        "charger"
       ]
@@ -200,24 +226,9 @@
      {
       "seen": 6,
       "units": [
-       "charger",
-       "tachi",
-       "tachi"
-      ]
-     },
-     {
-      "seen": 5,
-      "units": [
        "ashigaru",
        "tachi",
        "tachi"
-      ]
-     },
-     {
-      "seen": 4,
-      "units": [
-       "ashigaru",
-       "charger"
       ]
      },
      {
@@ -230,11 +241,167 @@
     ],
     "2": [
      {
-      "seen": 9,
+      "seen": 13,
       "units": [
        "ashigaru",
        "tachi",
        "tachi"
+      ]
+     },
+     {
+      "seen": 11,
+      "units": [
+       "ashigaru",
+       "ashigaru"
+      ]
+     },
+     {
+      "seen": 7,
+      "units": [
+       "ashigaru",
+       "ashigaru",
+       "charger"
+      ]
+     },
+     {
+      "seen": 7,
+      "units": [
+       "charger",
+       "tachi",
+       "tachi"
+      ]
+     },
+     {
+      "seen": 7,
+      "units": [
+       "charger",
+       "tachi"
+      ]
+     },
+     {
+      "seen": 3,
+      "units": [
+       "ashigaru",
+       "charger"
+      ]
+     }
+    ],
+    "3": [
+     {
+      "seen": 11,
+      "units": [
+       "ashigaru",
+       "charger"
+      ]
+     },
+     {
+      "seen": 10,
+      "units": [
+       "ashigaru",
+       "ashigaru"
+      ]
+     },
+     {
+      "seen": 10,
+      "units": [
+       "ashigaru",
+       "ashigaru",
+       "charger"
+      ]
+     },
+     {
+      "seen": 8,
+      "units": [
+       "charger",
+       "tachi",
+       "tachi"
+      ]
+     },
+     {
+      "seen": 5,
+      "units": [
+       "charger",
+       "tachi"
+      ]
+     },
+     {
+      "seen": 4,
+      "units": [
+       "ashigaru",
+       "tachi",
+       "tachi"
+      ]
+     }
+    ],
+    "4": [
+     {
+      "seen": 10,
+      "units": [
+       "charger",
+       "tachi",
+       "tachi"
+      ]
+     },
+     {
+      "seen": 10,
+      "units": [
+       "ashigaru",
+       "ashigaru",
+       "charger"
+      ]
+     },
+     {
+      "seen": 8,
+      "units": [
+       "ashigaru",
+       "tachi",
+       "tachi"
+      ]
+     },
+     {
+      "seen": 7,
+      "units": [
+       "ashigaru",
+       "ashigaru"
+      ]
+     },
+     {
+      "seen": 7,
+      "units": [
+       "ashigaru",
+       "charger"
+      ]
+     },
+     {
+      "seen": 6,
+      "units": [
+       "charger",
+       "tachi"
+      ]
+     }
+    ],
+    "5": [
+     {
+      "seen": 10,
+      "units": [
+       "ashigaru",
+       "ashigaru",
+       "charger"
+      ]
+     },
+     {
+      "seen": 9,
+      "units": [
+       "charger",
+       "tachi",
+       "tachi"
+      ]
+     },
+     {
+      "seen": 8,
+      "units": [
+       "ashigaru",
+       "charger"
       ]
      },
      {
@@ -248,94 +415,6 @@
       "seen": 7,
       "units": [
        "charger",
-       "tachi",
-       "tachi"
-      ]
-     },
-     {
-      "seen": 6,
-      "units": [
-       "charger",
-       "tachi"
-      ]
-     },
-     {
-      "seen": 5,
-      "units": [
-       "ashigaru",
-       "ashigaru",
-       "charger"
-      ]
-     },
-     {
-      "seen": 2,
-      "units": [
-       "ashigaru",
-       "charger"
-      ]
-     }
-    ],
-    "3": [
-     {
-      "seen": 9,
-      "units": [
-       "ashigaru",
-       "ashigaru"
-      ]
-     },
-     {
-      "seen": 8,
-      "units": [
-       "ashigaru",
-       "charger"
-      ]
-     },
-     {
-      "seen": 8,
-      "units": [
-       "ashigaru",
-       "ashigaru",
-       "charger"
-      ]
-     },
-     {
-      "seen": 5,
-      "units": [
-       "charger",
-       "tachi",
-       "tachi"
-      ]
-     },
-     {
-      "seen": 4,
-      "units": [
-       "ashigaru",
-       "tachi",
-       "tachi"
-      ]
-     },
-     {
-      "seen": 3,
-      "units": [
-       "charger",
-       "tachi"
-      ]
-     }
-    ],
-    "4": [
-     {
-      "seen": 9,
-      "units": [
-       "ashigaru",
-       "ashigaru",
-       "charger"
-      ]
-     },
-     {
-      "seen": 8,
-      "units": [
-       "charger",
-       "tachi",
        "tachi"
       ]
      },
@@ -343,75 +422,7 @@
       "seen": 6,
       "units": [
        "ashigaru",
-       "ashigaru"
-      ]
-     },
-     {
-      "seen": 6,
-      "units": [
-       "charger",
-       "tachi"
-      ]
-     },
-     {
-      "seen": 5,
-      "units": [
-       "ashigaru",
        "tachi",
-       "tachi"
-      ]
-     },
-     {
-      "seen": 3,
-      "units": [
-       "ashigaru",
-       "charger"
-      ]
-     }
-    ],
-    "5": [
-     {
-      "seen": 8,
-      "units": [
-       "ashigaru",
-       "charger"
-      ]
-     },
-     {
-      "seen": 8,
-      "units": [
-       "ashigaru",
-       "ashigaru",
-       "charger"
-      ]
-     },
-     {
-      "seen": 8,
-      "units": [
-       "ashigaru",
-       "ashigaru"
-      ]
-     },
-     {
-      "seen": 6,
-      "units": [
-       "charger",
-       "tachi",
-       "tachi"
-      ]
-     },
-     {
-      "seen": 4,
-      "units": [
-       "ashigaru",
-       "tachi",
-       "tachi"
-      ]
-     },
-     {
-      "seen": 3,
-      "units": [
-       "charger",
        "tachi"
       ]
      }
@@ -419,47 +430,47 @@
    },
    "waves": 5,
    "waves_seen": {
-    "5": 185
+    "5": 240
    }
   }
  },
  "next_wave": {
-  "none_left": "the next wave comes at once [obs: 233 waves came with no older enemy on the board]",
+  "none_left": "the next wave comes at once [obs: 304 waves came with no older enemy on the board]",
   "one_left_before": {
    "3": {
     "p": 0.0,
-    "turns": 222,
+    "turns": 296,
     "waves": 0
    },
    "5": {
     "p": 0.0,
-    "turns": 140,
+    "turns": 189,
     "waves": 0
    },
    "8": {
     "p": 0.0,
-    "turns": 118,
+    "turns": 153,
     "waves": 0
    },
    ">8": {
-    "p": 0.139,
-    "turns": 79,
+    "p": 0.126,
+    "turns": 87,
     "waves": 11
    }
   },
   "one_left_sixth_turn": {
-   "turns": 17,
-   "waves": 17
+   "turns": 23,
+   "waves": 23
   },
   "two_left": {
    "12+": {
-    "p": 0.111,
-    "turns": 27,
+    "p": 0.1,
+    "turns": 30,
     "waves": 3
    },
    "<12": {
     "p": 0.0,
-    "turns": 695,
+    "turns": 868,
     "waves": 0
    }
   }

@@ -18,7 +18,7 @@ def test_the_map_names_spirit_gateway_and_the_bot_prefers_it():
     from shogunbot.perception import map_screen as M
     sel = M.selected(frame(REC1 + "f0597_CLICK.png"))          # the tooltip over the node after the shop
     assert (sel["kind"], sel["region"]) == ("region", "spirit_gateway")
-    assert "spirit_gateway" in B.MAP_REGIONS and B.FULL_LAST_STAGE == 4
+    assert "spirit_gateway" in B.MAP_REGIONS and B.FULL_LAST_STAGE >= 4      # region 5 since 0.45
 
 
 def test_spirit_gateway_counts_three_wave_levels_before_the_statue():
