@@ -162,8 +162,9 @@ SPRITE_KIND_CONF = 0.8   # the sprite's kind counts as evidence from this confid
 # Spirit Gateway's icons (0.36) are gated the same way: the Grappler's Grappling Hook, the Shinobi's Shuriken and
 # Smoke Bomb, The Statue's Shadow Kama (and its Hook and Shuriken), and the 'tile@kind' templates of tiles one kind
 # draws its own way (The Statue's Sword, Spear, Arrow, Tetsubo and Earth Impale, the Grappler's upper Sword), so
-# routes without Spirit Gateway read as before.
-GATED_ICONS = (frozenset({"volley", "grappling_hook", "shuriken", "smoke_bomb", "shadow_kama"})
+# routes without Spirit Gateway read as before. Hot Springs' (0.45) likewise: the Shielder's Shield and Ally Shield,
+# and Kowa's Shield.
+GATED_ICONS = (frozenset({"volley", "grappling_hook", "shuriken", "smoke_bomb", "shadow_kama", "shield", "ally_shield"})
                | frozenset(str(k) for k in ICO_K if "@" in str(k)))
 
 

@@ -38,6 +38,7 @@ WEIGHTS: dict[str, float] = {
 }
 
 SPAWN_THRESHOLD = 1  # [web] Normal rooms spawn the next wave at 1-2 alive; HYP: 1
+SHIELD_HP = 2        # HYP: a shield is worth one hit, about 2 HP (the Wanderer's tiles deal 1-4)
 
 STALL_TURNS = 15     # [user 2026-10-28] turns in which no enemy lost HP, died or appeared
 # [user 2026-10-31: "HP is the priority, it is needed in the long run, but ease the lever to 3
@@ -121,6 +122,10 @@ def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
     alive = s.alive()
     terms["hero_hp"] = w["hero_hp"] * h.hp
     terms["enemy_hp"] = w["enemy_hp"] * sum(e.hp for e in alive)
+    shields = sum(1 for e in alive if e.shield)
+    if shields:
+        # a shield takes one hit, about one tile's damage: breaking it is progress (scales with the stall weights)
+        terms["enemy_shield"] = w["enemy_hp"] * SHIELD_HP * shields
     terms["enemy_alive"] = w["enemy_alive"] * len(alive)
     more_waves = s.waves_total and s.wave < s.waves_total
     if not alive and not more_waves:
@@ -175,6 +180,7 @@ def _queue_damage(s: State, queue: list[str]) -> dict[int, int]:
     if not queue:
         return dmg
     hp = {e.uid: e.hp for e in s.enemies if e.hp > 0}
+    shielded = {e.uid for e in s.enemies if e.hp > 0 and e.shield}
     byl = h.kit.by_label
     hx, f = h.x, h.facing
     for label in queue:
@@ -216,6 +222,9 @@ def _queue_damage(s: State, queue: list[str]) -> dict[int, int]:
         for e in hits:
             dd = min(d, hp[e.uid] - 1) if cannot_kill else d
             if dd <= 0:
+                continue
+            if e.uid in shielded:
+                shielded.discard(e.uid)      # the shield takes this hit [wiki: Tiles, Shield]
                 continue
             dmg[e.uid] = dmg.get(e.uid, 0) + dd
             hp[e.uid] -= dd

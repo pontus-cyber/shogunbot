@@ -72,8 +72,8 @@ POISON_MIN_VALUE = 4      # use Mass Poison when it deals at least this much in 
 # ended five runs holding Mass Ice, Edamame, Cool Up and Kami Brew]. With --stage1 that is Stage
 # 1's boss; a --full run is won, and in a series given up, after the boss of FULL_LAST_STAGE
 # [m4-plan: the bot clears the region 2 boss]. Items carry over between stages [user 2026-10-29].
-FULL_LAST_STAGE = 4       # Spirit Gateway, The Statue [user review of run 20261030-213120: "raise FULL_LAST_STAGE
-                          # to 4 (Spirit Gateway, The Statue)"; region 3 since 2026-10-29]
+FULL_LAST_STAGE = 5       # Hot Springs, Kowa the Coward [user 2026-10-31, claude/core-requests.md: "Region 5 (Hot
+                          # Springs, Kowa): FULL_LAST_STAGE 5"; region 4 since the review of run 20261030-213120]
 MAP_TRIES_MAX = 12        # map inputs that leave the map unchanged before the run stops as 'stuck'
                           # [run 20261029-072042: 18 inputs on a Stage 2 map, none applied]
 START_GIVE_UPS_MAX = 2    # give-ups at a run start that still do not reach the camp: 'stuck'
@@ -87,10 +87,11 @@ NO_CHANGE_STOP = 20       # inputs in a row that change nothing on screen before
 # turns it on, the up/down arrows move the mark among the reachable nodes, Enter travels there, and
 # any mouse click turns it off again (perception/map_screen.py). Regions in order of preference;
 # a shop is always taken (both shops after Bamboo Grove led to both regions).
-MAP_REGIONS = ("whispering_caves", "moonlit_port", "spirit_gateway")   # [user 2026-10-28: Whispering Caves
-# first; 2026-10-29: region 3, the one region after the Caves; review of run 20261030-213120: region 4, Spirit
-# Gateway, which both recordings took after Moonlit Port's shop (collect/20261028-190026 f0597,
-# collect/20261029-160032 f0798)]
+MAP_REGIONS = ("whispering_caves", "moonlit_port", "spirit_gateway", "hot_springs")   # [user 2026-10-28:
+# Whispering Caves first; 2026-10-29: region 3, the one region after the Caves; review of run 20261030-213120:
+# region 4, Spirit Gateway, which both recordings took after Moonlit Port's shop (collect/20261028-190026 f0597,
+# collect/20261029-160032 f0798); 2026-10-31 (core-requests.md): region 5, Hot Springs, which both recordings
+# took after Spirit Gateway's shop (rec1 f0944 'HOT SPRINGS')]
 MAP_LOOKS_MAX = 4         # arrow presses spent looking for a preferred region before taking the mark
 MOUSE_MODE_SPOT = (0.97, 0.27)   # an empty spot: a click there turns keyboard-only mode off
 BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink

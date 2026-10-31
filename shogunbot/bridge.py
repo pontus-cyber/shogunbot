@@ -421,7 +421,7 @@ class Tracker:
             if alt:
                 self.notes.append(f"enemy at {e['x']}: read as {kind}, may be {alt}")
             en = Enemy(kind, e["x"], facing_e, hp_e, queue, uid=i + 1, intent=intent, alt=alt,
-                       elite=bool(e.get("elite")), aim=aim)
+                       elite=bool(e.get("elite")), aim=aim, shield=bool(e.get("shield")))
             if self.freeze_left > 0:
                 en.frozen, en.intent = self.freeze_left, None
             en.cursed = self.cursed

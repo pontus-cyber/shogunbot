@@ -136,9 +136,16 @@ def legal_hero_actions(s: State) -> list[str]:
     return out
 
 
-def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events, cannot_kill: bool = False) -> None:
+def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events, cannot_kill: bool = False) -> bool:
+    """Returns True when a shield took the hit instead."""
     if e.hp <= 0 or dmg <= 0:
-        return
+        return False
+    if e.shield:
+        # a shield negates the next attack received [wiki: Tiles, Shield], a poison tick too ('Poison is especially
+        # great as it can immediately break his shield' [wiki: Kowa the Coward]); HYP: a curse waits for the next hit
+        e.shield = False
+        ev.enemy_actions.append((e.uid, f"{source} absorbed by shield"))
+        return True
     if e.cursed:
         dmg *= 2          # Mass Curse: double damage on the next hit [wiki] [user]
         e.cursed = False
@@ -158,6 +165,7 @@ def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events, cannot_
                 o.hp = e.hp
                 if o.hp <= 0:
                     ev.kills.append((o.kind, o.uid, source))
+    return False
 
 
 def _push(s: State, u, d: int, ev: Events, collision: int, src: str, by: Enemy | None,
@@ -209,7 +217,8 @@ def _hero_hit(s: State, e: Enemy, kt, spec: dict, ev: Events, moved: bool = Fals
     Returns True on an exact kill (Perfect Strike)."""
     src = "hero:" + kt.tile
     hp0 = e.hp
-    _damage_enemy(s, e, kt.damage + _skill_bonus(s, e, moved) + boost, src, ev, spec.get("cannot_kill", False))
+    if _damage_enemy(s, e, kt.damage + _skill_bonus(s, e, moved) + boost, src, ev, spec.get("cannot_kill", False)):
+        return False        # HYP: a shield negates the whole attack, its enchantment too
     ench = kt.enchant
     if ench is None:
         return False
@@ -722,6 +731,17 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
             _enemy_hit(s, e, u, dmg, tile, ev)
             if spec.get("pull_adjacent") and u is not None and (u is h or u.hp > 0):
                 _pull(s, u, e.x + dd)
+        elif k == "other" and spec.get("effect") == "self_shield":
+            e.shield = True                     # Shield [wiki: Tiles]
+        elif k == "other" and spec.get("effect") == "ally_shield":
+            # Ally Shield: the first shieldless ally ahead, at any distance; the hero is passed over [wiki: Tiles]
+            nx = e.x + e.facing
+            while s.in_bounds(nx):
+                u = s.enemy_at(nx)
+                if u is not None and not u.shield:
+                    u.shield = True
+                    break
+                nx += e.facing
         elif k == "other" and spec.get("effect") == "swap_first":
             u = _first_unit_ahead(s, e.x, e.facing * spec.get("dir", 1), skip_uid=e.uid)
             if u is not None:
