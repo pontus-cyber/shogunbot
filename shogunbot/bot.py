@@ -54,7 +54,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.39"
+VERSION = "0.40"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -566,6 +566,17 @@ class Bot:
         second = h2.get("hp") if h2.get("hp_max") else None
         if second is not None and second < last_hp and h2.get("hp_max") >= hp_cap:
             return second
+        # The same lower HP on both frames of two turns in a row is real, whatever the pip row:
+        # in run 20261031-134157 one frame read 11 pips at t321, the cap went to 11, and every
+        # later drop (10 pips seen) was refused; the bot played region 4 believing HP 10 at
+        # HP 2 and died to The Statue [0.40]. An animation never hides pips for two turns.
+        agreed = second is not None and second == read and second < last_hp
+        if agreed and getattr(self, "_hp_drop_seen", None) == (read, turn - 1):
+            self.log.event("hp_drop_persists", turn=turn, read=read, second_pips=h2.get("hp_max"),
+                           hp_cap=hp_cap, was=last_hp)
+            return second
+        if agreed:
+            self._hp_drop_seen = (read, turn)
         self.log.event("hp_flicker", turn=turn, read=read, second_read=second,
                        second_pips=h2.get("hp_max"), kept=last_hp)
         return last_hp
@@ -1140,7 +1151,8 @@ class Bot:
         self.gave_up = None
         death_since = None
         progress, last_progress = None, 0     # stall rule: see planner.stall_weights
-        hp_cap = HERO_MAX_HP                  # most HP pips seen in one read this run
+        hp_cap = HERO_MAX_HP                  # most HP pips seen on two turns in a row this run
+        cap_seen = None                       # (pips, turn) of a read above the cap, not yet confirmed
         turn = 0
         level = None
         final = self.last_level
@@ -1426,7 +1438,15 @@ class Bot:
                     time.sleep(0.3)
                     continue
                 if p.hero["hp_max"]:
-                    hp_cap = max(hp_cap, p.hero["hp_max"])
+                    # more pips than the cap count only when seen on two turns: one frame read 11
+                    # at t321 of run 20261031-134157 and blocked every later drop [0.40]
+                    if p.hero["hp_max"] > hp_cap:
+                        if cap_seen and cap_seen[0] == p.hero["hp_max"] and cap_seen[1] == turn - 1:
+                            hp_cap = p.hero["hp_max"]
+                        elif not (cap_seen and cap_seen == (p.hero["hp_max"], turn)):
+                            cap_seen = (p.hero["hp_max"], turn)
+                    if s.hero.hp > max(hp_cap, last_hp):
+                        s.hero.hp = max(hp_cap, last_hp)
                     if s.hero.hp < last_hp:
                         s.hero.hp = self._confirm_hp_drop(s.hero.hp, last_hp, hp_cap, tr, turn)
                 if turn == 0 and p.hero["hp_max"] and s.hero.hp <= 0:

@@ -189,3 +189,11 @@ def test_dimmed_items_read_as_themselves(rel):
     from shogunbot.perception.perceive import read_consumables
     items = read_consumables(frame(rel))
     assert {round(i["fy"] * 1080): (i["item"], bool(i.get("dim"))) for i in items} == DIMMED[rel]
+
+
+def test_hp_drop_on_two_turns_counts_whatever_the_pips(tmp_path):
+    # run 20261031-134157: the cap went to 11 on one frame (t321); from then on the pip row
+    # (10) never reached it and every drop was refused, down to HP 2 at The Statue [0.40]
+    b = _bot(tmp_path, frame("runs/20261028-061420/frames/f0062_CLICK.png"))   # 9 of 10 pips
+    assert b._confirm_hp_drop(9, 10, 11, Tracker(), 51) == 10                 # first turn: kept
+    assert b._confirm_hp_drop(9, 10, 11, Tracker(), 52) == 9                  # second turn: real
