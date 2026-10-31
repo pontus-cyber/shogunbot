@@ -98,6 +98,12 @@ def _phase(lum: np.ndarray, runs: list[tuple[int, int]]) -> int | None:
     from the dark gaps between plates: 12 px of near-black columns with plate on both sides."""
     votes: Counter = Counter()
     for x0, x1 in runs:
+        # only a run with dark on both sides votes: a piece of a too-wide run split by plate_runs
+        # does not. The yellow move arrow over Moonlit Port II's red enemy plate made one 216-px run,
+        # split into two 'plates' 92 px off the grid; they outvoted the hero's plate and the board
+        # went unread for 90 s [run 20261031-144722 stuck.png, after t256] [0.41]
+        if not ((x0 == 0 or lum[x0 - 1] <= 66) and (x1 >= lum.shape[0] or lum[x1] <= 66)):
+            continue
         if PLATE_W - 8 <= x1 - x0 <= PLATE_W + 4:
             votes[x0 % PITCH] += 2
     dark = lum < GAP_DARK

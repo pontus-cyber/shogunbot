@@ -40,3 +40,12 @@ def test_a_row_that_may_run_on_under_the_item_column_stays_unread():
     from shogunbot.perception import board
     # a 5-cell row whose next plate lies under the potions: the width is unknown
     assert not board.is_board(board.cells(frame("collect/20261029-160032/f0547_idle.png")))
+
+
+# 0.41: the yellow move arrow over a red enemy plate made one too-wide run whose split pieces
+# set the grid 92 px off [run 20261031-144722, Moonlit Port II wave 5/5, after t256]
+def test_split_run_does_not_set_the_grid():
+    from shogunbot.perception import board
+    cs = board.cells(frame("runs/20261031-144722/frames/stuck.png"))
+    assert [(c["x0"], c["kind"]) for c in cs] == [(520, "empty"), (660, "empty"), (800, "empty"),
+                                                   (940, "enemy"), (1080, "hero")]
