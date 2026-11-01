@@ -187,6 +187,8 @@ BOSS_KINDS: frozenset[str] = frozenset(e.id for e in CAT.enemies.values() if e.b
 # [rec: collect/20261028-190026 f0857-f0921, collect/20261029-160032 f1071-f1120]; the hero cannot swap with them,
 # and Rain of Mirrors does not turn them
 HEAVY_KINDS: frozenset[str] = frozenset(e.id for e in CAT.enemies.values() if e.sim and "heavy" in e.traits)
+# Unfreezable [wiki: Hideyoshi the Cunning, traits]: Mass Ice and the Ice enchantment do not freeze him
+UNFREEZABLE_KINDS: frozenset[str] = frozenset(e.id for e in CAT.enemies.values() if e.sim and "unfreezable" in e.traits)
 
 
 @dataclass
@@ -300,14 +302,18 @@ class State:
     wave: int = 0
     waves_total: int = 0
     turn: int = 0
+    # bombs on the floor (Hideyoshi's Bomb tile): [cell, enemy phases left]; one explodes at the end of the enemy
+    # phase that brings its count to 0, on its cell and both neighbours (rules._bomb_tick) [rec: collect/20261028-190026
+    # f1535-f1540, collect/20261029-160032 f1717-f1726]
+    bombs: list = field(default_factory=list)
 
     def clone(self) -> "State":
         return State(self.cells, self.hero.clone(), [e.clone() for e in self.enemies],
-                     self.level, self.wave, self.waves_total, self.turn)
+                     self.level, self.wave, self.waves_total, self.turn, [list(b) for b in self.bombs])
 
     def key(self) -> tuple:
         return (self.cells, self.hero.key(), tuple(sorted(e.key() for e in self.enemies if e.hp > 0)),
-                self.wave, self.waves_total)
+                self.wave, self.waves_total, tuple(tuple(b) for b in sorted(self.bombs)))
 
     # ---- helpers ------------------------------------------------------------
     def unit_at(self, x: int):
@@ -362,4 +368,7 @@ class State:
                 if e.armed:
                     tag += "*"
                 out.append(("<" if e.facing < 0 else "") + tag + (">" if e.facing > 0 else ""))
-        return " ".join(out)
+        board = " ".join(out)
+        if self.bombs:
+            board += " " + " ".join(f"bomb@{c}:{n}" for c, n in sorted(self.bombs))
+        return board

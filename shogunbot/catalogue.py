@@ -116,6 +116,38 @@ class EnemyKind:
             return None
         return c["then"]
 
+    # Hideyoshi's combos (behaviour 'chains', three tiles each, and 'single', the Summon he uses alone) [wiki: Hideyoshi
+    # the Cunning]: his queue is always a part of one of them, so its next tile and whether it is complete follow
+    def chain_next(self, queue) -> str | None:
+        """The next tile of the chain this queue starts (a proper, non-empty prefix of exactly one chain), else None."""
+        q = list(queue)
+        if not q:
+            return None
+        nxt = {c[len(q)] for c in self.behaviour.get("chains", ()) if len(c) > len(q) and list(c[:len(q)]) == q}
+        return nxt.pop() if len(nxt) == 1 else None
+
+    def chain_full(self, queue) -> bool:
+        """The queue is a whole chain, or a tile he uses alone ('single')."""
+        q = list(queue)
+        return bool(q) and (any(list(c) == q for c in self.behaviour.get("chains", ()))
+                            or (len(q) == 1 and q[0] in self.behaviour.get("single", ())))
+
+    def chain_fix(self, queue) -> list:
+        """A read stack as the chain it can be: a prefix of a chain kept as read; a misread slot set to the chain that
+        agrees with the read in the most slots (the bottom slot first, as each chain's first tile is its own). A read
+        that agrees with no chain in any slot is what is left of a combo just fired, shown while it plays out (rec2
+        f1703: its Earth Impale over the next '+'): nothing loaded. A tile he uses alone stays alone."""
+        q = list(queue)
+        chains = [list(c) for c in self.behaviour.get("chains", ())]
+        if not q or not chains or self.chain_full(q) or self.chain_next(q):
+            return q
+        if q[0] in self.behaviour.get("single", ()):
+            return q[:1]
+        best = max(chains, key=lambda c: (sum(a == b for a, b in zip(c, q)), c[0] == q[0]))
+        if sum(a == b for a, b in zip(best, q)) == 0:
+            return []
+        return best[:max(1, min(len(q), len(best)))]
+
 
 @dataclass(frozen=True)
 class Consumable:

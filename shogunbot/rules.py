@@ -14,12 +14,13 @@ mismatch in the logs points straight at the rule.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
 from . import behaviour
 from .catalogue import CAT
 from .model import (
     BOSS_KINDS, DEFAULT_KIT, ENEMY_KINDS, ENEMY_TILE_COOLDOWN, ENEMY_TILE_DAMAGE, HEAVY_KINDS, QUEUE_MAX,
-    SWAP_COOLDOWN, Enemy, Hero, State,
+    SWAP_COOLDOWN, UNFREEZABLE_KINDS, Enemy, Hero, State,
 )
 
 MOVES = ("left", "right", "turn", "wait")
@@ -28,6 +29,12 @@ PAIRED = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).pair > 1)   # bosses wh
 ALTERNATE = {k: tuple(CAT.enemy(k).behaviour["alternate"]) for k in ENEMY_KINDS if CAT.enemy(k).behaviour.get("alternate")}
 # bosses whose allies vanish when they die (catalogue behaviour 'allies_vanish': Kowa)
 VANISH = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).behaviour.get("allies_vanish"))
+# bosses that load whole combos (catalogue behaviour 'chains': Hideyoshi)
+CHAINS = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).behaviour.get("chains"))
+# a bomb's explosion: its cell and both neighbours [wiki: Hideyoshi the Cunning: 'In a corner, his Bomb hits only 2
+# cells instead of 3'] [rec: collect/20261028-190026 f1554, collect/20261029-160032 f1726]; its damage is the tile's
+BOMB = CAT.tile("bomb")
+BOMB_SOURCE = SimpleNamespace(kind="bomb", uid=0)
 
 
 def effect_tile(kind: str, effect: str) -> str | None:
@@ -244,7 +251,7 @@ def _hero_hit(s: State, e: Enemy, kt, spec: dict, ev: Events, moved: bool = Fals
     if e.hp > 0:
         if ench == "poison":
             e.poison = max(e.poison, POISON_TURNS)
-        elif ench == "ice":
+        elif ench == "ice" and e.kind not in UNFREEZABLE_KINDS:
             e.frozen = max(e.frozen, ICE_TURNS)
             e.intent = None
         elif ench == "curse":
@@ -432,6 +439,17 @@ def _tile_hits_hero(s: State, e: Enemy, tile: str) -> bool:
         return _furthest_unit_ahead(s, e.x, e.facing * dr) is s.hero
     if k == "other" and CAT.tile(tile).attack.get("effect") == "swap_first":
         return _first_unit_ahead(s, e.x, e.facing * dr, skip_uid=e.uid) is s.hero
+    if k == "dash_through":
+        # Shadow Dash: the hero among the first units ahead (empty cells before them crossed), with an empty cell
+        # behind them to land on (_enemy_fire) [0.47, core-requests item 7]
+        dd, hit = e.facing * dr, False
+        nx = e.x + dd
+        while s.in_bounds(nx) and s.unit_at(nx) is None:
+            nx += dd
+        while s.in_bounds(nx) and s.unit_at(nx) is not None and s.unit_at(nx) is not e:
+            hit |= s.unit_at(nx) is s.hero
+            nx += dd
+        return hit and s.in_bounds(nx)
     if k == "aim":
         # the Volley: aimed at the hero's cell when the turn it fires begins, so the hero is always in reach
         # until then; once aimed, only that cell is hit [data/tiles.json 'volley']
@@ -564,6 +582,15 @@ def _boss_queue(s: State, e: Enemy, move_or_wait) -> list[tuple[float, tuple]]:
     kind = CAT.enemy(e.kind)
     b = kind.behaviour
     dist = abs(e.x - s.hero.x)
+    if e.kind in CHAINS:
+        # Hideyoshi: a combo's next tile; with nothing loaded the first tile of a combo or the Summon, never what he
+        # used last (e.loaded) [wiki: 'never repeats the same combo twice in a row'], evenly [hyp: 14 uses seen]
+        nxt = kind.chain_next(e.queue)
+        if nxt:
+            return [(1.0, ("queue", nxt))]
+        firsts = [c[0] for c in b["chains"]] + list(b.get("single", ()))
+        opts = [t for t in firsts if t != e.loaded] or firsts
+        return [(1.0 / len(opts), ("queue", t)) for t in opts]
     alt = ALTERNATE.get(e.kind)
     if alt:
         # Kowa alternates Shield and Smoke Bomb, Shield first, whatever his shield's state (11 of 11 loads) [rec:
@@ -633,11 +660,12 @@ def _boss_options(s, e, d, dist, facing_hero, move_or_wait):
     hero or loads. Iwao ('after_fire': away) steps away from the hero the turn after he fires, or
     holds when blocked, and loads the turn after (8 of 8)."""
     kind = CAT.enemy(e.kind)
-    if kind.behaviour.get("coward"):
+    if kind.behaviour.get("coward") or e.kind in CHAINS:
         f = behaviour.features(s, e, e.last, e.fage)
         saved = e.intent
         try:
-            e.intent = behaviour.coward_intent(s, e, f)
+            e.intent = (behaviour.coward_intent(s, e, f) if kind.behaviour.get("coward")
+                        else behaviour.cunning_intent(s, e, f))
             return _intent_options(s, e, move_or_wait) or [(1.0, ("wait",))]
         finally:
             e.intent = saved
@@ -782,6 +810,27 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
                     _enemy_hit(s, e, u, dmg, tile, ev)
                 if u is h or (u.hp > 0 and u.kind not in HEAVY_KINDS):
                     e.x, u.x = u.x, e.x
+        elif k == "other" and spec.get("effect") in ("center_teleport", "mirror_position"):
+            # Origin of Symmetry: to the central cell; Mirror: to the mirrored cell, facing the other way. A unit on that
+            # cell changes places with him, keeping its facing [wiki: Tiles] [rec: collect/20261029-160032 f1702-f1703 and
+            # f1729-f1730 (Origin moved the hero on cell 3 to his cell), f1711-f1712; collect/20261028-190026 f1543-f1544,
+            # f1567-f1568, f1579-f1580 (Mirror, 4 of 4 facing the other way)]
+            to = s.cells // 2 if spec["effect"] == "center_teleport" else s.cells - 1 - e.x
+            u = s.unit_at(to)
+            if u is not None and u is not e:
+                if u is not h and u.kind in HEAVY_KINDS:
+                    to = e.x                    # Heavy: cannot be moved [wiki: Traits] [hyp: so he stays]
+                else:
+                    u.x = e.x
+            e.x = to
+            if spec["effect"] == "mirror_position":
+                e.facing = -e.facing
+        elif k == "other" and spec.get("effect") == "bomb":
+            # a bomb on the cell directly ahead, a unit standing there or not (rec1 f1536, rec2 f1719: under the hero);
+            # it explodes at the end of the second enemy phase after this one (_bomb_tick counts this one too)
+            c = e.x + e.facing
+            if s.in_bounds(c) and not any(b[0] == c for b in s.bombs):
+                s.bombs.append([c, spec.get("fuse", 2) + 1])
         elif k == "dash_strike":
             dd = e.facing * spec.get("dir", 1)
             u = _first_unit_ahead(s, e.x, dd, skip_uid=e.uid)
@@ -796,9 +845,14 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
         elif k == "dash_through":
             # Shadow Dash: through the units ahead to the first empty cell behind them, 1 damage to
             # each; nothing happens without an empty cell [wiki: Tiles] [rec: the Twins carried the
-            # front one through the hero, collect/20261028-190026 f0562-f0565, -160032 f0755-f0761]
+            # front one through the hero, collect/20261028-190026 f0562-f0565, -160032 f0755-f0761].
+            # Empty cells before the first unit are crossed too, as the hero's dash does: the hero who stepped
+            # away from a Twin firing it was still dashed through and hit, three times out of three [bot: run
+            # 20261031-233208 t268, 20261101-122050 t331, 20261101-164934 t282; core-requests item 7]
             dd = e.facing * spec.get("dir", 1)
             nx, passed = e.x + dd, []
+            while s.in_bounds(nx) and s.unit_at(nx) is None:
+                nx += dd
             while s.in_bounds(nx) and s.unit_at(nx) is not None and s.unit_at(nx) is not e:
                 passed.append(s.unit_at(nx))
                 nx += dd
@@ -861,6 +915,8 @@ def _apply_enemy_action(s: State, uid: int, action: tuple, ev: Events) -> None:
         e.facing = -e.facing
     elif kind == "queue":
         tile = action[1]
+        if e.kind in CHAINS and not e.queue:
+            e.loaded = tile.split("+")[0]       # the combo's first tile names it: the next one is another
         e.queue = e.queue + tile.split("+")
         e.wind = 0
         if e.kind in ALTERNATE:
@@ -871,6 +927,31 @@ def _apply_enemy_action(s: State, uid: int, action: tuple, ev: Events) -> None:
         nx = e.x + action[1]
         if s.in_bounds(nx) and s.unit_at(nx) is None:
             e.x = nx
+
+
+def _bomb_tick(s: State, ev: Events) -> None:
+    """End of an enemy phase: every bomb's count drops by one; at 0 it explodes on its cell and both neighbours, for the
+    Bomb tile's damage, hero and enemies alike (Hideyoshi took 3 from his own: rec2 f1725-f1726, his bar 0.154 -> 0.085).
+    Placed this phase with fuse + 1 (rules._enemy_fire), it explodes at the end of the second phase after [rec: placed in
+    the phase after rec1 f1535 and rec2 f1717, exploded in the phases after f1539 and f1725]."""
+    if not s.bombs:
+        return
+    left = []
+    for c, n in s.bombs:
+        if n - 1 > 0:
+            left.append([c, n - 1])
+            continue
+        dmg = BOMB.damage or 0
+        for x in (c - 1, c, c + 1):
+            if not s.in_bounds(x):
+                continue
+            if s.hero.x == x:
+                _hurt_hero(s.hero, dmg, BOMB_SOURCE, ev)
+            u = s.enemy_at(x)
+            if u is not None:
+                _damage_enemy(s, u, dmg, "bomb", ev)
+    s.bombs = left
+    s.enemies = [x for x in s.enemies if x.hp > 0]
 
 
 def _poison_tick(s: State, ev: Events) -> None:
@@ -910,6 +991,7 @@ def enemy_phase(s: State, max_outcomes: int = 12) -> list[tuple[float, State, Ev
         frontier = nxt[:max_outcomes]
     total = sum(p for p, _, _ in frontier) or 1.0
     for _, st, ev in frontier:
+        _bomb_tick(st, ev)
         if poisoned:
             _poison_tick(st, ev)
         for e in st.enemies:
@@ -1001,6 +1083,17 @@ def threats(s: State) -> list[dict]:
     """Armed enemies whose current queue would hit the hero if fired now."""
     out = []
     for e in s.alive():
+        if e.kind in CHAINS:
+            # Hideyoshi's combos move him between their tiles (Origin, Mirror, the dashes), so the bottom tile says
+            # little: a whole combo is fired on a copy and what reaches the hero counts; a partial one counts nothing
+            if CAT.enemy(e.kind).chain_full(e.queue):
+                c = s.clone()
+                ce = next(x for x in c.enemies if x.uid == e.uid)
+                hp0 = c.hero.hp
+                _enemy_fire(c, ce, Events())
+                if c.hero.hp < hp0:
+                    out.append({"uid": e.uid, "kind": e.kind, "dmg": hp0 - c.hero.hp})
+            continue
         if e.armed and _hits_hero(s, e, e.queue[0]):
             dmg = sum(ENEMY_TILE_DAMAGE[t] for t in e.queue if t != "summon")
             out.append({"uid": e.uid, "kind": e.kind, "dmg": dmg})

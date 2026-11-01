@@ -43,19 +43,20 @@ import numpy as np
 from . import rewards
 from .bridge import Tracker, hand_unsettled, kit_from_faces, level_name, match_faces
 from .catalogue import CAT
-from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HEAVY_KINDS, HERO_MAX_HP
+from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HEAVY_KINDS, HERO_MAX_HP, UNFREEZABLE_KINDS
 from .perception import map_screen, reward_screen, screens, shop_screen
 from .perception.board import cells as board_cells
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
 from .perception.tiles import FACE_H, FACE_W
-from .planner import STALL_STUCK_TURNS, STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_budget, stall_push, stall_weights
+from .planner import (STALL_STUCK_TURNS, STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, progress_mark, stall_budget,
+                      stall_push, stall_weights)
 from .rules import POISON_TICK, POISON_TURNS, free_action, legal_hero_actions, step
 from .live import LiveView
 from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.46"
+VERSION = "0.47"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -73,8 +74,9 @@ POISON_MIN_VALUE = 4      # use Mass Poison when it deals at least this much in 
 # ended five runs holding Mass Ice, Edamame, Cool Up and Kami Brew]. With --stage1 that is Stage
 # 1's boss; a --full run is won, and in a series given up, after the boss of FULL_LAST_STAGE
 # [m4-plan: the bot clears the region 2 boss]. Items carry over between stages [user 2026-10-29].
-FULL_LAST_STAGE = 5       # Hot Springs, Kowa the Coward [user 2026-10-31, claude/core-requests.md: "Region 5 (Hot
-                          # Springs, Kowa): FULL_LAST_STAGE 5"; region 4 since the review of run 20261030-213120]
+FULL_LAST_STAGE = 6       # Hideyoshi's Keep, Hideyoshi the Cunning [user 2026-11-01 16:50, claude/core-requests.md item 8:
+                          # "Region 6: Hideyoshi's Keep ... extend --full"; region 5 since 2026-10-31, region 4 since the
+                          # review of run 20261030-213120]
 MAP_TRIES_MAX = 12        # map inputs that leave the map unchanged before the run stops as 'stuck'
                           # [run 20261029-072042: 18 inputs on a Stage 2 map, none applied]
 START_GIVE_UPS_MAX = 2    # give-ups at a run start that still do not reach the camp: 'stuck'
@@ -88,11 +90,13 @@ NO_CHANGE_STOP = 20       # inputs in a row that change nothing on screen before
 # turns it on, the up/down arrows move the mark among the reachable nodes, Enter travels there, and
 # any mouse click turns it off again (perception/map_screen.py). Regions in order of preference;
 # a shop is always taken (both shops after Bamboo Grove led to both regions).
-MAP_REGIONS = ("whispering_caves", "moonlit_port", "spirit_gateway", "hot_springs")   # [user 2026-10-28:
-# Whispering Caves first; 2026-10-29: region 3, the one region after the Caves; review of run 20261030-213120:
+MAP_REGIONS = ("whispering_caves", "moonlit_port", "spirit_gateway", "hot_springs", "hideyoshis_keep")   # [user
+# 2026-10-28: Whispering Caves first; 2026-10-29: region 3, the one region after the Caves; review of run 20261030-213120:
 # region 4, Spirit Gateway, which both recordings took after Moonlit Port's shop (collect/20261028-190026 f0597,
 # collect/20261029-160032 f0798); 2026-10-31 (core-requests.md): region 5, Hot Springs, which both recordings
-# took after Spirit Gateway's shop (rec1 f0944 'HOT SPRINGS')]
+# took after Spirit Gateway's shop (rec1 f0944 'HOT SPRINGS'); 2026-11-01 (core-requests.md item 8): region 6,
+# Hideyoshi's Keep, which both recordings took after Hot Springs' shop (rec1 f1379 reads 'HIDEYOSHI?S KEEP'), not
+# Nobunaga's Fortress]
 MAP_LOOKS_MAX = 4         # arrow presses spent looking for a preferred region before taking the mark
 MOUSE_MODE_SPOT = (0.97, 0.27)   # an empty spot: a click there turns keyboard-only mode off
 BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink
@@ -621,7 +625,9 @@ class Bot:
         hx = s.hero.x
         active = [e for e in s.alive() if e.frozen <= 0]
         armed = [e for e in active if e.armed]
-        if "ice_card" in have and any(e.armed or abs(e.x - hx) == 1 for e in active):
+        # (Hideyoshi is Unfreezable [wiki]: Mass Ice is for the units it can freeze)
+        if "ice_card" in have and any((e.armed or abs(e.x - hx) == 1) and e.kind not in UNFREEZABLE_KINDS
+                                      for e in active):
             return "ice_card", "last level: an enemy is armed or adjacent"
         if "dice_card" in have and any(e.intent == "fire" for e in active):
             return "dice_card", "last level: an enemy telegraphs fire"
@@ -639,7 +645,7 @@ class Bot:
         (Rain of Mirrors) if that removes the damage, reroll every enemy's intent (Lucky Die; the
         new telegraphs are read off the screen), or shield (Kami Brew, not while a shield is up);
         the board is then read again and re-planned with the effect in the model."""
-        if "ice_card" in have:
+        if "ice_card" in have and (not any(e.kind in UNFREEZABLE_KINDS for e in s.alive()) or self._ice_saves(s)):
             return "ice_card"
         if "mirror_card" in have and self._mirror_saves(s):
             return "mirror_card"
@@ -663,6 +669,17 @@ class Bot:
         from .rules import step
         out = max(step(s, "attack"), key=lambda t: t[0])[2]
         return any(k in BOSS_KINDS and dmg > 0 for k, _, dmg, _ in out.enemy_damage)
+
+    @staticmethod
+    def _ice_saves(s) -> bool:
+        """With an Unfreezable unit on the board (Hideyoshi [wiki]), would freezing the others leave a zero-damage move?"""
+        from .rules import ICE_TURNS
+        m = s.clone()
+        for e in m.enemies:
+            if e.kind not in UNFREEZABLE_KINDS:
+                e.frozen, e.intent = ICE_TURNS, None
+        d = plan(m, 2)
+        return min(c["exp_damage"] for c in d.candidates) < 0.5
 
     @staticmethod
     def _mirror_saves(s) -> bool:
@@ -1161,7 +1178,7 @@ class Bot:
         tr.route = self.regions               # the same list: the map appends each region travelled to
         self.gave_up = None
         death_since = None
-        progress, last_progress = None, 0     # stall rule: see planner.stall_weights
+        progress, last_progress = None, 0     # stall rule: see planner.stall_weights; progress: planner.progress_mark
         hp_cap = HERO_MAX_HP                  # most HP pips seen on two turns in a row this run
         cap_seen = None                       # (pips, turn) of a read above the cap, not yet confirmed
         turn = 0
@@ -1535,9 +1552,9 @@ class Bot:
                 s.turn = turn
                 # stall rule [user 2026-10-28]: after STALL_TURNS turns in which no enemy lost
                 # HP, died or appeared, a 1-HP trade that makes progress is allowed
-                pk = progress_key(s)
-                if pk != progress:
-                    progress, last_progress = pk, turn
+                mark = progress_mark(progress_key(s), progress)
+                if mark is not None:
+                    progress, last_progress = mark, turn
                 stalled = turn - last_progress >= STALL_TURNS
                 budget = stall_budget(turn - last_progress)
                 if turn - last_progress >= STALL_STUCK_TURNS:
@@ -1558,10 +1575,15 @@ class Bot:
                     continue
                 plan_ms = (time.time() - t1) * 1000
                 if stalled:
-                    push = stall_push(d.candidates, d.action, budget)
+                    why = []
+                    try:
+                        push = stall_push(s, d, budget, notes=why)
+                    except Exception as e:  # the push is an extra; the planned move stands
+                        log.exception("stall_push", e, frame=frame)
+                        push = None
                     if push:
                         log.event("stall_push", turn=turn, quiet_turns=turn - last_progress, budget=budget,
-                                  planned=d.action, played=push, board=s.render())
+                                  planned=d.action, played=push, board=s.render(), why=why)
                         self.say(f"   stall: {turn - last_progress} quiet turns; {push} instead of '{d.action}'")
                         d.action = push
                 # loop breaker [run 20261027-182237: a misread facing made 'right' a

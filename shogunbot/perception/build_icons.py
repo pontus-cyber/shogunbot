@@ -43,6 +43,14 @@ Hot Springs (0.45) [rec: collect/20261028-190026 f0945-f1356, collect/20261029-1
 before), and the Shielder's Ally Shield, a blue wavy line and a small shield (read as Dash, Swap Toss, Back Charge or
 Sword at 0.02-0.28, and on yellow frames under the fire flames as Summon at 1.0); Kowa's Smoke Bomb is the Shinobi's and
 reads with its templates once open.
+
+Hideyoshi's Keep (0.47) [rec: collect/20261028-190026 f1526-f1592, collect/20261029-160032 f1689-f1735; survey of
+2026-11-01]: Hideyoshi the Cunning's tiles as he draws them ('tile@hideyoshi', open only on him): Origin of Symmetry (a
+circle with a dot; read as Swap Toss at 0.1-0.4 before), Mirror (two figures; Earth Impale or Spear at 0.0-0.3), Back
+Charge (a '1' and a downward arrowhead; Back Charge or Earth Impale at 0.1-0.2), Dash (a white streak; Dash, Swap Toss
+or Earth Impale at 0.1), Bomb (a '3' and a black bomb; Earth Impale), and his Swirl, Earth Impale and Spear, which read
+right on red frames and as Earth Impale at 0.0 on yellow ones. His Summon is Rei's red bell and reads with its
+template (rec1 f1561, 1.0). The Shadow Charger's Charge and Sword read with the Stage 1 templates.
 """
 
 from __future__ import annotations
@@ -388,6 +396,109 @@ SAMPLES = {   # label: [(frame relative to ROOT, the unit's centre x at 1080p, s
         ("collect/20261028-190026/f0778_CLICK.png", 548, 1),
         ("collect/20261028-190026/f0824_idle.png", 1480, 1),
         ("collect/20261028-190026/f0827_SPACE.png", 1480, 1),
+    ],
+    # Hideyoshi the Cunning (0.47): every tile of his combos as he draws it, red and yellow frames, both fights; his bubble
+    # sits higher in its slot window than a regular unit's
+    "origin_of_symmetry@hideyoshi": [
+        ("collect/20261029-160032/f1694_CLICK.png", 1152, 0),
+        ("collect/20261029-160032/f1695_SPACE.png", 1152, 0),
+        ("collect/20261029-160032/f1697_idle.png", 1099, 0),
+        ("collect/20261029-160032/f1698_idle.png", 1099, 0),
+        ("collect/20261029-160032/f1700_CLICK.png", 1099, 0),
+        ("collect/20261029-160032/f1723_idle.png", 1331, 0),
+        ("collect/20261029-160032/f1726_idle.png", 1380, 0),
+        ("collect/20261029-160032/f1729_SPACE.png", 1380, 0),
+        ("collect/20261028-190026/f1553_D.png", 444, 0),
+        ("collect/20261028-190026/f1583_idle.png", 536, 0),
+        ("collect/20261028-190026/f1586_CLICK.png", 536, 0),
+        ("collect/20261028-190026/f1587_SPACE.png", 536, 0),
+    ],
+    "swirl@hideyoshi": [
+        ("collect/20261029-160032/f1695_SPACE.png", 1152, 1),
+        ("collect/20261029-160032/f1697_idle.png", 1099, 1),
+        ("collect/20261029-160032/f1698_idle.png", 1099, 1),
+        ("collect/20261029-160032/f1700_CLICK.png", 1099, 1),
+        ("collect/20261029-160032/f1726_idle.png", 1380, 1),
+        ("collect/20261029-160032/f1729_SPACE.png", 1380, 1),
+        ("collect/20261028-190026/f1538_idle.png", 1380, 0),
+        ("collect/20261028-190026/f1540_idle.png", 1332, 0),
+        ("collect/20261028-190026/f1542_idle.png", 1282, 0),
+        ("collect/20261028-190026/f1542_idle.png", 1282, 2),
+        ("collect/20261028-190026/f1543_A.png", 1282, 0),
+        ("collect/20261028-190026/f1543_A.png", 1282, 2),
+        ("collect/20261028-190026/f1571_idle.png", 1098, 0),
+        ("collect/20261028-190026/f1573_SPACE.png", 1098, 0),
+        ("collect/20261028-190026/f1575_CLICK.png", 1098, 0),
+        ("collect/20261028-190026/f1575_CLICK.png", 1098, 2),
+        ("collect/20261028-190026/f1576_idle.png", 1098, 0),
+        ("collect/20261028-190026/f1576_idle.png", 1098, 2),
+        ("collect/20261028-190026/f1586_CLICK.png", 536, 1),
+        ("collect/20261028-190026/f1587_SPACE.png", 536, 1),
+    ],
+    "earth_impale@hideyoshi": [
+        ("collect/20261029-160032/f1697_idle.png", 1099, 2),
+        ("collect/20261029-160032/f1698_idle.png", 1099, 2),
+        ("collect/20261029-160032/f1700_CLICK.png", 1099, 2),
+        ("collect/20261029-160032/f1729_SPACE.png", 1380, 2),
+        ("collect/20261028-190026/f1587_SPACE.png", 536, 2),
+    ],
+    "back_charge@hideyoshi": [
+        ("collect/20261029-160032/f1706_idle.png", 914, 0),
+        ("collect/20261029-160032/f1708_SPACE.png", 914, 0),
+        ("collect/20261029-160032/f1710_idle.png", 914, 0),
+        ("collect/20261029-160032/f1711_CLICK.png", 914, 0),
+        ("collect/20261029-160032/f1717_SPACE.png", 1332, 2),
+        ("collect/20261029-160032/f1718_idle.png", 1284, 2),
+        ("collect/20261028-190026/f1534_idle.png", 1152, 2),
+        ("collect/20261028-190026/f1535_CLICK.png", 1152, 2),
+        ("collect/20261028-190026/f1549_idle.png", 492, 2),
+        ("collect/20261028-190026/f1550_CLICK.png", 492, 2),
+        ("collect/20261028-190026/f1564_CLICK.png", 816, 0),
+        ("collect/20261028-190026/f1565_CLICK.png", 816, 0),
+        ("collect/20261028-190026/f1566_SPACE.png", 816, 0),
+    ],
+    "mirror@hideyoshi": [
+        ("collect/20261029-160032/f1708_SPACE.png", 914, 1),
+        ("collect/20261029-160032/f1710_idle.png", 914, 1),
+        ("collect/20261029-160032/f1711_CLICK.png", 914, 1),
+        ("collect/20261028-190026/f1540_idle.png", 1332, 1),
+        ("collect/20261028-190026/f1542_idle.png", 1282, 1),
+        ("collect/20261028-190026/f1543_A.png", 1282, 1),
+        ("collect/20261028-190026/f1565_CLICK.png", 816, 1),
+        ("collect/20261028-190026/f1566_SPACE.png", 816, 1),
+        ("collect/20261028-190026/f1573_SPACE.png", 1098, 1),
+        ("collect/20261028-190026/f1575_CLICK.png", 1098, 1),
+        ("collect/20261028-190026/f1576_idle.png", 1098, 1),
+    ],
+    "spear@hideyoshi": [
+        ("collect/20261029-160032/f1710_idle.png", 914, 2),
+        ("collect/20261029-160032/f1711_CLICK.png", 914, 2),
+        ("collect/20261028-190026/f1566_SPACE.png", 816, 2),
+    ],
+    "dash@hideyoshi": [
+        ("collect/20261029-160032/f1714_CLICK.png", 1332, 0),
+        ("collect/20261029-160032/f1716_CLICK.png", 1332, 0),
+        ("collect/20261029-160032/f1717_SPACE.png", 1332, 0),
+        ("collect/20261029-160032/f1718_idle.png", 1284, 0),
+        ("collect/20261028-190026/f1531_SPACE.png", 1152, 0),
+        ("collect/20261028-190026/f1532_idle.png", 1152, 0),
+        ("collect/20261028-190026/f1534_idle.png", 1152, 0),
+        ("collect/20261028-190026/f1535_CLICK.png", 1152, 0),
+        ("collect/20261028-190026/f1546_CLICK.png", 492, 0),
+        ("collect/20261028-190026/f1547_SPACE.png", 492, 0),
+        ("collect/20261028-190026/f1549_idle.png", 492, 0),
+        ("collect/20261028-190026/f1550_CLICK.png", 492, 0),
+    ],
+    "bomb@hideyoshi": [
+        ("collect/20261029-160032/f1716_CLICK.png", 1332, 1),
+        ("collect/20261029-160032/f1717_SPACE.png", 1332, 1),
+        ("collect/20261029-160032/f1718_idle.png", 1284, 1),
+        ("collect/20261028-190026/f1532_idle.png", 1152, 1),
+        ("collect/20261028-190026/f1534_idle.png", 1152, 1),
+        ("collect/20261028-190026/f1535_CLICK.png", 1152, 1),
+        ("collect/20261028-190026/f1547_SPACE.png", 492, 1),
+        ("collect/20261028-190026/f1549_idle.png", 492, 1),
+        ("collect/20261028-190026/f1550_CLICK.png", 492, 1),
     ],
 }
 

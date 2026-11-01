@@ -249,6 +249,24 @@ def coward_intent(s: State, e, f: dict) -> str:
     return "queue"
 
 
+def cunning_intent(s: State, e, f: dict) -> str:
+    """Hideyoshi's telegraph [rec: collect/20261028-190026 f1526-f1592, collect/20261029-160032 f1689-f1735; survey of
+    2026-11-01; wiki: Hideyoshi the Cunning]: the rules that fit every phase of both fights, in this order. The fight's
+    first phase he rests (no bubble: rec1 f1529, rec2 f1692); a whole combo, or the Summon he uses alone, fires the phase
+    after its last tile (Quick: 8 of 8 fires seen); a combo partly loaded gets its next tile, one a phase; with nothing
+    loaded and facing away from the hero he turns to him (rec1 f1569, rec2 f1704 and f1731, each right after a combo),
+    else he loads the next combo's first tile (what: rules._boss_queue). No rest after a use (rec2 f1713, f1720).
+    f: features()."""
+    kind = CAT.enemy(e.kind)
+    if e.queue:
+        return "fire" if kind.chain_full(e.queue) else "queue"
+    if f["last"] is None and e.fage is None:
+        return "hold"
+    if not f["face"]:
+        return "turn"
+    return "queue"
+
+
 def shieldless_ally(s: State, e, d: int):
     """The first unit after e in direction d that is an enemy without a shield, passing the hero and shielded allies:
     what Ally Shield shields [wiki: Tiles] [rec: collect/20261028-190026 f1063-f1064, f1204-f1205]."""
@@ -304,6 +322,8 @@ def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | No
         return [(1.0, cycle_intent(len(e.queue), f["last"], e.wind if len(e.queue) >= 3 else 0))]
     if b.get("coward"):
         return [(1.0, coward_intent(s, e, f))]
+    if b.get("chains"):
+        return [(1.0, cunning_intent(s, e, f))]
     own = CAT.enemy(e.kind).behaviour if not boss and e.kind in CAT.enemies else {}
     if own.get("guard"):
         return [(1.0, guard_intent(s, e, f))]

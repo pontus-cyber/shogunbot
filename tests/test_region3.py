@@ -55,6 +55,27 @@ def test_shadow_dash_carries_the_front_twin_through_the_hero():
     assert s.enemies[0].x == 1 and s.hero.hp == 9
 
 
+# run 20261101-122050 (0.46) t331: the front Twin on cell 4 facing the hero on 3, Shadow Dash loaded and due (yellow)
+TWINS_T331 = {"cells": 7, "hero": {"x": 3, "facing": -1, "hp": 10, "queue": ["shuriken", "katana"], "charge": {"swirl": 2, "arrow": 6, "shuriken": 2, "katana": 1}, "swap_charge": 3, "shield": False, "kit": [{"label": "swirl", "tile": "swirl", "damage": 2, "cooldown": 3, "enchant": None, "levels": 4, "used": 0}, {"label": "arrow", "tile": "arrow", "damage": 3, "cooldown": 6, "enchant": "ice", "levels": 3, "used": 3}, {"label": "shuriken", "tile": "shuriken", "damage": 2, "cooldown": 2, "enchant": None, "levels": 3, "used": 2}, {"label": "katana", "tile": "katana", "damage": 3, "cooldown": 1, "enchant": None, "levels": 2, "used": 1}, {"skill": "dynamic_boost", "level": 1}, {"skill": "quick_recovery", "level": 1}]}, "enemies": [{"kind": "the_twins", "x": 4, "facing": -1, "hp": 21, "queue": ["shadow_dash"], "uid": 1, "intent": "fire", "wind": 1, "last": "hold", "fage": 4}, {"kind": "the_twins", "x": 6, "facing": -1, "hp": 21, "queue": ["spear"], "uid": 2, "intent": "hold", "wind": 1, "last": "hold", "fage": 6}], "level": "stage3-boss", "wave": 0, "waves_total": 0, "turn": 331}
+
+
+def test_shadow_dash_crosses_the_cell_the_hero_left():
+    # [0.47, core-requests item 7] t331: the hero stepped left to 2; the Twin crossed the empty cell 3, dashed through
+    # him to 1 and hit him for 1 (observed '. <221 <H . . . <221*', HP 10 -> 9). 0.46 left it on 4, the hero
+    # unhurt; the same in run 20261101-164934 t282 and run 20261031-233208 t268.
+    from shogunbot.rules import _tile_hits_hero, step
+    s = State.from_dict(TWINS_T331)
+    _, s2, ev = max(step(s, "left", validate=False), key=lambda o: o[0])
+    assert s2.render() == ". <221 <H . . . <221*" and s2.hero.hp == 9
+    # its reach: the hero beyond an empty cell, with a cell behind him to land on
+    s = _twins(0, 4, 2)
+    s.enemies[1].queue = ["shadow_dash"]
+    assert _tile_hits_hero(s, s.enemies[1], "shadow_dash")
+    s.hero.x = 0
+    s.enemies[0].x = 6
+    assert not _tile_hits_hero(s, s.enemies[1], "shadow_dash")     # the hero at the wall: no cell behind him
+
+
 def test_the_dash_then_swap_toss_puts_the_hero_back_between_them():
     # rec2 f0770 -> f0772: the front Twin on cell 4, the hero on 5 next to it; the Dash cannot move it,
     # Swap Toss sends the hero to cell 3, behind it

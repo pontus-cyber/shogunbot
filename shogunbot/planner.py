@@ -56,34 +56,78 @@ STALL_MIN_HP = 3     # a trade never takes the hero below this (below it, the 1-
 STALL_STUCK_TURNS = 200   # quiet turns after which the bot ends the run as 'stuck'
 
 
-def stall_push(candidates: list[dict], action: str, budget: int, hp_weight: float = 1000.0) -> str | None:
-    """From a 2-HP stall budget on, attack when the attack line costs at most the budget.
+def stall_push(s: State, d: "Decision", budget: int, hp_weight: float = 1000.0,
+               notes: list | None = None) -> str | None:
+    """From a 2-HP stall budget on, the move to play instead of d.action, or None. Every push starts a line whose
+    tiles hit an enemy (HP taken or a shield broken); a push that hits nothing is no push [core-requests item 9].
+    A pushed line is taken when it scores within budget * hp_weight (+ half an HP) of the best line [user 2026-10-31].
 
-    Run 20261031-102644 (0.36, Iwao, t180-t629): the hero waited at the wall for 450 turns
-    with Shuriken, Swirl and Charge loaded. Every turn the search scored waiting highest
-    (3781) because its line expected Iwao to walk into reach, but loaded Iwao held for 459
-    turns; the attack line (it kills the 1-HP Yari Master and charges Iwao) scored 1415,
-    about 2 HP lower. Waiting never makes progress, so once the stall budget allows the
-    trade [user 2026-10-31] the attack is taken when it is within budget * hp_weight
-    (+ half an HP) of the best line. Returns the action to play instead, or None."""
-    if budget < 2 or action == "attack":
+    1. The planned progress, sooner (0.47). Run 20261101-164934 (0.46, Hot Springs II t698-t897, stopped as stuck):
+       Grappler, Archer and Shielder in a row, each holding while an ally blocked its lane. Every line the search
+       liked made its kill on the last ply: killing the Shielder opens the Archer's lane, killing the Archer the
+       Grappler's, and a reply that lands inside the search costs hp_lost_path on top of the HP, while one still
+       waiting at its end counts only as a threat. So 'wait' tied with the step that starts the kill (t701-t757:
+       wait 10443 = left 10443; t887: queue:swirl#2 4457 = left 4457, the kill line made sooner 2825) and the tie-break
+       order played wait. The push measures the progress on the planned line (kills, HP taken; a shield that no
+       Shielder can give back counts SHIELD_HP) and the ply that reaches it; a shorter line to the same progress
+       (_shortest_lines) is played instead: here the step left that 'approaching is progress' asks for.
+    2. Fire now (0.36), when the volley hits. Run 20261031-102644 (Iwao, t180-t629): the hero waited 450 turns with
+       Shuriken, Swirl and Charge loaded, the search expecting Iwao to walk into reach; the attack (it kills the
+       1-HP Yari Master and charges Iwao) scored about 2 HP lower. At t887 of run 20261101-164934 it fired a Swirl
+       at an empty cell every second turn for 70 turns: an attack that hits nothing is not pushed.
+    3. Nothing loaded (0.44): the best tile whose planned line hits. Run 20261031-180506 (Moonlit Port II
+       t219-t419): with no tile queued there was no attack to push, and the hero walked beside a 3-HP Guardian for
+       200 turns while queue:arrow#2 scored about 220 below 'left'."""
+    if budget < 2 or d.action == "attack" or not d.candidates or getattr(d, "_stats", None) is None:
         return None
-    best = max((c["value"] for c in candidates), default=None)
-    att = next((c for c in candidates if c["action"] == "attack"), None)
-    if best is None:
+    best = max(c["value"] for c in d.candidates)
+    low = best - hp_weight * (budget + 0.5)
+    cand = {c["action"]: c for c in d.candidates}
+    floor = d._weights.get("hp_floor", s.hero.hp - budget)
+    loss = max(0, min(budget, s.hero.hp - floor))
+    root = _hp_and_shields(s)
+    # 1. the planned progress, sooner
+    target, ply = (0, 0), None
+    for i, (_, st, _) in enumerate(_line_states(s, d, d.action), 1):
+        m = _progress(root, st)
+        if m > target:
+            target, ply = m, i
+    if ply is not None and ply >= 2:
+        lines = _shortest_lines(s, ply - 1, loss, target)
+        if lines and d.action not in {ln[0] for ln in lines}:
+            scored = []
+            for ln in lines:
+                c = cand.get(ln[0])
+                if c is None or c.get("exp_damage", 0) > budget:
+                    continue
+                v = _line_value(s, ln, d)
+                if v >= low:
+                    scored.append((v, -_priority(s, ln[0]), ln))
+            if scored:
+                v, _, ln = max(scored)
+                if notes is not None:
+                    notes.append(f"{' '.join(ln)} reaches the planned {target[0]} kill(s), {target[1]} HP in "
+                                 f"{len(ln)} turn(s) instead of {ply} ({v:.0f}, best {best:.0f})")
+                return ln[0]
+    att = cand.get("attack")
+    if att is not None:
+        # 2. fire now, when the volley hits
+        if att["value"] >= low and att.get("exp_damage", 0) <= budget:
+            _, _, ev = max(step(s, "attack", validate=False), key=lambda o: o[0])
+            if _hero_hits(ev):
+                if notes is not None:
+                    notes.append(f"attack: the volley hits ({att['value']:.0f}, best {best:.0f})")
+                return "attack"
         return None
-    if att is None:
-        # nothing loaded: load the best tile within budget, so the next turn has an attack to push.
-        # Run 20261031-180506 (0.41, Moonlit Port II t219-t419): with no tile queued there was no
-        # 'attack' line, and the hero walked back and forth with a 3-HP Guardian for 200 turns while
-        # queue:arrow#2 (0 expected damage) scored about 220 below 'left' every turn [0.44]
-        if action.startswith("queue:"):
-            return None
-        qs = [c for c in candidates if c["action"].startswith("queue:")
-              and c["value"] >= best - hp_weight * (budget + 0.5) and c.get("exp_damage", 0) <= budget]
-        return max(qs, key=lambda c: c["value"])["action"] if qs else None
-    if att["value"] >= best - hp_weight * (budget + 0.5) and att.get("exp_damage", 0) <= budget:
-        return "attack"
+    # 3. nothing loaded: the best tile whose planned line hits
+    if d.action.startswith("queue:"):
+        return None
+    for c in sorted(d.candidates, key=lambda c: (-c["value"], _priority(s, c["action"]))):
+        if (c["action"].startswith("queue:") and c["value"] >= low and c.get("exp_damage", 0) <= budget
+                and any(_hero_hits(ev) for _, _, ev in _line_states(s, d, c["action"]))):
+            if notes is not None:
+                notes.append(f"{c['action']}: its line hits ({c['value']:.0f}, best {best:.0f})")
+            return c["action"]
     return None
 
 
@@ -128,6 +172,20 @@ def progress_key(s: State) -> tuple:
     it back every few phases, so a strip is progress only once a hit lands behind it; the planner values the strip
     itself (SHIELD_HP), and a shield cycle cannot keep the counter at zero."""
     return tuple(sorted(e.hp for e in s.alive()))
+
+
+def progress_mark(key: tuple, mark: tuple | None) -> tuple | None:
+    """The stall counter's new mark (enemies alive, their total HP) when this turn's progress_key shows progress: an
+    enemy died or appeared, or the enemies' total HP fell below its lowest since the last progress. Else None: a read
+    that puts HP back is no progress, so a pip read flipping between two counts resets the counter once, not on every
+    flip [0.47; run 20261101-201012 (0.46), Spirit Gateway III from t376: a loaded Grappler on cell 0 read with its 5
+    pips while the hero stood on cell 7, and with 4 pips as a Yari Master when he stepped to cell 8 and the camera
+    panned the 9-cell board; the key changed every fourth turn, 220 times in the level's first 466 turns, and the
+    stall rule never started]."""
+    count, total = len(key), sum(key)
+    if mark is None or count != mark[0] or total < mark[1]:
+        return count, total
+    return None
 
 
 def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
@@ -440,6 +498,99 @@ def principal_variation(s: State, d: Decision, action: str | None = None, max_pl
         prob *= pb
         a = _best_here(cur, depth, w, stats)
     return line, cur
+
+
+# ------------------------------------------------------------------ the stall push's lines (0.47)
+def _hero_hits(ev) -> int:
+    """Hits of the hero's tiles in one turn: HP taken from an enemy, or a shield broken."""
+    return (sum(1 for _, _, _, src in ev.enemy_damage if src.startswith("hero"))
+            + sum(1 for _, act in ev.enemy_actions if act.startswith("hero") and act.endswith("absorbed by shield")))
+
+
+def _hp_and_shields(s: State) -> dict:
+    return {e.uid: (e.hp, e.shield) for e in s.alive()}
+
+
+def _progress(root: dict, s: State) -> tuple[int, int]:
+    """(kills, HP taken) since `root` (_hp_and_shields). A broken shield counts SHIELD_HP once no Shielder lives to
+    give it back; while one lives a strip is undone within a few phases (run 20261101-164934 t758-t759)."""
+    alive = {e.uid: e for e in s.alive()}
+    kills = sum(1 for u in root if u not in alive)
+    taken = sum(hp - alive[u].hp if u in alive else hp for u, (hp, _) in root.items())
+    if not any(e.kind in SHIELD_GIVERS for e in alive.values()):
+        taken += SHIELD_HP * sum(1 for u, (_, sh) in root.items() if sh and u in alive and not alive[u].shield)
+    return kills, taken
+
+
+def _line_states(s: State, d: Decision, action: str) -> list[tuple[str, State, object]]:
+    """principal_variation's walk after `action` to the search's depth, as (action, state after, events) per turn."""
+    stats, w = d._stats, d._weights
+    _, cur = max(draw_intents(s) or [(1.0, s)], key=lambda b: b[0])
+    a, depth, out = action, d.depth, []
+    while a is not None and len(out) < d.depth:
+        _, s2, ev = max(step(cur, a, validate=False), key=lambda o: o[0])
+        out.append((a, s2, ev))
+        depth -= 1
+        if depth <= 0 or s2.hero.hp <= 0 or not s2.alive():
+            break
+        ply = stats["root_depth"] - depth
+        _, cur = max(draw_intents(s2, MAX_BRANCHES if ply <= 1 else DEEP_BRANCHES) or [(1.0, s2)],
+                     key=lambda b: b[0])
+        a = _best_here(cur, depth, w, stats)
+    return out
+
+
+def _shortest_lines(s: State, plies: int, max_loss: int, target: tuple[int, int]) -> list[list[str]]:
+    """The shortest move sequences (at most `plies`) that reach `target` progress (_progress: kills and HP taken, each
+    at least the target's), on the likeliest outcome of every turn, with at most `max_loss` HP lost on the way.
+    Breadth first over boards; [] when none is that short."""
+    root = _hp_and_shields(s)
+    frontier, seen = [(s, [], 0)], {s.key()}
+    for _ in range(plies):
+        found, nxt = [], []
+        for cur, line, lost in frontier:
+            for a in legal_hero_actions(cur):
+                _, s2, ev = max(step(cur, a, validate=False), key=lambda o: o[0])
+                hl = lost + sum(dmg for _, _, dmg in ev.hero_damage)
+                if hl > max_loss or s2.hero.hp <= 0:
+                    continue
+                kills, taken = _progress(root, s2)
+                if kills >= target[0] and taken >= target[1]:
+                    found.append(line + [a])
+                    continue
+                k = s2.key()
+                if k not in seen:
+                    seen.add(k)
+                    nxt.append((s2, line + [a], hl))
+        if found:
+            return found
+        frontier = nxt
+    return []
+
+
+def _line_value(s: State, line: list[str], d: Decision) -> float:
+    """The search's value of playing `line` first and its best moves after, to d.depth (as plan scores a move)."""
+    stats, w = d._stats, d._weights
+
+    def val(cur: State, rest: list[str], depth: int) -> tuple[float, float]:
+        a, v, exp = rest[0], 0.0, 0.0
+        for p, s2, ev in step(cur, a, validate=False):
+            lost = sum(dmg for _, _, dmg in ev.hero_damage)
+            exp += p * lost
+            bonus = w["kill"] * len(ev.kills) + w["hp_lost_path"] * lost + w["turn_cost"]
+            if a == "turn":
+                bonus += w["turn_action"]
+            if depth - 1 <= 0 or s2.hero.hp <= 0 or not s2.alive():
+                after = evaluate(s2, w)[0]
+            elif len(rest) > 1 and rest[1] in legal_hero_actions(s2):
+                after = val(s2, rest[1:], depth - 1)[0]
+            else:
+                after = _search(s2, depth - 1, w, stats)
+            v += p * (bonus + GAMMA * after)
+        return v, exp
+
+    v, exp = val(s, line, d.depth)
+    return v + w.get("hp_lost_now", 0.0) * exp
 
 
 # plain words for the score terms: (weight key for counting, words when better, words when worse)

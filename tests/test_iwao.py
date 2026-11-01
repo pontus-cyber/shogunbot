@@ -140,9 +140,10 @@ def test_his_loads_follow_the_distance():
     # Earth Impale (2 of 2); at 2 cells Earth Impale, Spear and the Summon once each, weighed by his loads at
     # every distance (Earth Impale 3 of 6). 0.30's data held run 20261029-154200 alone (Spear 1 of 1 at 2
     # cells); run -184142 added the rest (0.31) [wiki: he mostly uses Earth Impale]
+    # (0.47: rebuilt from 59 runs, at 2 cells Spear 0.53, Earth Impale 0.33, the Summon 0.14)
     e = _iwao(4, intent="queue")
     opts = dict((a[1], p) for p, a in _boss_queue(_board(e, 2), e, None))
-    assert set(opts) == {"spear", "summon", "earth_impale"} and min(opts.values()) > 0.15
+    assert set(opts) == {"spear", "summon", "earth_impale"} and min(opts.values()) > 0.1
     e = _iwao(3, intent="queue")
     near = dict((a[1], p) for p, a in _boss_queue(_board(e, 2), e, None))
     assert max(near, key=near.get) == "earth_impale"

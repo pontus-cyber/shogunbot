@@ -41,6 +41,19 @@ ICO_K = _ico["K"]
 # a template labelled 'tile@kind' is that tile as one kind draws it (The Statue's Sword sits lower in its window
 # than an Ashigaru's): read as the tile, and open only where that kind can stand (open_icons)
 ICO_TILE = np.array([str(k).split("@")[0] for k in ICO_K])
+# The hero's queue bubbles (0.47): his tiles as his hand draws them (build_hero_icons), compared on the icon alone. In
+# the 25 x 24 px interior the damage digit fills columns 0-9 and the cooldown marks rows 17-23; on 3,489 bubbles of ten
+# runs left out of the build (2026-10-31 and 2026-11-01, labelled by the bot's own clicks), the whole interior read
+# 8.0% wrong (the Spear as Arrow 155 times: a '3' Spear is closer to a '3' Arrow than to a '2' Spear) and the icon
+# alone 2.6%; at confidence 0.3 and up 0.8% (29), keeping 98.8% of the right reads. The enemy icons had read 22% of
+# them wrong (core-requests item 6).
+HERO_ICON_MASK = np.zeros((24, 25, 3), bool)
+HERO_ICON_MASK[:17, 10:] = True
+_hico = np.load(ASSETS / "hero_icons.npz") if (ASSETS / "hero_icons.npz").exists() else None
+HICO_V = (_hico["X"].astype(np.float32)[:, HERO_ICON_MASK] / 255 if _hico is not None
+          else np.zeros((0, int(HERO_ICON_MASK.sum())), np.float32))
+HICO_K = _hico["K"] if _hico is not None else np.array([], dtype=str)
+ICO_V = ICO_X.reshape(len(ICO_X), 24, 25, 3)[:, HERO_ICON_MASK]
 
 SPRITE_Y0, SPRITE_Y1 = 610, 765
 # A unit appears in a red spawn beam, then flames, then its sprite. Red pixels (R >= 150, G <= 100,
@@ -317,9 +330,43 @@ def plus_sign(rgb: np.ndarray, y0: int, y1: int, cx: int) -> str | None:
     return "yellow" if yellow.sum() > white.sum() else "white"
 
 
-def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS) -> list[dict]:
+HERO_BUBBLE_ART = {"katana": "sword"}   # a queued Katana shows the enemy Sword's icon (bridge.BUBBLE_ALIAS)
+
+
+@lru_cache(maxsize=32)
+def _hero_templates(kit: tuple) -> tuple[np.ndarray, np.ndarray]:
+    """The hero icon templates of the kit's tiles; for a kit tile without one, the enemy icons of that tile."""
+    have = set(HICO_K.tolist())
+    keep = np.isin(HICO_K, list(kit))
+    lack = [HERO_BUBBLE_ART.get(t, t) for t in kit if t not in have]
+    other = np.isin(ICO_TILE, lack) if lack else np.zeros(len(ICO_TILE), bool)
+    return np.concatenate([HICO_V[keep], ICO_V[other]]), np.concatenate([HICO_K[keep], ICO_TILE[other]])
+
+
+def classify_hero_icon(rgb: np.ndarray, y0: int, y1: int, cx: int, kit: tuple) -> tuple[str, float]:
+    """(tile, confidence) of the hero's bubble at slot rows y0-y1 over cx, among his kit's tiles (HERO_ICON_MASK)."""
+    X, K = _hero_templates(tuple(sorted(set(kit))))
+    if not len(K):
+        return classify_icon(rgb[y0 + 12:y1 - 12, cx - 50:cx + 50])
+    best = None
+    for dx in (0, 2, -2):
+        crop = rgb[y0 + 12:y1 - 12, cx + dx - 50:cx + dx + 50]
+        if crop.shape[1] != 100:
+            continue
+        v = cv2.resize(crop, (25, 24), interpolation=cv2.INTER_AREA)[HERO_ICON_MASK].astype(np.float32) / 255
+        d = ((X - v) ** 2).sum(1)
+        if best is None or d.min() < best.min():
+            best = d
+    i = int(best.argmin())
+    rest = best[K != K[i]]
+    other = rest.min() if len(rest) else best[i] * 2
+    return str(K[i]), float(np.clip((other - best[i]) / max(best[i], 1e-3), 0, 1))
+
+
+def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS, hero_kit: tuple | None = None) -> list[dict]:
     """Bubble slots above a unit, bottom first: {type:'tile'|'plus', tile, colour, plus_colour}.
-    exclude: icons the unit cannot carry (classify_icon)."""
+    exclude: icons the unit cannot carry (classify_icon). hero_kit: the hero's tiles, for his own bubbles
+    (classify_hero_icon)."""
     out = []
     for k in range(4):
         y0, y1 = SLOT_Y0 - SLOT_PITCH * k, SLOT_Y1 - SLOT_PITCH * k
@@ -336,7 +383,10 @@ def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS) -> li
         interior = rgb[y0 + 12:y1 - 12, cx - 50:cx + 50]
         dark = (interior.astype(int).sum(axis=2) < 150).mean()
         if dark > 0.35:
-            tile, conf = classify_icon(_aligned_interior(rgb, y0, y1, cx, exclude), exclude=exclude)
+            if hero_kit:
+                tile, conf = classify_hero_icon(rgb, y0, y1, cx, hero_kit)
+            else:
+                tile, conf = classify_icon(_aligned_interior(rgb, y0, y1, cx, exclude), exclude=exclude)
             out.append({"type": "tile", "tile": tile, "colour": col, "conf": round(conf, 2)})
         else:
             plus = plus_sign(rgb, y0, y1, cx)
@@ -506,6 +556,37 @@ def warn_cells(rgb: np.ndarray, cxs: list) -> list[int]:
     col = m.sum(axis=0)
     return [i for i, cx in enumerate(cxs) if int(col[max(cx - WARN_HALF, 0):cx + WARN_HALF].sum()) >= WARN_PX]
 
+
+
+# Hideyoshi's bomb (0.47) lies on the floor in front of whatever stands on its cell: a ball about 44 px across with a lit
+# fuse, blinking red, black and white. Red phase: 1,520-1,552 red px (R > 150, G < 110, B < 100, R - G > 80), all of
+# them within y 704-747 and 28 px of the cell's centre; on the 450 other frames of both recordings' Keep (the wave level
+# and the fight) a red count that high came only from spawn beams, the death splash and the explosion, which reach the
+# box's top or sides (rec1 f1427, f1465, f1592; rec2 f1576, f1585, f1601) [rec: collect/20261028-190026 f1380-f1592,
+# collect/20261029-160032 f1533-f1735; scan of 2026-11-01]. Its black and white phases are not read: the tracker keeps
+# a bomb it has placed (bridge.Tracker._bombs), and the blink frames give the red phase a chance (merge_blink).
+BOMB_Y0, BOMB_Y1, BOMB_HALF = 700, 752, 32
+BOMB_RED_PX = 1200
+BOMB_STRAY_PX = 150
+BOMB_TILES = frozenset(t.id for t in CAT.tiles.values() if t.attack.get("effect") == "bomb")
+
+
+def _red_mask(a: np.ndarray) -> np.ndarray:
+    r, g, b = a[..., 0].astype(int), a[..., 1].astype(int), a[..., 2].astype(int)
+    return (r > 150) & (g < 110) & (b < 100) & (r - g > 80)
+
+
+def bomb_cells(rgb: np.ndarray, cxs: list) -> list[int]:
+    """Cells with a red bomb on the floor (BOMB_RED_PX inside the box, under BOMB_STRAY_PX around it)."""
+    out = []
+    for i, cx in enumerate(cxs):
+        if cx - 50 < 0 or cx + 50 > rgb.shape[1]:
+            continue
+        m = _red_mask(rgb[660:760, cx - 50:cx + 50])
+        inside = int(m[BOMB_Y0 - 660:BOMB_Y1 - 660, 50 - BOMB_HALF:50 + BOMB_HALF].sum())
+        if inside >= BOMB_RED_PX and int(m.sum()) - inside < BOMB_STRAY_PX:
+            out.append(i)
+    return out
 
 def swap_ticks(rgb: np.ndarray, cx: int) -> tuple[int, int]:
     """(white, red) tick counts on the hero plate; red ticks = swap recharging."""
@@ -750,6 +831,13 @@ def merge_blink(p: "Perception", frames: list) -> list[str]:
                 if i not in p.warn:
                     p.warn.append(i)
                     notes.append(f"warning sign at {i} on a later frame")
+    if p.cells and getattr(p, "bomb_ok", False):
+        cxs = [c["cx"] for c in p.cells]
+        for f in frames:
+            for i in bomb_cells(f, cxs):
+                if i not in p.bombs:
+                    p.bombs.append(i)
+                    notes.append(f"a bomb on {i} on a later frame")
     for e in p.enemies:
         if e["intent"] in ("fire", "move-left", "move-right", "turn"):
             continue
@@ -833,11 +921,13 @@ class Perception:
     wave_alert: bool = False
     confidence: dict = field(default_factory=dict)
     warn: list = field(default_factory=list)     # cells under an aimed attack's warning sign (warn_cells)
+    bombs: list = field(default_factory=list)    # cells with a red bomb on the floor (bomb_cells), where one can be
+    bomb_ok: bool = False                        # a bomb can lie here: a unit or the boss of the region carries the tile
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in
                 ("screen", "cells", "hero", "enemies", "hand", "items", "boss_frac", "wave", "wave_alert",
-                 "confidence", "warn")}
+                 "confidence", "warn", "bombs")}
 
 
 # units that fight beside a boss from its fight's start: The Statue's Summoner [catalogue 'synced_with']
@@ -888,7 +978,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 g, r = enemy_hp(rgb, cx)
                 stack = read_stack(rgb, cx, exclude=GATED_ICONS - open_icons(g + r, base_hp, day != 1, boss_tiles, bk))
             else:
-                stack = read_stack(rgb, cx)
+                stack = read_stack(rgb, cx, hero_kit=tuple(kit_tiles) if kit_tiles else None)
             marker = plate_marker(rgb, cx)
             if c["kind"] == "hero":
                 g1, r1, g2, r2 = hero_hp(rgb, cx)
@@ -899,6 +989,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 p.hero = {"x": i, "cx": cx, "facing": facing if kind == "hero" else 0,
                           "hp": g1 + g2, "hp_max": g1 + g2 + r1 + r2,
                           "queue": [s["tile"] for s in stack if s["type"] == "tile"],
+                          "queue_conf": [s["conf"] for s in stack if s["type"] == "tile"],
                           "swap_red": rt}
                 conf["hero_facing"] = round(kc, 2) if kind == "hero" else 0.0
                 conf["hero_hp"] = 1.0 if (g1 + g2 + r1 + r2) in (5, 10, 12, 14, 16) else 0.3
@@ -966,6 +1057,10 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
         cell_list.append(entry)
     p.cells = cell_list
     p.warn = warn_cells(rgb, [c["cx"] for c in cs])
+    p.bomb_ok = bool(BOMB_TILES & ({t for e in CAT.region_enemies(here) + CAT.region_visitors(here) for t in e.tiles}
+                                   | set(boss_tiles)))
+    if p.bomb_ok:
+        p.bombs = bomb_cells(rgb, [c["cx"] for c in cs])
     p.hand = read_hand(rgb, kit_tiles)
     p.items = read_consumables(rgb)
     if screen == "boss":

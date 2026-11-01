@@ -13,8 +13,9 @@ from itertools import permutations
 
 from . import behaviour
 from .catalogue import CAT
-from .model import BOSS_KINDS, DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, HEAVY_KINDS, Enemy, Hero, Kit, KitTile, State
-from .rules import ICE_TURNS, SPEC, apply_hero, Events
+from .model import (BOSS_KINDS, DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, HEAVY_KINDS, UNFREEZABLE_KINDS, Enemy, Hero,
+                    Kit, KitTile, State)
+from .rules import CHAINS, ICE_TURNS, SPEC, apply_hero, Events, _enemy_fire
 
 BOSS_HP = {k: CAT.enemy(k).hp for k in BOSS_KINDS}         # the bar's full width [wiki]: Daisuke 15, Rei 13
 BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
@@ -25,14 +26,20 @@ HERO_FACING_WEAK_N = 3     # weak contrary hero-facing reads in a row that overr
 # sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
 # symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
 # left on all 40 turns, and his sprite read 'facing right' on 12 of them, flipping 12 times
-FRONT_FACING = ("charger", "iwao", "the_twins", "the_statue", "summoner", "kowa")   # the Twins' facing read '?' on
-# most of their frames [rec: collect/20261028-190026 f0544-f0580]; The Statue (cell 6) and its Summoner (cell 0) face
-# the hero from the start and never turn [rec: collect/20261028-190026 f0857-f0921]; Kowa starts on cell 4 facing the
-# hero on cell 2 (rec1 f1274, rec2 f1475), and his moves keep his facing, so it follows from his turns
+FRONT_FACING = ("charger", "iwao", "the_twins", "the_statue", "summoner", "kowa", "hideyoshi")   # the Twins' facing read
+# '?' on most of their frames [rec: collect/20261028-190026 f0544-f0580]; The Statue (cell 6) and its Summoner (cell 0)
+# face the hero from the start and never turn [rec: collect/20261028-190026 f0857-f0921]; Kowa starts on cell 4 facing
+# the hero on cell 2 (rec1 f1274, rec2 f1475), and his moves keep his facing, so it follows from his turns; Hideyoshi
+# starts on cell 4 facing the hero on cell 2 (rec1 f1528, rec2 f1691), and his facing follows his turns and his Mirror
+# (Tracker._chain_rules)
 # hero tiles whose queue bubble shows another tile's art: a queued Katana has the enemy
 # Sword's icon [run 20261028-092419 t117-t150: read as Sword or Spear, the bot thought
 # Katana was still in the hand and tried to queue it 47 times]
 BUBBLE_ALIAS = {"sword": "katana"}
+# a hero bubble read at this confidence or more names its tile (perceive.classify_hero_icon): on 3,489 bubbles of ten
+# runs left out of hero_icons.npz, 98.8% of the right reads and 29 of the 91 wrong ones (0.8% of all) [0.47]; below it
+# the order the bot queued in decides
+BUBBLE_SURE = 0.3
 
 
 def h_queue(p) -> list:
@@ -235,6 +242,9 @@ class Tracker:
         self._queue_conf: dict = {}         # cell -> the confidence of each tile read in its unit's bubbles
         self._orbs: set = set()             # cells whose unit shows the Shielder's fire orb
         self._canon: dict = {}              # kind -> its HP-pip tie group's first kind on this route (_same)
+        self.chain_prev: dict = {}          # kind -> (queue, telegraph) of a combo boss when the bot last acted
+        self.bombs: dict = {}               # cell -> enemy phases left: Hideyoshi's bombs on the floor (State.bombs)
+        self.bombs_new: dict = {}           # bombs his combo places in the coming enemy phase (acted), cell -> phases left
 
     # ------------------------------------------------------------------
     def next_level(self) -> None:
@@ -305,6 +315,8 @@ class Tracker:
             self.hist = []
             self.cycle = self._cycle_now = None
             self.loaded_tile = {}
+            self.bombs, self.bombs_new = {}, {}
+            self.chain_prev = {}
 
         h = p.hero
         facing = self._hero_facing(h, p.confidence.get("hero_facing", 0.0))
@@ -401,9 +413,10 @@ class Tracker:
             if kind in BOSS_KINDS:
                 # a boss loads only his own tiles (Daisuke: Sword, Swirl, Charge, Summon); other
                 # reads are icon misses, set to his first tile [run 20261027-182237 crashed on a
-                # 'spear' read]
+                # 'spear' read]. Hideyoshi's stack is always a part of one of his combos (CAT chain_fix)
                 own = BOSS_TILES[kind]
-                fixed = [t if t in own else own[0] for t in queue]
+                fixed = CAT.enemy(kind).chain_fix(queue) if kind in CHAINS else queue
+                fixed = [t if t in own else own[0] for t in fixed]
                 if fixed != queue:
                     self.notes.append(f"{kind} queue read {queue}; set to {fixed}")
                 queue = fixed
@@ -436,8 +449,8 @@ class Tracker:
                 self.notes.append(f"enemy at {e['x']}: read as {kind}, may be {alt}")
             en = Enemy(kind, e["x"], facing_e, hp_e, queue, uid=i + 1, intent=intent, alt=alt,
                        elite=bool(e.get("elite")), aim=aim, shield=bool(e.get("shield")))
-            if self.freeze_left > 0:
-                en.frozen, en.intent = self.freeze_left, None
+            if self.freeze_left > 0 and kind not in UNFREEZABLE_KINDS:
+                en.frozen, en.intent = self.freeze_left, None     # (Hideyoshi is Unfreezable [wiki])
             en.cursed = self.cursed
             enemies.append(en)
         bosses = [en for en in enemies if en.kind in BOSS_KINDS]
@@ -481,7 +494,7 @@ class Tracker:
         self._cycle(enemies)
 
         s = State(cells, hero, enemies, level=level,
-                  wave=1, waves_total=0 if level.endswith("boss") else 99)
+                  wave=1, waves_total=0 if level.endswith("boss") else 99, bombs=self._bombs(p, cells))
         from .rules import _hits_hero
         for en in enemies:
             if (en.kind in behaviour.QUICK and en.queue and en.intent in ("hold", None) and en.x in sure
@@ -495,7 +508,76 @@ class Tracker:
                 en.intent = "fire"
         self._guard_facing(s)
         self._rule_telegraphs(s)
+        self._chain_rules(s)
         return s
+
+    def _bombs(self, p, cells: int) -> list:
+        """The bombs on the floor, [cell, enemy phases left]: those Hideyoshi's last combo placed (acted: 2 phases left,
+        at the cell a red bomb shows near the predicted one), those tracked from before, and a red bomb read that neither
+        accounts for, taken to explode at the end of the coming phase (its age unknown: the cautious case). A tracked
+        bomb not seen is kept: it blinks red, black and white (rec1 f1536-f1539, rec2 f1719-f1725)."""
+        seen = [c for c in (getattr(p, "bombs", None) or []) if 0 <= c < cells]
+        out = dict(self.bombs)
+        for c, n in self.bombs_new.items():
+            near = [x for x in seen if abs(x - c) <= 1 and x not in out]
+            at = min(near, key=lambda x: abs(x - c)) if near else c
+            if at != c:
+                self.notes.append(f"bomb read on {at}, predicted on {c}")
+            out[at] = n
+        for c in seen:
+            if c not in out:
+                self.notes.append(f"a bomb on {c} not placed by a tracked combo; taken to explode this turn")
+                out[c] = 1
+        self.bombs, self.bombs_new = out, {}
+        return [[c, n] for c, n in sorted(out.items())]
+
+    def _chain_rules(self, s: State) -> None:
+        """Hideyoshi's telegraph and facing from his rules (behaviour.cunning_intent), and his last combo (he never uses
+        the same twice in a row: Enemy.loaded). His bubble blinks yellow and red on a fire turn, so a red read of a whole
+        combo says nothing; a fire read of part of one missed the rest of its bubbles. A turn marker on his plate means he
+        faces away from the hero, and a '+' with nothing loaded that he faces him (he turns first): either sets the
+        tracked facing, which his sprite does not show (no templates past Stage 1)."""
+        for e in s.enemies:
+            if e.kind not in CHAINS:
+                continue
+            kind = CAT.enemy(e.kind)
+            if e.last == "fire" and e.queue:
+                # the phase after a combo he has nothing loaded (the next one starts with a '+'): a stack read now is the
+                # fired one's bubbles playing out (rec2 f1703, f1719; rec1 f1544, f1580)
+                self.notes.append(f"{e.kind} at {e.x}: fired last turn; {e.queue} read is its bubbles playing out")
+                e.queue = []
+            prevq, previt = self.chain_prev.get(e.kind, (None, None))
+            nxt = kind.chain_next(prevq) if prevq else None
+            if previt == "queue" and nxt and len(e.queue) <= len(prevq) and e.queue == prevq[:len(e.queue)]:
+                # he never drops a combo: after a '+' over part of one he holds its next tile too, so a stack read short
+                # of that missed bubbles (rec1 f1555: on cell 0 at the screen's left edge his bubble read nothing)
+                self.notes.append(f"{e.kind} at {e.x}: {e.queue} read after {prevq} and a '+'; holds {prevq + [nxt]}")
+                e.queue = prevq + [nxt]
+            if e.queue:
+                self.loaded_tile[e.kind] = e.queue[0]
+            e.loaded = self.loaded_tile.get(e.kind)
+            toward = 1 if s.hero.x > e.x else -1
+            if not e.queue and e.intent in ("turn", "queue"):
+                f = -toward if e.intent == "turn" else toward
+                if f != e.facing:
+                    self.notes.append(f"{e.kind} at {e.x}: read {e.intent} with nothing loaded; faces {f}")
+                    e.facing = f
+                    self.prev = [(k, x, f if k == e.kind else ff, it) for k, x, ff, it in self.prev]
+            if e.intent == "fire" and e.queue and not kind.chain_full(e.queue):
+                nxt, q = kind.chain_next(e.queue), list(e.queue)
+                while nxt:
+                    q.append(nxt)
+                    nxt = kind.chain_next(q)
+                if kind.chain_full(q):
+                    self.notes.append(f"{e.kind} at {e.x}: fires with {e.queue} read; the combo is {q}")
+                    e.queue = q
+                    continue
+            if e.intent in ("hold", "queue", "fire", None):
+                rule = behaviour.cunning_intent(s, e, behaviour.features(s, e, e.last, e.fage))
+                if rule != e.intent and not (rule == "turn" and e.intent == "queue"):
+                    self.notes.append(f"{e.kind} at {e.x}: read {e.intent} with {e.queue or 'nothing'} loaded; "
+                                      f"his rule says {rule}")
+                    e.intent = rule
 
     def _guard_facing(self, s: State) -> None:
         """The Shielder's facing from its rule (behaviour.guard_intent), where its sprite says nothing (no templates past
@@ -633,6 +715,8 @@ class Tracker:
         icons where those name kit tiles, else from what the bot queued."""
         kit = self.kit
         bubbles = [BUBBLE_ALIAS.get(b, b) for b in h.get("queue", [])]
+        conf = list(h.get("queue_conf") or [])[:len(bubbles)]
+        sure = [c >= BUBBLE_SURE for c in conf] + [True] * (len(bubbles) - len(conf))
         in_hand = match_faces(kit, hand, self.charge, guess=False)   # queue count: as before 0.43
         missing = [lb for lb in kit.labels if lb not in in_hand]
         track = [x for x in self.queue_track if x in kit]
@@ -647,15 +731,26 @@ class Tracker:
                 return tracked
 
             def fit(order):
-                # bubbles matched first; ties (misread bubbles, copies of a tile) go to
-                # the order the bot queued in [review of 0.15]
-                return (sum(kit[lb].tile == name for lb, name in zip(order, bubbles)),
-                        sum(a == b for a, b in zip(order, tracked)))
+                # sure bubbles matched first; ties (unsure or misread bubbles, copies of a tile) go to the order the
+                # bot queued in [review of 0.15], unsure reads last [0.47: run 20261101-105146 t386, a Charge read
+                # as Spear at 0.24 put the Charge before the Spear]
+                return (sum(kit[lb].tile == name for lb, name, ok in zip(order, bubbles, sure) if ok),
+                        sum(a == b for a, b in zip(order, tracked)),
+                        sum(kit[lb].tile == name for lb, name in zip(order, bubbles)))
 
             order = list(max(permutations(tracked), key=fit)) if tracked else []
-            if fit(order)[0] < len(bubbles):
+            if fit(order)[2] < len(bubbles):
                 self.notes.append(f"queue bubbles read {bubbles}; queue taken as {order}")
             return order
+        if track and len(track) == len(bubbles) and all(
+                kit[lb].tile == name or not ok for lb, name, ok in zip(track, bubbles, sure)):
+            # counts disagree (an unread hand face, an animation) but the bubbles fit the queue the bot built: that
+            # queue [0.47: run 20261101-105146 t638-t639 and t667-t669, a hand face unread and the Charge read as
+            # Spear at 0.03-0.05, so the plan fired a Spear the game did not have]
+            if hand:
+                self.notes.append(f"{len(bubbles)} queue bubbles but {len(missing)} kit tiles off the hand; "
+                                  f"queue as the bot built it: {track}")
+            return list(track)
         # counts disagree (an animation, a misread face): the bubble icons, as kit labels
         q, left = [], sorted(kit.labels, key=lambda lb: (lb in in_hand, rank(lb)))
         for name in bubbles:
@@ -725,8 +820,10 @@ class Tracker:
         # the Moonlit Port units (0.31) load like the Ashigaru: Sword and Arrow strike ahead; the Twins' loads
         # all point at the hero (Tetsubo, Shadow Dash, the Dash and Swap Toss with the hero next to them)
         directional = kind in ("ashigaru", "charger", "guardian", "ashigaru_archer") or (
-            kind in BOSS_KINDS and queue and queue[0] in ("sword", "charge", "dragon_punch", "spear", "tetsubo",
-                                                          "shadow_dash", "dash", "swap_toss"))
+            kind in BOSS_KINDS and kind not in CHAINS and queue and queue[0] in (
+                "sword", "charge", "dragon_punch", "spear", "tetsubo", "shadow_dash", "dash", "swap_toss"))
+        # (Hideyoshi loads facing the hero, but the hero may pass him while he loads, and his Mirror turns him: his
+        # facing persists from his turns and his combos' moves, Tracker._chain_rules and acted)
         if (not directional and kind not in BOSS_KINDS and queue and not CAT.enemy(kind).behaviour.get("guard")
                 and (CAT.tile(queue[0]).directional or CAT.tile(queue[0]).attack.get("dir"))):
             # every regular unit loading a tile that strikes ahead (the Grappler's Hook, the Yari Master's Spear, the
@@ -843,6 +940,23 @@ class Tracker:
         self.hero_x_after = s2.hero.x
         self.charge = dict(s2.hero.charge)
         self.queue_track = list(s2.hero.queue)
+        # bombs: one phase closer (a count reaching 0 explodes in the coming phase); Hideyoshi's combo, fired in the
+        # coming phase, moves him (Origin, Mirror, the dashes: his facing after it is what persists) and may move the
+        # hero (Origin and Mirror change places with a unit: no hit, so a shield stays) and place a bomb
+        self.bombs = {c: n - 1 for c, n in self.bombs.items() if n - 1 > 0}
+        self.bombs_new = {}
+        fired = {}
+        self.chain_prev = {e.kind: (list(e.queue), e.intent) for e in s.alive() if e.kind in CHAINS}
+        for e in s2.alive():
+            if e.kind in CHAINS and e.intent == "fire" and e.queue:
+                c = s2.clone()
+                ce = next(x for x in c.enemies if x.uid == e.uid)
+                c.bombs = []
+                _enemy_fire(c, ce, Events())
+                fired[e.kind] = (e.x, ce.x, ce.facing)
+                self.bombs_new.update({x: n - 1 for x, n in c.bombs})
+                if c.hero.x != s2.hero.x:
+                    self.hero_x_after = c.hero.x
         # where each enemy stands once the hero has acted (a swap moves one), and its telegraph
         self.hist = [(e.kind, s.hero.x if (e.x == s2.hero.x and s2.hero.x != s.hero.x) else e.x, e.intent, e.fage)
                      for e in s.alive()]
@@ -856,3 +970,7 @@ class Tracker:
             # sprite read it, the tracker kept it facing right; also runs 102441 t16, 154200 t159)
             self.swapped_uid_x = s.hero.x
             self.prev = [(k, s.hero.x, f, None) if x == s2.hero.x else (k, x, f, i) for k, x, f, i in self.prev]
+        if fired:
+            # his combo's moves: where he stands and which way he faces after it (Mirror turns him: 4 of 4, rec1 f1544,
+            # f1568, f1580; rec2 f1712); the next frame's facing persists from there
+            self.prev = [(k, fired[k][1], fired[k][2], None) if k in fired else (k, x, f, i) for k, x, f, i in self.prev]

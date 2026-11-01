@@ -37,7 +37,7 @@ def test_the_map_names_hot_springs_and_the_bot_prefers_it():
     for rec, n in ((REC1, 944), (REC2, 1148)):                  # the tooltip over the node after Spirit Gateway's shop
         sel = M.selected(_f(rec, n))
         assert (sel["kind"], sel["region"]) == ("region", "hot_springs")
-    assert "hot_springs" in B.MAP_REGIONS and B.FULL_LAST_STAGE == 5
+    assert "hot_springs" in B.MAP_REGIONS and B.FULL_LAST_STAGE >= 5          # region 6 since 0.47
 
 
 def test_hot_springs_counts_three_wave_levels_before_kowa():
