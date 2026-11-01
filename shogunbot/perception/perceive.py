@@ -253,6 +253,70 @@ def _frame_off_centre(rgb: np.ndarray, y0: int, y1: int, cx: int) -> str | None:
     return cols[0]
 
 
+# A bubble's icon sits up to 6 px beside the unit's centre: on the panned 9-cell boards the Ashigaru Archer's Arrow
+# read 0.6 from its templates 4 px right of its cell's centre and 21 at the centre, where it read as a Spear or at
+# 0.02-0.45 (run 20261101-053431 t1060-t1067: the Archer read as a Tachi on every other turn); the Shielder's Ally
+# Shield read as Dash (run 20261101-021522 t0769, 5 px), a Yumi Sniper's Volley as Swirl (run 20261031-185210
+# t0403, 4 px). An icon that matches a template within ICON_ALIGN_D at the centre is read there (most do, at 0-4);
+# else at the offset in ICON_DX that matches best.
+ICON_DX = (0, 2, -2, 4, -4, 6, -6)
+ICON_ALIGN_D = 5.0
+# A '+' bubble is a white cross of 320 px or a yellow one of 1,024 px on the frame colour's fill, within 30 px of
+# the slot's centre as the bubble bobs [run 20261101-053431 t0672, t0985, t1595]. Hot Springs III's lava backdrop
+# and Spirit Gateway's red sky show a frame colour at the frame's columns and no cross: of the 203 '+' read on the
+# bot runs' frames where only one side of the frame matched (0.45; the frames of 2026-10-30 to 2026-11-01, every
+# second or fourth turn), 185 had no white or yellow pixel there, 16 up to 99, and the two with more were tile
+# bubbles fading in, with a dark fill [scan of 2026-11-01].
+PLUS_PX = 150
+PLUS_FILL = 0.5
+
+
+ICO_N = (ICO_X ** 2).sum(1)
+
+
+@lru_cache(maxsize=64)
+def _icon_mask(exclude: frozenset) -> np.ndarray:
+    """True for the templates of the excluded icons."""
+    return np.isin(ICO_K, list(exclude))
+
+
+def _aligned_interior(rgb: np.ndarray, y0: int, y1: int, cx: int, exclude: frozenset) -> np.ndarray:
+    """The bubble's interior at the offset that best matches an icon template (ICON_DX): the centre first, then every
+    offset's distance to every template in one product (|a|^2 + |b|^2 - 2ab)."""
+    mask = _icon_mask(frozenset(exclude)) if exclude else None
+
+    def dists(crops):
+        V = np.stack([cv2.resize(c, (25, 24), interpolation=cv2.INTER_AREA).astype(np.float32).ravel() / 255
+                      for c in crops])
+        d = ICO_N[None, :] + (V ** 2).sum(1)[:, None] - 2 * V @ ICO_X.T
+        if mask is not None:
+            d[:, mask] = np.inf
+        return d.min(axis=1)
+
+    centre = rgb[y0 + 12:y1 - 12, cx - 50:cx + 50]
+    if dists([centre])[0] < ICON_ALIGN_D:
+        return centre
+    crops = [c for c in (rgb[y0 + 12:y1 - 12, cx + dx - 50:cx + dx + 50] for dx in ICON_DX) if c.shape[1] == 100]
+    return crops[int(dists(crops).argmin())]
+
+
+def plus_sign(rgb: np.ndarray, y0: int, y1: int, cx: int) -> str | None:
+    """'white' or 'yellow' when the slot shows a '+' bubble's cross on its fill (PLUS_PX, PLUS_FILL), else None."""
+    yc = (y0 + y1) // 2
+    win = rgb[yc - 30:yc + 30, max(cx - 30, 0):cx + 30].astype(int)
+    r, g, b = win[..., 0], win[..., 1], win[..., 2]
+    white = win.min(axis=2) > 170
+    yellow = (r > 190) & (g > 140) & (b < 100)
+    sign = white | yellow
+    if int(sign.sum()) < PLUS_PX:
+        return None
+    fill = (((r > 130) & (g < 95) & (b < 75)) | ((r > 180) & (g > 120) & (b < 95))
+            | ((np.abs(r - b) < 30) & (g >= r - 5) & (g > 60) & (g < 150))) & ~sign
+    if fill.sum() < PLUS_FILL * (~sign).sum():
+        return None
+    return "yellow" if yellow.sum() > white.sum() else "white"
+
+
 def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS) -> list[dict]:
     """Bubble slots above a unit, bottom first: {type:'tile'|'plus', tile, colour, plus_colour}.
     exclude: icons the unit cannot carry (classify_icon)."""
@@ -272,11 +336,12 @@ def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS) -> li
         interior = rgb[y0 + 12:y1 - 12, cx - 50:cx + 50]
         dark = (interior.astype(int).sum(axis=2) < 150).mean()
         if dark > 0.35:
-            tile, conf = classify_icon(interior, exclude=exclude)
+            tile, conf = classify_icon(_aligned_interior(rgb, y0, y1, cx, exclude), exclude=exclude)
             out.append({"type": "tile", "tile": tile, "colour": col, "conf": round(conf, 2)})
         else:
-            c = rgb[(y0 + y1) // 2 - 4:(y0 + y1) // 2 + 4, cx - 4:cx + 4].reshape(-1, 3).mean(0)
-            plus = "yellow" if (c[0] > 180 and c[2] < 120) else "white"
+            plus = plus_sign(rgb, y0, y1, cx)
+            if plus is None:
+                break
             out.append({"type": "plus", "colour": col, "plus": plus})
     return out
 

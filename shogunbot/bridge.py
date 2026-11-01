@@ -228,11 +228,13 @@ class Tracker:
         self.hero_x_after: int | None = None   # the hero's cell after his last action, before the enemies moved
         self.cursed = False           # Mass Curse on every enemy until our next attack
         self.swapped_uid_x: int | None = None
+        self.mirrored = False               # Rain of Mirrors turned every enemy since the last state (rule 1 waits)
         self.cycle: dict | None = None      # The Statue when the bot last acted: its tile count, stack, telegraph, holds
         self.loaded_tile: dict = {}         # kind -> the tile it loaded last, for a kind that alternates (Kowa)
         self._cycle_now: dict | None = None
         self._queue_conf: dict = {}         # cell -> the confidence of each tile read in its unit's bubbles
         self._orbs: set = set()             # cells whose unit shows the Shielder's fire orb
+        self._canon: dict = {}              # kind -> its HP-pip tie group's first kind on this route (_same)
 
     # ------------------------------------------------------------------
     def next_level(self) -> None:
@@ -373,6 +375,7 @@ class Tracker:
         enemies = []
         from .perception.perceive import pip_ties
         ties = pip_ties(tuple(self.route))
+        self._canon = {k: min({k} | set(o)) for k, o in ties.items()}
         warn = list(getattr(p, "warn", []) or [])
         aimed_fire = any(e["queue"] and SPEC.get(e["queue"][0], ("",))[0] == "aim" and e.get("intent") == "fire"
                          for e in p.enemies)
@@ -411,6 +414,13 @@ class Tracker:
                 queue = [ENEMY_KINDS[kind][1]]
             elif queue and min(e.get("queue_conf") or [1.0]) >= QUICK_READ_CONF:
                 sure.add(e["x"])
+            seq = CAT.enemy(kind).behaviour.get("sequence") if kind not in BOSS_KINDS else None
+            if seq and intent == "fire" and 0 < len(queue) < len(seq) and queue == seq[:len(queue)]:
+                # the Grappler loads its Sword the phase after its Hook and fires both (behaviour.intents): a fire
+                # read with the Hook alone missed the Sword's bubble (run 20261101-053431 t461: the Hook was planned
+                # alone, the hero's Kami Brew took it, and the Sword cut him for 2 unpredicted)
+                self.notes.append(f"enemy at {e['x']}: fires with {queue} read; its sequence is {seq}")
+                queue = list(seq)
             aim = None
             if queue and SPEC.get(queue[0], ("",))[0] == "aim" and warn and (intent == "fire" or not aimed_fire):
                 # the warning sign: an aimed Volley fires this turn at that cell, the hero's, whatever the
@@ -456,9 +466,14 @@ class Tracker:
         self.prev = [(en.kind, en.x, en.facing, en.intent) for en in enemies]
         self.prev_hp = {en.x: en.hp for en in enemies}
         self.swapped_uid_x = None
+        self.mirrored = False
         # what each enemy did last turn and how long since it fired: the learned model's
         # history features, matched the way shogunbot.mine matches logged turns
-        for j, i in behaviour.match(self.hist, [(en.kind, en.x) for en in enemies]).items():
+        # a unit whose pips tie with another kind's keeps its history when its read kind flips: the Shielder named by its
+        # Ally Shield on its hold phase lost the '+' of the phase before, and its rule fired it a phase early (run
+        # 20261101-053431 t0673, read as a Yari Master at t0672)
+        hist = [(self._canon.get(q[0], q[0]),) + tuple(q[1:]) for q in self.hist]
+        for j, i in behaviour.match(hist, [(self._canon.get(en.kind, en.kind), en.x) for en in enemies]).items():
             _, _, it, fage = self.hist[i]
             enemies[j].last, enemies[j].fage = behaviour.carry(it, fage)
         self._queue_conf = {e["x"]: list(e.get("queue_conf") or []) for e in p.enemies}
@@ -478,8 +493,38 @@ class Tracker:
                 # a later region's unit with its pips (rec2 f1294, f1331, f1854) fired no Shuriken
                 self.notes.append(f"enemy at {en.x}: quick and loaded, the hero in its reach; fires this turn")
                 en.intent = "fire"
+        self._guard_facing(s)
         self._rule_telegraphs(s)
         return s
+
+    def _guard_facing(self, s: State) -> None:
+        """The Shielder's facing from its rule (behaviour.guard_intent), where its sprite says nothing (no templates past
+        Stage 1): it turns to a shieldless ally behind it, so a turn telegraph with shieldless allies on one side only
+        means it faces away from them now; and it loads Ally Shield for the first shieldless ally ahead, so the phase
+        its Ally Shield first shows with shieldless allies on one side only, it faces them. Run 20261101-053431
+        t0671-t0675: its turn was taken as turning to the hero, so it was planned facing him, and the Yari Master on
+        cell 4 it shielded at t0674 stood 'behind' it."""
+        changed = False
+        for e in s.enemies:
+            if not CAT.enemy(e.kind).behaviour.get("guard"):
+                continue
+            left, right = behaviour.shieldless_ally(s, e, -1), behaviour.shieldless_ally(s, e, 1)
+            if (left is None) == (right is None):
+                continue
+            side = -1 if left is not None else 1
+            if e.intent == "turn":
+                f, why = -side, "turns to the shieldless ally"
+            elif e.queue and e.queue[0] == "ally_shield" and e.last == "queue":
+                f, why = side, "loaded Ally Shield for the shieldless ally"
+            else:
+                continue
+            if f != e.facing:
+                self.notes.append(f"{e.kind} at {e.x}: {why}; faces {f}")
+                e.facing, changed = f, True
+        if changed:
+            facing = {en.x: en.facing for en in s.enemies}
+            self.prev = [(k, x, facing.get(x, f) if CAT.enemy(k).behaviour.get("guard") else f, it)
+                         for k, x, f, it in self.prev]
 
     def _rule_telegraphs(self, s: State) -> None:
         """Kowa's and the Shielder's telegraphs from their rules (behaviour.coward_intent, guard_intent) where the
@@ -499,6 +544,15 @@ class Tracker:
                 if e.queue:
                     self.loaded_tile[e.kind] = e.queue[-1]
                 e.loaded = self.loaded_tile.get(e.kind)
+            if (guard and e.queue and e.queue[0] == "ally_shield" and e.fage != 0 and e.intent in ("fire", "hold", "queue", None)
+                    and behaviour.shieldless_ally(s, e, e.facing) is None):
+                # no shieldless ally ahead: it holds the tile, its bubble blinking and its orb lit (guard_intent); a
+                # marker on the plate is kept as read (run 20261101-021522 t0839: a loaded Shielder stepped right)
+                if e.intent != "hold":
+                    self.notes.append(f"{e.kind} at {e.x}: read {e.intent} with Ally Shield loaded and no shieldless "
+                                      f"ally ahead; holds")
+                e.intent = "hold"
+                continue
             if e.queue and e.x in self._orbs and e.intent != "fire":
                 self.notes.append(f"{e.kind} at {e.x}: the fire orb; fires this turn")
                 e.intent = "fire"
@@ -673,11 +727,21 @@ class Tracker:
         directional = kind in ("ashigaru", "charger", "guardian", "ashigaru_archer") or (
             kind in BOSS_KINDS and queue and queue[0] in ("sword", "charge", "dragon_punch", "spear", "tetsubo",
                                                           "shadow_dash", "dash", "swap_toss"))
-        if directional and (queue or intent == "fire") and self.swapped_uid_x != e["x"]:
+        if (not directional and kind not in BOSS_KINDS and queue and not CAT.enemy(kind).behaviour.get("guard")
+                and (CAT.tile(queue[0]).directional or CAT.tile(queue[0]).attack.get("dir"))):
+            # every regular unit loading a tile that strikes ahead (the Grappler's Hook, the Yari Master's Spear, the
+            # Shinobi's Shuriken and Smoke Bomb) faces the hero: run 20261101-004025 t336 and t341 (0.45), a Grappler
+            # tracked facing away hooked the hero and cut him (-3 at t341), run 20261031-233208 t285 (-3), and the
+            # Yari Masters of runs -233208 t519 and 20261101-004025 t497, t501 (-2 each) [core-requests items 3, 4]
+            directional = True
+        if directional and (queue or intent == "fire") and self.swapped_uid_x != e["x"] and not self.mirrored:
+            # (after Rain of Mirrors a loaded unit faces away and a yellow one fires away, as after a swap: run
+            # 20261101-021522 f0209-f0210, the Yari Master's Spear went right after the card, not into the hero)
             return toward
-        if intent == "turn":
+        if intent == "turn" and not CAT.enemy(kind).behaviour.get("guard"):
+            # (the Shielder turns to an ally, not to the hero: _guard_facing)
             return -toward
-        prev = [q for q in self.prev if q[0] == kind and self._could_be(q, e["x"])]
+        prev = [q for q in self.prev if self._same(q[0], kind) and self._could_be(q, e["x"])]
         if prev:
             pk = min(prev, key=lambda q: abs(q[1] - e["x"]))
             f = -pk[2] if pk[3] == "turn" else pk[2]
@@ -696,14 +760,14 @@ class Tracker:
         free = list(range(len(self.prev)))
         left = []
         for en in enemies:
-            i = next((i for i in free if self.prev[i][0] == en.kind and self.prev[i][1] == en.x), None)
+            i = next((i for i in free if self._same(self.prev[i][0], en.kind) and self.prev[i][1] == en.x), None)
             if i is None:
                 left.append(en)
             else:
                 free.remove(i)
         out = []
         for en in left:
-            cand = [i for i in free if self.prev[i][0] == en.kind and (
+            cand = [i for i in free if self._same(self.prev[i][0], en.kind) and (
                 self._could_be(self.prev[i], en.x) or (self.prev[i][3] is None and abs(self.prev[i][1] - en.x) == 1))]
             if cand:
                 free.remove(min(cand, key=lambda i: abs(self.prev[i][1] - en.x)))
@@ -724,6 +788,12 @@ class Tracker:
         if abs(step) == 1 and intent == ("move-right" if step > 0 else "move-left"):
             return True
         return kind == "charger" and intent == "fire" and (step > 0) == (f > 0)
+
+    def _same(self, a: str, b: str) -> bool:
+        """Could a unit read as kind a be the one now read as b? The same kind, or kinds whose HP pips tie on this
+        route (the Ashigaru Archer and the Tachi; the Yari Master, the Shinobi and the Shielder), which only the tile
+        in the bubble tells apart."""
+        return a == b or (a in self._canon and self._canon.get(a) == self._canon.get(b))
 
     def freeze(self, turns: int) -> None:
         self.freeze_left = turns
@@ -749,6 +819,7 @@ class Tracker:
         """Rain of Mirrors turned every enemy: flip the remembered facings, or the
         facing-persistence rule would undo the flip."""
         self.prev = [(k, x, f if k in HEAVY_KINDS else -f, None) for k, x, f, _ in self.prev]
+        self.mirrored = True
 
     def recharging(self, label: str) -> None:
         """The game refused to queue this tile (it stayed in the hand): it is recharging, whatever was read

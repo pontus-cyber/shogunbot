@@ -250,3 +250,21 @@ def test_statue_check_tells_two_copies_apart():
     assert not B.Bot._in_statue(rs({"tile": "swirl", "cooldown": 2}), tr, "swirl")     # the other copy
     assert B.Bot._in_statue(rs({"tile": "arrow", "cooldown": 5}), tr, "arrow")         # one copy: tile is enough
     assert not B.Bot._in_statue(rs(None), tr, "arrow")                                 # nothing read, not lit
+
+
+def test_a_board_still_moving_under_the_blink_frames_is_read_again():
+    # run 20261031-203835 t285 (0.44, The Twins): the frame was grabbed in the pause between Phantom Leap and Swap
+    # Toss, the hero still on cell 4; the toss put him on cell 2 and the other Twin's Spear hit him (-2 unplanned).
+    # Its after-frame stands in for the last blink frame [core-requests item 2]
+    import os
+    from shogunbot.bot import board_moved
+    from shogunbot.perception.perceive import perceive
+    run = "runs/20261031-203835/frames/"
+    if not os.path.exists(DATA / run / "t0285_before.png"):
+        pytest.skip("run frames not available")
+    route = ("bamboo_grove", "whispering_caves", "moonlit_port")
+    p = perceive(frame(run + "t0285_before.png"), regions=route)
+    later = board_moved(p, frame(run + "t0285_after.png"))
+    assert later is not None and later.index("hero") == 2 and [c["kind"] for c in p.cells].index("hero") == 4
+    p = perceive(frame(run + "t0284_before.png"), regions=route)        # the turn before: the board stood still
+    assert board_moved(p, frame(run + "t0284_after.png")) is None

@@ -341,3 +341,60 @@ def test_a_quick_unit_fires_on_its_rule_only_with_its_own_tile_read_sure():
     s = tr.state(_p(REC2, 1051, ROUTE2_FULL[:4]))
     sh = next(e for e in s.enemies if e.x == 5)
     assert sh.kind == "shinobi" and sh.intent != "fire"
+
+
+# ---------------------------------------------------------------- 0.46 [core-requests items 3 and 4]
+def test_a_loaded_grappler_or_yari_master_faces_the_hero_whatever_was_tracked():
+    # run 20261101-004025 t336-t341 (0.45, Spirit Gateway I): the Grappler on cell 2 then 3 was tracked facing right,
+    # away from the hero on 0 then 1; it hooked him at t336 and at t341 pulled him to 2 and cut him: -3 unpredicted
+    route = ["bamboo_grove", "whispering_caves", "moonlit_port", "spirit_gateway"]
+    tr = Tracker()
+    tr.route = route
+    tr.stage, tr.level_i, tr.advance, tr.level = 4, -1, True, ""
+    g = {"x": 3, "kind": "grappler", "hp": 1, "facing": 1}
+    ys = {"x": 4, "kind": "yari_master", "hp": 4, "facing": -1, "queue": ["spear"], "queue_conf": [1.0]}
+    s = tr.state(_synthetic(1, 10, [dict(g, intent="move-right"), ys], cells=7))
+    tr.acted(s, "wait")
+    s = tr.state(_synthetic(1, 10, [dict(g, queue=["grappling_hook", "sword"], queue_conf=[1.0, 1.0],
+                                         intent="fire"), ys], cells=7))
+    e = next(x for x in s.enemies if x.kind == "grappler")
+    assert e.facing == -1
+    (_, s2, _), = step(s, "wait")
+    assert (s2.hero.x, s2.hero.hp) == (2, 7)                             # pulled next to it: Hook 1 + Sword 2
+    # a Yari Master loaded with its Spear faces the hero too (run 20261101-004025 t497, t501: -2 each)
+    y = next(x for x in s.enemies if x.kind == "yari_master")
+    assert y.facing == -1
+
+
+def test_a_grappler_firing_with_its_hook_read_alone_fires_its_sword_too():
+    # run 20261101-053431 t460-t461 (0.45): '+' with the Hook loaded, then the fire with only the Hook's bubble read;
+    # the Kami Brew took the Hook and the Sword cut the hero for 2 unpredicted
+    route = ["bamboo_grove", "whispering_caves", "moonlit_port", "spirit_gateway"]
+    tr = Tracker()
+    tr.route = route
+    tr.stage, tr.level_i, tr.advance, tr.level = 4, -1, True, ""
+    tr.shield = True
+    s = tr.state(_synthetic(8, 10, [{"x": 3, "kind": "grappler", "hp": 5, "facing": 1, "queue": ["grappling_hook"],
+                                     "queue_conf": [1.0], "intent": "fire"}], cells=9))
+    g = s.enemies[0]
+    assert g.queue == ["grappling_hook", "sword"] and g.facing == 1
+    (_, s2, _), = step(s, "wait")
+    assert (s2.hero.x, s2.hero.hp, s2.hero.shield) == (4, 8, False)
+
+
+def test_after_rain_of_mirrors_a_loaded_unit_keeps_the_flipped_facing():
+    # run 20261101-021522 f0209-f0210 (Iwao's arena): Rain of Mirrors turned the Yari Master on cell 3, loaded and facing
+    # the hero on 2; its Spear then went right, away from him. The loaded-faces-the-hero rule waits a state after the
+    # card, as after a swap
+    route = ["bamboo_grove", "whispering_caves", "moonlit_port", "spirit_gateway"]
+    tr = Tracker()
+    tr.route = route
+    tr.stage, tr.level_i, tr.advance, tr.level = 4, -1, True, ""
+    y = {"x": 3, "kind": "yari_master", "hp": 4, "facing": -1, "queue": ["spear"], "queue_conf": [1.0]}
+    s = tr.state(_synthetic(2, 10, [dict(y, intent="hold")], cells=7))
+    assert s.enemies[0].facing == -1
+    tr.item_used("mirror_card")
+    s = tr.state(_synthetic(2, 10, [dict(y, intent="fire")], cells=7))
+    assert s.enemies[0].facing == 1
+    for _, s2, _ in step(s, "left"):
+        assert s2.hero.hp == 10
