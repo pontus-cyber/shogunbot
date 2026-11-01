@@ -48,15 +48,15 @@ from .perception import map_screen, reward_screen, screens, shop_screen
 from .perception.board import cells as board_cells
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
 from .perception.tiles import FACE_H, FACE_W
-from .planner import (STALL_STUCK_TURNS, STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, progress_mark, stall_budget,
-                      stall_push, stall_weights)
+from .planner import (STALL_STUCK_TURNS, STALL_TURNS, WEIGHTS, BoardLoop, plan, plan_live, progress_key, progress_mark,
+                      stall_budget, stall_push, stall_weights)
 from .rules import POISON_TICK, POISON_TURNS, free_action, legal_hero_actions, step
 from .live import LiveView
 from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.47"
+VERSION = "0.47.1"
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -1179,6 +1179,7 @@ class Bot:
         self.gave_up = None
         death_since = None
         progress, last_progress = None, 0     # stall rule: see planner.stall_weights; progress: planner.progress_mark
+        boards = BoardLoop()                  # turns on boards seen before in the level (a second stop)
         hp_cap = HERO_MAX_HP                  # most HP pips seen on two turns in a row this run
         cap_seen = None                       # (pips, turn) of a read above the cap, not yet confirmed
         turn = 0
@@ -1562,6 +1563,14 @@ class Bot:
                     log.event("stall_stop", turn=turn, quiet_turns=turn - last_progress, board=s.render())
                     log.save_frame(frame, "stuck_stall")
                     self.say(f"   {turn - last_progress} turns without progress: the run stops as stuck")
+                    result = "stuck"
+                    break
+                if boards.quiet(level, s, turn) >= STALL_STUCK_TURNS:
+                    # ... nor on boards seen before, whatever the progress key says [core-requests item 10]
+                    log.event("board_loop_stop", turn=turn, quiet_turns=turn - boards.last_new,
+                              boards=len(boards.seen), board=s.render())
+                    log.save_frame(frame, "stuck_board_loop")
+                    self.say(f"   {turn - boards.last_new} turns on boards seen before: the run stops as stuck")
                     result = "stuck"
                     break
 

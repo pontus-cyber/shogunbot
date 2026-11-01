@@ -131,6 +131,25 @@ def stall_push(s: State, d: "Decision", budget: int, hp_weight: float = 1000.0,
     return None
 
 
+class BoardLoop:
+    """Turns since the level last showed a board not seen before in it (the board as rendered, with the hero's HP and
+    queue): a second stop beside STALL_STUCK_TURNS that does not hang on the progress key [core-requests item 10: run
+    20261101-201012 (0.46), Spirit Gateway III: three boards in turn from t575 to t920 while pip reads flipping between
+    5 and 4 kept resetting the stall counter; the loop stopped the run after 345 turns, about 30 minutes]."""
+
+    def __init__(self):
+        self.level, self.seen, self.last_new = None, set(), 0
+
+    def quiet(self, level: str, s: State, turn: int) -> int:
+        if level != self.level:
+            self.level, self.seen = level, set()
+        sig = (s.render(), s.hero.hp, tuple(s.hero.queue))
+        if sig not in self.seen:
+            self.seen.add(sig)
+            self.last_new = turn
+        return turn - self.last_new
+
+
 def stall_budget(quiet: int) -> int:
     """HP a stalled fight may trade for progress after `quiet` quiet turns (0: not stalled)."""
     budget = 0

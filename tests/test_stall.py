@@ -258,3 +258,19 @@ def test_the_hot_springs_iii_budget_with_the_low_mark():
         if budget3 is None and stall_budget(r["turn"] - last) == 3:
             budget3 = r["turn"]
     assert budget3 == 855
+
+
+def test_a_loop_over_boards_seen_before_stops_whatever_the_progress_key():
+    # [0.47, core-requests item 10] run 20261101-201012 (0.46), Spirit Gateway III t575-t920: the hero stepped between
+    # cells 7 and 8 beside four loaded units, three boards in turn, and the loop had to stop the run
+    from shogunbot.planner import BoardLoop
+    s = State.from_dict(STALLED)
+    a, b, c = s.clone(), s.clone(), s.clone()
+    b.hero.x, c.hero.facing = 1, -1
+    loop = BoardLoop()
+    quiet = [loop.quiet("stage4-3", x, t) for t, x in enumerate([a, b, c] * 70)]
+    assert quiet[:3] == [0, 0, 0] and quiet[-1] == 207 and max(quiet) >= STALL_STUCK_TURNS
+    d = s.clone()
+    d.enemies[0].hp = 1                                       # a board not seen before
+    assert loop.quiet("stage4-3", d, 210) == 0
+    assert loop.quiet("stage4-boss", a, 211) == 0               # a new level starts afresh
