@@ -228,6 +228,7 @@ class Tracker:
         self.hero_x_after: int | None = None   # the hero's cell after his last action, before the enemies moved
         self.cursed = False           # Mass Curse on every enemy until our next attack
         self.swapped_uid_x: int | None = None
+        self.mirrored = False               # Rain of Mirrors turned every enemy since the last state (rule 1 waits)
         self.cycle: dict | None = None      # The Statue when the bot last acted: its tile count, stack, telegraph, holds
         self.loaded_tile: dict = {}         # kind -> the tile it loaded last, for a kind that alternates (Kowa)
         self._cycle_now: dict | None = None
@@ -465,6 +466,7 @@ class Tracker:
         self.prev = [(en.kind, en.x, en.facing, en.intent) for en in enemies]
         self.prev_hp = {en.x: en.hp for en in enemies}
         self.swapped_uid_x = None
+        self.mirrored = False
         # what each enemy did last turn and how long since it fired: the learned model's
         # history features, matched the way shogunbot.mine matches logged turns
         # a unit whose pips tie with another kind's keeps its history when its read kind flips: the Shielder named by its
@@ -542,9 +544,10 @@ class Tracker:
                 if e.queue:
                     self.loaded_tile[e.kind] = e.queue[-1]
                 e.loaded = self.loaded_tile.get(e.kind)
-            if (guard and e.queue and e.queue[0] == "ally_shield" and e.fage != 0
+            if (guard and e.queue and e.queue[0] == "ally_shield" and e.fage != 0 and e.intent in ("fire", "hold", "queue", None)
                     and behaviour.shieldless_ally(s, e, e.facing) is None):
-                # no shieldless ally ahead: it holds the tile, its bubble blinking and its orb lit (guard_intent)
+                # no shieldless ally ahead: it holds the tile, its bubble blinking and its orb lit (guard_intent); a
+                # marker on the plate is kept as read (run 20261101-021522 t0839: a loaded Shielder stepped right)
                 if e.intent != "hold":
                     self.notes.append(f"{e.kind} at {e.x}: read {e.intent} with Ally Shield loaded and no shieldless "
                                       f"ally ahead; holds")
@@ -731,7 +734,9 @@ class Tracker:
             # tracked facing away hooked the hero and cut him (-3 at t341), run 20261031-233208 t285 (-3), and the
             # Yari Masters of runs -233208 t519 and 20261101-004025 t497, t501 (-2 each) [core-requests items 3, 4]
             directional = True
-        if directional and (queue or intent == "fire") and self.swapped_uid_x != e["x"]:
+        if directional and (queue or intent == "fire") and self.swapped_uid_x != e["x"] and not self.mirrored:
+            # (after Rain of Mirrors a loaded unit faces away and a yellow one fires away, as after a swap: run
+            # 20261101-021522 f0209-f0210, the Yari Master's Spear went right after the card, not into the hero)
             return toward
         if intent == "turn" and not CAT.enemy(kind).behaviour.get("guard"):
             # (the Shielder turns to an ally, not to the hero: _guard_facing)
@@ -814,6 +819,7 @@ class Tracker:
         """Rain of Mirrors turned every enemy: flip the remembered facings, or the
         facing-persistence rule would undo the flip."""
         self.prev = [(k, x, f if k in HEAVY_KINDS else -f, None) for k, x, f, _ in self.prev]
+        self.mirrored = True
 
     def recharging(self, label: str) -> None:
         """The game refused to queue this tile (it stayed in the hand): it is recharging, whatever was read

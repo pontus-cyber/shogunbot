@@ -411,3 +411,17 @@ def test_killing_the_shielder_first_scores_above_an_equal_kill():
     b.enemies[1].hp = 0
     assert evaluate(a)[0] > evaluate(b)[0]
     assert evaluate(b)[1]["shield_giver"] < 0 and "shield_giver" not in evaluate(a)[1]
+
+
+def test_a_shielder_holding_ally_shield_keeps_a_move_marker_as_read():
+    # run 20261101-021522 t0839 (Hot Springs III): a loaded Shielder with no shieldless ally ahead showed a move-right
+    # arrow and stepped right; the no-target hold applies to its bubble reads only, as markers are kept as read
+    tr = Tracker()
+    tr.route = list(R5)
+    tr.stage, tr.level_i, tr.advance, tr.level = 5, 0, True, "stage4-boss"
+    units = [{"x": 6, "kind": "shielder", "hp": 3, "hp_max": 4, "facing": -1, "queue": ["ally_shield"],
+              "queue_conf": [1.0], "intent": "move-right"},
+             {"x": 8, "kind": "shielder", "hp": 1, "hp_max": 4, "facing": -1, "shield": True}]
+    s = tr.state(_hs_frame(units, 3, cells=9))
+    e = next(x for x in s.enemies if x.x == 6)
+    assert e.intent == "move-right"

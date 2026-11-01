@@ -380,3 +380,21 @@ def test_a_grappler_firing_with_its_hook_read_alone_fires_its_sword_too():
     assert g.queue == ["grappling_hook", "sword"] and g.facing == 1
     (_, s2, _), = step(s, "wait")
     assert (s2.hero.x, s2.hero.hp, s2.hero.shield) == (4, 8, False)
+
+
+def test_after_rain_of_mirrors_a_loaded_unit_keeps_the_flipped_facing():
+    # run 20261101-021522 f0209-f0210 (Iwao's arena): Rain of Mirrors turned the Yari Master on cell 3, loaded and facing
+    # the hero on 2; its Spear then went right, away from him. The loaded-faces-the-hero rule waits a state after the
+    # card, as after a swap
+    route = ["bamboo_grove", "whispering_caves", "moonlit_port", "spirit_gateway"]
+    tr = Tracker()
+    tr.route = route
+    tr.stage, tr.level_i, tr.advance, tr.level = 4, -1, True, ""
+    y = {"x": 3, "kind": "yari_master", "hp": 4, "facing": -1, "queue": ["spear"], "queue_conf": [1.0]}
+    s = tr.state(_synthetic(2, 10, [dict(y, intent="hold")], cells=7))
+    assert s.enemies[0].facing == -1
+    tr.item_used("mirror_card")
+    s = tr.state(_synthetic(2, 10, [dict(y, intent="fire")], cells=7))
+    assert s.enemies[0].facing == 1
+    for _, s2, _ in step(s, "left"):
+        assert s2.hero.hp == 10
