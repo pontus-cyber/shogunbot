@@ -314,3 +314,100 @@ def test_the_tracker_fires_a_shielder_on_its_orb_or_its_rule_and_rests_it_after(
         s = tr.state(frame_(sh))
         assert next(x for x in s.enemies if x.kind == "shielder").intent == want
         tr.acted(s, "wait")
+
+
+# ---------------------------------------------------------------- 0.46: Hot Springs III's long stall (core-requests 5)
+RUN_053431 = "runs/20261101-053431/frames/"
+RUN_021522 = "runs/20261101-021522/frames/"
+R5 = ("bamboo_grove", "whispering_caves", "moonlit_port", "spirit_gateway", "hot_springs")
+
+
+def _run_frame(rel: str):
+    import os
+    import pytest
+    if not os.path.exists(f"{DATA}/{rel}"):
+        pytest.skip(f"run frame not available: {rel}")
+    return frame(rel)
+
+
+def _units(rel: str, route=R5):
+    from shogunbot.perception.perceive import perceive
+    return {e["x"]: e for e in perceive(_run_frame(rel), regions=route).enemies}
+
+
+def test_no_plus_on_the_lava_backdrop_and_the_archers_icons_read_beside_their_centre():
+    # run 20261101-053431 Hot Springs III: the Shielder on cell 0 has no bubble, but the lava behind it matched the red
+    # frame on one side and its fill read as a '+' (t1062, t1065: 277 'armed' mispredictions in the level); the two
+    # Archers' Arrows sit 4 px right of their cells' centres when the board pans, and read as Spears (Tachi) there
+    for t in (1062, 1065):
+        u = _units(f"{RUN_053431}t{t}_before.png")
+        assert u[0]["intent"] is None and u[0]["queue"] == []
+        assert [(u[x]["kind"], u[x]["queue"]) for x in (1, 2)] == [("ashigaru_archer", ["arrow"])] * 2
+    # real '+' bubbles still read: white (t0672, the Shielder about to load) and yellow (t0985)
+    assert _units(f"{RUN_053431}t0672_before.png")[2]["intent"] == "queue"
+    assert _units(f"{RUN_053431}t0985_before.png")[5]["intent"] == "queue"
+    # the Shielder's Ally Shield 5 px beside its centre read as Dash (run 20261101-021522 t0769)
+    assert _units(f"{RUN_021522}t0769_before.png")[5]["queue"] == ["ally_shield"]
+
+
+def test_ally_shield_is_held_while_no_shieldless_ally_is_ahead():
+    # run 20261101-021522 t0767-t0792: the Shielder on cell 5 facing right with Ally Shield, the hero on 8, its one ally
+    # (an Archer on 2, behind it) shielded: it held the tile 26 phases, its bubble blinking and its orb lit
+    sh = Enemy("shielder", 5, 1, 2, ["ally_shield"], uid=1, last="hold", wind=1, fage=3)
+    ar = Enemy("ashigaru_archer", 2, 1, 2, ["arrow"], uid=2, shield=True)
+    s = State(9, Hero(8, -1), [sh, ar])
+    assert behaviour.intents(s, sh) == [(1.0, "hold")]
+    ar.x = 7                                                            # a shieldless ally ahead: it fires
+    ar.shield = False
+    assert behaviour.intents(s, sh) == [(1.0, "fire")]
+
+
+def _hs_frame(units: list[dict], hero_x: int, cells: int = 5):
+    from shogunbot.perception.perceive import Perception
+    return Perception(screen="combat", cells=[{"x": i, "cx": 300 + 140 * i, "kind": "plate"} for i in range(cells)],
+                      hero={"x": hero_x, "cx": 300 + 140 * hero_x, "facing": 1, "hp": 6, "hp_max": 12, "queue": [],
+                            "swap_red": 0},
+                      enemies=[dict({"cx": 300 + 140 * e["x"], "queue": [], "queue_conf": [], "intent": None,
+                                     "facing": 0, "alt": None, "elite": False, "spawning": False, "shield": False,
+                                     "orb": False}, **e) for e in units])
+
+
+def test_the_tracker_follows_the_shielder_through_its_name_and_its_turn():
+    # run 20261101-053431 t0670-t0675 (Hot Springs II, 5 cells): the hero on 1, a 4-pip unit on 2 (the Shielder, read as
+    # a Yari Master until its Ally Shield showed) and a shieldless Yari Master on 4. t0671: a turn telegraph, toward
+    # the Yari Master (0.45 took it as turning to the hero); t0672 '+'; t0673 Ally Shield, red, now read as a Shielder
+    # (0.45 lost the '+' with the old name and fired it a phase early); t0674 the orb: it fires and the Yari Master on 4
+    # is shielded at t0675
+    tr = Tracker()
+    tr.route = list(R5)
+    tr.stage, tr.level_i, tr.advance, tr.level = 5, 0, True, "stage4-boss"
+    y4 = {"x": 4, "kind": "yari_master", "hp": 1, "hp_max": 4, "facing": -1}
+    seq = [({"kind": "yari_master", "intent": "turn"}, None, "turn"),          # read as a Yari Master: facing unsure
+           ({"kind": "yari_master", "intent": "queue"}, None, "queue"),
+           ({"kind": "shielder", "queue": ["ally_shield"], "queue_conf": [1.0]}, 1, "hold"),
+           ({"kind": "shielder", "queue": ["ally_shield"], "queue_conf": [1.0], "orb": True}, 1, "fire")]
+    for sh, facing, intent in seq:
+        s = tr.state(_hs_frame([dict({"x": 2, "hp": 4, "hp_max": 4}, **sh), y4], 1))
+        e = next(x for x in s.enemies if x.x == 2)
+        assert e.intent == intent and facing in (None, e.facing), (sh, e.facing, e.intent)
+        if intent != "fire":
+            tr.acted(s, "wait")
+    (_, s2, _), = step(s, "wait")
+    assert next(x for x in s2.enemies if x.x == 4).shield
+    # as a Shielder seen turning, it faces away from its one shieldless ally (not from the hero)
+    tr = Tracker()
+    tr.route = list(R5)
+    tr.stage, tr.level_i, tr.advance, tr.level = 5, 0, True, "stage4-boss"
+    s = tr.state(_hs_frame([{"x": 2, "kind": "shielder", "hp": 4, "hp_max": 4, "intent": "turn"}, y4], 1))
+    assert next(x for x in s.enemies if x.x == 2).facing == -1
+
+
+def test_killing_the_shielder_first_scores_above_an_equal_kill():
+    # core-requests item 5 ("target the Shielder first"): with two 2-HP units left, the line that kills the Shielder
+    # scores above the one that kills the Archer
+    a = State(7, Hero(3, 1), [Enemy("shielder", 5, -1, 2, uid=1), Enemy("ashigaru_archer", 1, 1, 2, uid=2)])
+    b = a.clone()
+    a.enemies[0].hp = 0
+    b.enemies[1].hp = 0
+    assert evaluate(a)[0] > evaluate(b)[0]
+    assert evaluate(b)[1]["shield_giver"] < 0 and "shield_giver" not in evaluate(a)[1]

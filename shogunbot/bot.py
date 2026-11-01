@@ -45,6 +45,7 @@ from .bridge import Tracker, hand_unsettled, kit_from_faces, level_name, match_f
 from .catalogue import CAT
 from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HEAVY_KINDS, HERO_MAX_HP
 from .perception import map_screen, reward_screen, screens, shop_screen
+from .perception.board import cells as board_cells
 from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
 from .perception.tiles import FACE_H, FACE_W
 from .planner import STALL_STUCK_TURNS, STALL_TURNS, WEIGHTS, plan, plan_live, progress_key, stall_budget, stall_push, stall_weights
@@ -96,6 +97,12 @@ MAP_LOOKS_MAX = 4         # arrow presses spent looking for a preferred region b
 MOUSE_MODE_SPOT = (0.97, 0.27)   # an empty spot: a click there turns keyboard-only mode off
 BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink
 BLINK_GAP_S = 0.15
+# A frame grabbed in a pause of an enemy's move: The Twins' Phantom Leap and Swap Toss pause between the leap and the
+# toss, and the board read then still had the hero beside the Twin; the toss and the other Twin's Spear came on the
+# next input, unplanned (run 20261031-203835 t285, -2: t285_before shows the hero on cell 4, t285_after on cell 2;
+# run 20261031-154544 t525 alike) [core-requests item 2]. When the last blink frame shows the units on other cells,
+# the board is read again, at most STALE_READS_MAX times a turn.
+STALE_READS_MAX = 2
 # a hand read that does not account for the kit (bridge.hand_unsettled: a tile's ready flash, tiles flying
 # back after an attack) is read again for up to HAND_WAIT_S before planning [user review of run
 # 20261030-213120, item 2: t62 and t168 planned a tile the hand did not show]; after HAND_STALE_TURNS
@@ -396,7 +403,8 @@ class Bot:
         if rs.kind == "tile_choice":
             dec = rewards.decide_tile(tr.kit, rs.offers, hp, progress=feed)
         else:
-            dec = rewards.decide_upgrade(tr.kit, rs.upgrade, hp, progress=feed)
+            dec = rewards.decide_upgrade(tr.kit, rs.upgrade, hp, progress=feed,
+                                         in_hand=set(match_faces(tr.kit, rs.hand)) or None)
         best, opts, secs, st = dec.best, dec.options, dec.seconds, dec.stats or {}
         self.log.event("reward_decision", layout=rs.kind, upgrade=rs.upgrade, level=level, hp=hp, seconds=secs,
                        workers=rewards.WORKERS, choice=best.name, rule=dec.rule, options=[o.summary() for o in opts],
@@ -1172,6 +1180,7 @@ class Bot:
         zero_hp = 0
         last_key, last_action = None, None
         hand_since, hand_why, hand_stale, hand_turn = None, None, 0, None   # the wait for a hand read that adds up
+        stale = (None, 0)                     # (turn, re-reads) of a board that moved under the blink frames
         intro_since, intro_done = None, None  # the wait for a boss bar (BOSS_INTRO_S), and the level it ended on
         potion_check = None
         item_tries: dict = {}
@@ -1436,6 +1445,15 @@ class Bot:
                     blink_notes = merge_blink(p, extra)
                     if blink_notes:
                         log.event("blink", turn=turn, notes=blink_notes)
+                    if stale[0] != turn:
+                        stale = (turn, 0)
+                    later = board_moved(p, extra[-1]) if extra else None
+                    if later is not None and stale[1] < STALE_READS_MAX:
+                        stale = (turn, stale[1] + 1)
+                        log.event("stale_read", turn=turn, read=[c["kind"][0] for c in p.cells],
+                                  later=[k[0] for k in later])
+                        log.save_frame(extra[-1], f"stale_t{turn:04d}")
+                        continue
                 s = tr.state(p)
                 if s is None:
                     time.sleep(0.3)
@@ -1662,6 +1680,13 @@ class Bot:
                      f"HP lost {summary['hp_lost']} (unpredicted {summary['hp_lost_unpredicted']}); "
                      f"logs in runs/{run_id}")
         return result
+
+
+def board_moved(p, later) -> list[str] | None:
+    """The cells' kinds on a later frame of the same turn (no input between) when they differ from the read p's:
+    units still moving when p's frame was grabbed (STALE_READS_MAX). None when the board stood still."""
+    kinds = [c["kind"] for c in board_cells(normalize(later))]
+    return kinds if kinds != [c["kind"] for c in p.cells] else None
 
 
 def play(runs: int = 1, frame_policy: str = "events", autostart: bool = True, stage1: bool = True) -> None:

@@ -643,11 +643,18 @@ def _stops(opts: list[Option], stats) -> str:
 
 # ---------------------------------------------------------------- decisions
 def decide_upgrade(kit: Kit, upgrade_id: str, hp: int, *, seeds=SEEDS, depth: int = DEPTH,
-                   workers: int = WORKERS, scenario: str = SCENARIO, evaluator=None, progress=None) -> Decision:
+                   workers: int = WORKERS, scenario: str = SCENARIO, evaluator=None, progress=None,
+                   in_hand=None) -> Decision:
+    """in_hand: the kit labels whose faces the reward screen found in the hand, when it found any. A tile whose face
+    is not found cannot be clicked into the statue: run 20261031-203835 (0.44, the shrine after Iwao) chose to upgrade
+    the Shadow Dash, dimmed on the screen and not read, failed to find it and skipped the upgrade, where the Swirl
+    scored next best [core-requests item 2]."""
     t0 = time.time()
     evaluator = evaluator or evaluate
     up = CAT.upgrade(upgrade_id)
     opts = upgrade_options(kit, upgrade_id)
+    if in_hand:
+        opts = [o for o in opts if o.name == "skip" or o.detail["label"] in in_hand]
     skip, cands = opts[0], opts[1:]
     if not offerable(up):
         return Decision(skip, opts, "not a free reward (sacrifice or unknown effect)", 0.0)

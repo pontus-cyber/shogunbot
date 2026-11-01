@@ -265,11 +265,18 @@ def guard_intent(s: State, e, f: dict) -> str:
     """The Shielder's telegraph [rec: collect/20261028-190026 f0945-f1266, collect/20261029-160032 f1150-f1468; survey
     of 2026-10-31]: the phase after it fired it rests; a loaded tile is held one phase (R1), then fired; else, a
     shieldless ally ahead: it loads (Ally Shield); one behind: it turns to it; unshielded itself: it loads (Shield);
-    shielded with nothing to shield: it turns, every phase. f: features()."""
+    shielded with nothing to shield: it turns, every phase. f: features().
+    Ally Shield loaded with no shieldless ally ahead is held, its bubble blinking yellow and red and its orb lit, until
+    one is (run 20261101-021522 t0767-t0792, 26 phases; in the five Hot Springs runs of 0.45 the Shielder kept the tile
+    97 times in 101 when no shieldless ally stood on either side) [bot]."""
     if e.fage == 0:
         return "hold"
     if e.queue:
-        return "hold" if f["last"] == "queue" or e.wind < 1 else "fire"
+        if f["last"] == "queue" or e.wind < 1:
+            return "hold"
+        if e.queue[0] == "ally_shield" and shieldless_ally(s, e, e.facing) is None:
+            return "hold"
+        return "fire"
     if shieldless_ally(s, e, e.facing) is not None:
         return "queue"
     if shieldless_ally(s, e, -e.facing) is not None:

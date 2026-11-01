@@ -121,3 +121,46 @@ def test_stall_push_loads_a_tile_when_nothing_is_queued():
     assert stall_push(cands, "left", 1) is None                 # below a 2-HP budget nothing changes
     assert stall_push(cands, "left", 2) == "queue:arrow#2"
     assert stall_push(cands, "queue:swirl", 2) is None          # already loading
+
+
+# ---------------------------------------------------------------- 0.46 [core-requests item 5]
+# run 20261101-053431 (0.45) t1066, Hot Springs III: a Shielder on 0 and two Archers on 1-2, all shielded, a shielded
+# 1-HP Ashigaru on 6 beside the hero; killing it opens the Archers' line, so the hero stepped left and right
+HS3_T1066 = {"cells": 9, "hero": {"x": 7, "facing": -1, "hp": 6, "queue": ["katana", "arrow#2", "spear"], "charge": {"swirl": 6, "arrow": 4, "back_charge": 5, "spear": 7, "arrow#2": 7, "katana": 0}, "swap_charge": 4, "shield": False, "kit": [{"label": "swirl", "tile": "swirl", "damage": 4, "cooldown": 6, "enchant": "perfect_strike", "levels": 5, "used": 3}, {"label": "arrow", "tile": "arrow", "damage": 3, "cooldown": 5, "enchant": None, "levels": 3, "used": 1}, {"label": "back_charge", "tile": "back_charge", "damage": 2, "cooldown": 5, "enchant": "curse", "levels": 2, "used": 2}, {"label": "spear", "tile": "spear", "damage": 4, "cooldown": 7, "enchant": None, "levels": 3, "used": 2}, {"label": "arrow#2", "tile": "arrow", "damage": 2, "cooldown": 7, "enchant": "poison", "levels": 3, "used": 1}, {"label": "katana", "tile": "katana", "damage": 2, "cooldown": 0, "enchant": None, "levels": 2, "used": 0}]}, "enemies": [{"kind": "shielder", "x": 0, "facing": 1, "hp": 4, "queue": [], "uid": 1, "intent": "hold", "wind": 1, "last": "queue", "fage": 265, "shield": True}, {"kind": "ashigaru_archer", "x": 1, "facing": 1, "hp": 2, "queue": ["arrow"], "uid": 2, "intent": "hold", "wind": 1, "shield": True}, {"kind": "ashigaru_archer", "x": 2, "facing": 1, "hp": 2, "queue": ["arrow"], "uid": 3, "intent": "hold", "wind": 1, "shield": True}, {"kind": "ashigaru", "x": 6, "facing": 1, "hp": 1, "queue": ["sword"], "uid": 4, "intent": "fire", "wind": 1, "last": "move", "fage": 5, "shield": True}], "level": "stage5-3", "wave": 4, "waves_total": 6, "turn": 1066}
+
+
+def test_progress_key_ignores_pip_tie_kind_flips_and_shields():
+    s = State.from_dict(HS3_T1066)
+    k = progress_key(s)
+    flip = s.clone()
+    flip.enemies[2].kind = "tachi"              # the Archer's 2 pips tie with the Tachi's: read as one on every other turn
+    assert progress_key(flip) == k
+    strip = s.clone()
+    strip.enemies[3].shield = False             # a shield taken (the Shielder gives it back): no progress yet
+    assert progress_key(strip) == k
+    hit = s.clone()
+    hit.enemies[1].hp = 1
+    assert progress_key(hit) != k
+    gone = s.clone()
+    gone.enemies = gone.enemies[:3]
+    assert progress_key(gone) != k
+
+
+def test_the_stall_budget_would_have_grown_in_hot_springs_iii():
+    # the logged states of the level: with the HP key the counter runs from t795 (the last HP change) to t1579 (the
+    # Ashigaru's death), so the 3-HP budget comes at t855; with 0.45's kind key it never ran past 46 turns
+    import pytest
+    from test_bot_flow import DATA
+    path = DATA / "runs/20261101-053431/turns.jsonl"
+    if not path.exists():
+        pytest.skip("run log not available")
+    rows = [json.loads(line) for line in open(path)]
+    rows = [r for r in rows if r["level"] == "stage5-3"]
+    last, prev, budget3 = None, None, None
+    for r in rows:
+        k = progress_key(State.from_dict(r["state"]))
+        if k != prev:
+            prev, last = k, r["turn"]
+        if budget3 is None and stall_budget(r["turn"] - last) == 3:
+            budget3 = r["turn"]
+    assert budget3 == 855

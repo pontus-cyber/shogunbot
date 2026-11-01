@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .catalogue import CAT
 from .model import QUEUE_MAX, State
 from .rules import SPEC, _first_unit_ahead, _furthest_unit_ahead, draw_intents, legal_hero_actions, step, threats
 
@@ -39,6 +40,12 @@ WEIGHTS: dict[str, float] = {
 
 SPAWN_THRESHOLD = 1  # [web] Normal rooms spawn the next wave at 1-2 alive; HYP: 1
 SHIELD_HP = 2        # HYP: a shield is worth one hit, about 2 HP (the Wanderer's tiles deal 1-4)
+# Units whose tiles shield their allies (the Shielder's Ally Shield, catalogue effect 'ally_shield'): while one lives
+# it gives shields back as they are broken, so each counts one more shield, and killing it first is worth that much
+# more than an equal kill elsewhere [core-requests item 5, run 20261101-053431 Hot Springs III: the Shielder on cell 0
+# kept two Archers and an Ashigaru shielded for 784 turns]. HYP: one more shield; it only orders lines of equal HP.
+SHIELD_GIVERS = frozenset(k for k, e in CAT.enemies.items()
+                          if any(t in CAT.tiles and CAT.tiles[t].attack.get("effect") == "ally_shield" for t in e.tiles))
 
 STALL_TURNS = 15     # [user 2026-10-28] turns in which no enemy lost HP, died or appeared
 # [user 2026-10-31: "HP is the priority, it is needed in the long run, but ease the lever to 3
@@ -110,8 +117,17 @@ def stall_weights(w: dict[str, float], hp: int, budget: int = 1) -> dict[str, fl
 
 
 def progress_key(s: State) -> tuple:
-    """Changes whenever an enemy loses HP, dies or appears: the stall counter's reset."""
-    return tuple(sorted((e.kind, e.hp) for e in s.alive()))
+    """Changes whenever an enemy loses HP, dies or appears: the stall counter's reset.
+
+    The enemies' HP only, not their kinds: a unit whose HP pips tie with another kind's (the Ashigaru Archer and the
+    Tachi, 2; the Yari Master, the Shinobi and the Shielder, 4) reads as one or the other from turn to turn until its
+    bubble names it, and each flip reset the counter. Run 20261101-053431 (0.45), Hot Springs III t795-t1578: no
+    enemy lost HP for 784 turns while the kind key changed 399 times in the level (its longest quiet run 46 turns), so
+    the stall budget never reached 3 HP and the hero stepped left and right beside a 1-HP Ashigaru whose death would
+    open two Archers' line (core-requests item 5). A shield taken or given does not count either: the Shielder gives
+    it back every few phases, so a strip is progress only once a hit lands behind it; the planner values the strip
+    itself (SHIELD_HP), and a shield cycle cannot keep the counter at zero."""
+    return tuple(sorted(e.hp for e in s.alive()))
 
 
 def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
@@ -126,6 +142,9 @@ def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
     if shields:
         # a shield takes one hit, about one tile's damage: breaking it is progress (scales with the stall weights)
         terms["enemy_shield"] = w["enemy_hp"] * SHIELD_HP * shields
+    givers = sum(1 for e in alive if e.kind in SHIELD_GIVERS)
+    if givers:
+        terms["shield_giver"] = w["enemy_hp"] * SHIELD_HP * givers
     terms["enemy_alive"] = w["enemy_alive"] * len(alive)
     more_waves = s.waves_total and s.wave < s.waves_total
     if not alive and not more_waves:

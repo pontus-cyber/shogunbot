@@ -401,3 +401,16 @@ def test_enchantment_shrines_are_trade_offs_the_simulator_scores():
         up = CAT.upgrade(uid)
         assert up.kind == "enchant" and not rewards.pure_gain(up) and rewards.offerable(up)
         assert len(rewards.upgrade_options(Kit.of("swirl", "arrow"), uid)) == 3   # skip + two tiles
+
+
+def test_an_upgrade_is_chosen_among_the_tiles_found_in_the_hand():
+    # run 20261031-203835 (0.44), the shrine after Iwao: the Shadow Dash, dimmed on the screen, was not read in the
+    # hand; it scored best, was not found, and the upgrade was skipped where the Swirl scored next [core-requests 2]
+    kit = Kit.of("swirl", "arrow", "shadow_dash")
+    table = {"skip": [7.8] * 4, "upgrade:swirl": [7.9] * 4, "upgrade:arrow": [7.7] * 4,
+             "upgrade:shadow_dash": [8.0] * 4}
+    d = rewards.decide_upgrade(kit, "damage_1_cooldown_1", 10, evaluator=fake_eval(table))
+    assert d.best.name == "upgrade:shadow_dash"
+    d = rewards.decide_upgrade(kit, "damage_1_cooldown_1", 10, evaluator=fake_eval(table),
+                               in_hand={"swirl", "arrow"})
+    assert d.best.name == "upgrade:swirl" and "upgrade:shadow_dash" not in [o.name for o in d.options]
