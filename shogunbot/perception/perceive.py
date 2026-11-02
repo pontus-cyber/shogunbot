@@ -200,7 +200,8 @@ def open_icons(pips: int, base_hp: dict, elites: bool, boss_tiles=(), boss: str 
 
 
 def classify_icon(interior: np.ndarray, allowed: tuple | None = None,
-                  exclude: frozenset = GATED_ICONS) -> tuple[str, float]:
+                  exclude: frozenset = GATED_ICONS, bell: bool = True) -> tuple[str, float]:
+    """bell: False reads the drawing alone, without the orange bell's colour rule (read_stack's 'shape')."""
     v = cv2.resize(interior, (25, 24), interpolation=cv2.INTER_AREA).astype(np.float32).ravel() / 255
     d = ((ICO_X - v) ** 2).sum(1)
     if exclude:
@@ -213,7 +214,7 @@ def classify_icon(interior: np.ndarray, allowed: tuple | None = None,
     k = ICO_TILE[i]
     rest = d[(ICO_TILE != k) & np.isfinite(d)]
     other = rest.min() if len(rest) else d[i] * 2
-    if allowed:
+    if allowed or not bell:
         return str(k), float(np.clip((other - d[i]) / max(d[i], 1e-3), 0, 1))
     # orange bell = summon (only one template, so add a colour rule)
     hsv = cv2.cvtColor(interior, cv2.COLOR_RGB2HSV)
@@ -388,11 +389,17 @@ def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS, hero_
         interior = rgb[y0 + 12:y1 - 12, cx - 50:cx + 50]
         dark = (interior.astype(int).sum(axis=2) < 150).mean()
         if dark > 0.35:
+            shape = None
             if hero_kit:
                 tile, conf = classify_hero_icon(rgb, y0, y1, cx, hero_kit)
             else:
-                tile, conf = classify_icon(_aligned_interior(rgb, y0, y1, cx, exclude), exclude=exclude)
+                inner = _aligned_interior(rgb, y0, y1, cx, exclude)
+                tile, conf = classify_icon(inner, exclude=exclude)
+                if tile == "summon":
+                    shape = classify_icon(inner, exclude=exclude, bell=False)[0]
             out.append({"type": "tile", "tile": tile, "colour": col, "conf": round(conf, 2)})
+            if shape:
+                out[-1]["shape"] = shape
         else:
             plus = plus_sign(rgb, y0, y1, cx)
             if plus is None:
@@ -1072,11 +1079,22 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                       "intent": intent, "spawning": spawning, "elite": elite, "alt": alt,
                       "shield": shields and shield_frac(rgb, cx) >= SHIELD_FRAC,
                       "orb": shields and orb_pixels(rgb, cx) >= ORB_PX}
+                if any(t.get("shape") for t in tiles):
+                    en["shape"] = [t.get("shape") for t in tiles]
                 p.enemies.append(en)
                 conf[f"enemy{i}"] = round(kc, 2)
             entry["unit"] = kind
         cell_list.append(entry)
     p.cells = cell_list
+    bosses = [e for e in p.enemies if e["kind"] in CAT.enemies and CAT.enemies[e["kind"]].boss]
+    if len(bosses) == 1 and "summon" not in CAT.enemies[bosses[0]["kind"]].tiles and bosses[0].get("shape"):
+        # a boss without the bell: the orange flames over the Shogun's yellow frames passed the bell's colour rule, so a
+        # fire read 'summon' where the drawing read his own tile at once (rec1 f1753 his Mirror, f1816 his Shuriken; the
+        # tracker then took his first tile, the Sword, and planned a 2-HP cut that never came). The drawing's tile counts
+        # when it is one of his, and only with one boss read: a second is a Summoner read as him (rec1 f1765), whose
+        # bell the tracker keeps
+        e, own = bosses[0], CAT.enemies[bosses[0]["kind"]].tiles
+        e["queue"] = [s if t == "summon" and s in own else t for t, s in zip(e["queue"], e["shape"])]
     p.warn = warn_cells(rgb, [c["cx"] for c in cs])
     p.bomb_ok = bool(BOMB_TILES & ({t for e in CAT.region_enemies(here) + CAT.region_visitors(here) for t in e.tiles}
                                    | set(boss_tiles)))

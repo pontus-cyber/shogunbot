@@ -92,6 +92,16 @@ def test_his_summoners_are_told_from_him_and_his_tiles_read():
     assert _units(_p(REC2, 1989, ROUTE2)) == [(3, "the_shogun", [C])]
 
 
+def test_the_flames_over_his_yellow_frames_are_not_the_bell():
+    # the orange flames over his fire frames passed the bell's colour rule: rec1 f1753 his Mirror read 'summon', the
+    # tracker took his first tile (the Sword) and the replay planned a 2-HP cut that never came; f1807 his Charge (with
+    # the Swirl), f1816 his Shuriken. f1765: a Summoner on cell 0 read as him beside his own read keeps its bell
+    assert [u for u in _units(_p(REC1, 1753)) if u[1] == "the_shogun"] == [(2, "the_shogun", [M])]
+    assert _units(_p(REC1, 1807)) == [(3, "the_shogun", [C, S])]
+    assert _units(_p(REC1, 1816)) == [(0, "the_shogun", [U])]
+    assert (0, "the_shogun", ["summon"]) in _units(_p(REC1, 1765))
+
+
 def test_the_victory_screen_and_its_back_to_camp_pill():
     from shogunbot.perception import screens
     from shogunbot.perception.perceive import normalize
