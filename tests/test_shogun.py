@@ -75,6 +75,8 @@ def test_the_castle_has_one_wave_level_then_the_shogun():
     assert (k.hp, k.hp_day5, k.phases, k.max_hp) == (40, 50, 2, 80) and {"quick", "unfreezable"} <= set(k.traits)
     assert [k.phase(h) for h in (80, 41, 40, 1)] == [1, 1, 2, 2]
     assert CAT.enemy("shogun_summoner").hp == 30 and "heavy" in CAT.enemy("shogun_summoner").traits
+    from shogunbot.replay import UNSHOWN_HP
+    assert {"the_shogun", "shogun_summoner"} <= UNSHOWN_HP          # no pips: the replay scores them on cell and kind
 
 
 # ---------------------------------------------------------------- perception
@@ -95,11 +97,20 @@ def test_his_summoners_are_told_from_him_and_his_tiles_read():
 def test_the_flames_over_his_yellow_frames_are_not_the_bell():
     # the orange flames over his fire frames passed the bell's colour rule: rec1 f1753 his Mirror read 'summon', the
     # tracker took his first tile (the Sword) and the replay planned a 2-HP cut that never came; f1807 his Charge (with
-    # the Swirl), f1816 his Shuriken. f1765: a Summoner on cell 0 read as him beside his own read keeps its bell
+    # the Swirl), f1816 his Shuriken
     assert [u for u in _units(_p(REC1, 1753)) if u[1] == "the_shogun"] == [(2, "the_shogun", [M])]
     assert _units(_p(REC1, 1807)) == [(3, "the_shogun", [C, S])]
     assert _units(_p(REC1, 1816)) == [(0, "the_shogun", [U])]
-    assert (0, "the_shogun", ["summon"]) in _units(_p(REC1, 1765))
+
+
+def test_a_summoner_whose_bell_glows_is_not_read_as_him():
+    # a firing bell lights the Summoner's sprite red (rec1 f1765 cell 0: 5,378 red px, f1792 cell 6; rec2 f1945 cell 0
+    # 1,824): with his read off the end cells, the end cells' pipless reads are Summoners, and the bell stays theirs
+    assert [u for u in _units(_p(REC1, 1765)) if u[0] in (0, 1)] == [(0, "shogun_summoner", ["summon"]),
+                                                                     (1, "the_shogun", [])]
+    assert [u[1] for u in _units(_p(REC1, 1792)) if u[0] in (0, 2, 6)] == ["shogun_summoner", "the_shogun",
+                                                                           "shogun_summoner"]
+    assert [u[1] for u in _units(_p(REC2, 1945, ROUTE2)) if u[0] in (0, 1)] == ["shogun_summoner", "the_shogun"]
 
 
 def test_the_victory_screen_and_its_back_to_camp_pill():

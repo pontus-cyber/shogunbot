@@ -1087,6 +1087,14 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
         cell_list.append(entry)
     p.cells = cell_list
     bosses = [e for e in p.enemies if e["kind"] in CAT.enemies and CAT.enemies[e["kind"]].boss]
+    ends = (0, len(cs) - 1)
+    if bk in SUMMONER_OF and len(bosses) > 1 and any(e["x"] not in ends for e in bosses):
+        # one Shogun: a Summoner whose red bell glows reads his red (rec1 f1765 cell 0: 5,378 red px, f1792 cell 6: 5,356;
+        # rec2 f1945 cell 0: 1,824); with his read off the end cells, the end cells' reads are his Summoners
+        for e in bosses:
+            if e["x"] in ends:
+                e["kind"] = cell_list[e["x"]]["unit"] = SUMMONER_OF[bk]
+        bosses = [e for e in bosses if e["x"] not in ends]
     if len(bosses) == 1 and "summon" not in CAT.enemies[bosses[0]["kind"]].tiles and bosses[0].get("shape"):
         # a boss without the bell: the orange flames over the Shogun's yellow frames passed the bell's colour rule, so a
         # fire read 'summon' where the drawing read his own tile at once (rec1 f1753 his Mirror, f1816 his Shuriken; the
