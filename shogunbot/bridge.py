@@ -546,6 +546,7 @@ class Tracker:
             frac = 1.0 if last is None else last
         if last is not None and frac - last > 0.5 and ph < k.phases:
             ph += 1
+            self.loaded_tile[kind] = "phase2"     # his opening comes next (rules._boss_queue)
             self.notes.append(f"{kind}: his bar refilled ({last:.2f} -> {frac:.2f}); phase {ph}")
         self.boss_phase[kind], self.boss_frac[kind] = ph, frac
         return max(1, round(frac * k.hp)) + k.hp * (k.phases - ph)
@@ -587,8 +588,6 @@ class Tracker:
             if not chained(e):
                 continue
             kind = CAT.enemy(e.kind)
-            if e.loaded == "phase2" and not e.queue:
-                continue
             if e.last == "fire" and e.queue:
                 # the phase after a combo he has nothing loaded (the next one starts with a '+'): a stack read now is the
                 # fired one's bubbles playing out (rec2 f1703, f1719; rec1 f1544, f1580)
