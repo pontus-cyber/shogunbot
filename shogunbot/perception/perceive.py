@@ -386,6 +386,13 @@ def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS, hero_
                 break
         if col is None:
             break
+        if col == "grey" and not hero_kit:
+            # an enemy's bubbles are framed red or yellow: a grey slot over it is the backdrop, the hanging cages and snow
+            # of Hideyoshi's Keep (rec1 f1564-f1591 over a Yari Master's Spear on cell 0: 'ally_shield' and '+'; rec2
+            # f1601-f1602 and f1629 over units with no bubble at all) and the grey sky with rain over the Shogun's and his
+            # Summoners' firing bubbles (rec1 f1744-f1745), whose '+' made a fire or a hold a load. From f1400 on in both
+            # recordings 75 frames read such slots over an enemy; the six looked at (those above, rec2 f1548) were backdrop
+            break
         interior = rgb[y0 + 12:y1 - 12, cx - 50:cx + 50]
         dark = (interior.astype(int).sum(axis=2) < 150).mean()
         if dark > 0.35:
@@ -1103,6 +1110,12 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
         # bell the tracker keeps
         e, own = bosses[0], CAT.enemies[bosses[0]["kind"]].tiles
         e["queue"] = [s if t == "summon" and s in own else t for t, s in zip(e["queue"], e["shape"])]
+    for e in p.enemies:
+        # the Shogun's Summoners carry the bell, and their firing Ally Shield passes its colour rule too (its yellow beam,
+        # rec1 f1745); their bells read as Hideyoshi's bell drawing (f1763, f1787-f1791), so a drawing of their other tile wins
+        k = CAT.enemies.get(e["kind"])
+        if k and k.behaviour.get("summoner_of") and e.get("shape"):
+            e["queue"] = [s if t == "summon" and s in k.tiles and s != "summon" else t for t, s in zip(e["queue"], e["shape"])]
     p.warn = warn_cells(rgb, [c["cx"] for c in cs])
     p.bomb_ok = bool(BOMB_TILES & ({t for e in CAT.region_enemies(here) + CAT.region_visitors(here) for t in e.tiles}
                                    | set(boss_tiles)))

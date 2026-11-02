@@ -103,6 +103,22 @@ def test_the_flames_over_his_yellow_frames_are_not_the_bell():
     assert _units(_p(REC1, 1816)) == [(0, "the_shogun", [U])]
 
 
+def test_a_grey_slot_over_an_enemy_bubble_is_the_backdrop():
+    # enemy bubbles are framed red or yellow; the grey sky over his yellow Mirror read as a '+' (a load, not the fire:
+    # rec1 f1744, he mirrored from cell 4 to 2), and over his Summoners' yellow Ally Shield (f1745, which also passed the
+    # bell's colour rule); the Keep's cages over a Yari Master on cell 0 gave its Spear a '+' on 28 frames (f1564-f1591)
+    assert [(u[0], u[2]) for u in _units(_p(REC1, 1744))] == [(0, ["ally_shield"]), (4, [M]), (6, ["ally_shield"])]
+    assert [e["intent"] for e in _p(REC1, 1744).enemies] == [None, "fire", None]
+    p = _p(REC1, 1745)
+    assert [(e["x"], e["queue"], e["intent"]) for e in p.enemies if e["kind"] == "shogun_summoner"] == [
+        (0, ["ally_shield"], "fire"), (6, ["ally_shield"], "fire")]
+    p = _p(REC1, 1570, ROUTE1[:6])
+    assert [(e["x"], e["kind"], e["queue"], e["intent"]) for e in p.enemies][0] == (0, "yari_master", [P], None)
+    # rec2 f1601: the Keep's cages over a unit with no bubble read as a grey '+'
+    p = _p(REC2, 1601, ROUTE2[:6])
+    assert all(e["intent"] is None for e in p.enemies if e["x"] == 2)
+
+
 def test_a_summoner_whose_bell_glows_is_not_read_as_him():
     # a firing bell lights the Summoner's sprite red (rec1 f1765 cell 0: 5,378 red px, f1792 cell 6; rec2 f1945 cell 0
     # 1,824): with his read off the end cells, the end cells' pipless reads are Summoners, and the bell stays theirs
