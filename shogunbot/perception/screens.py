@@ -151,6 +151,38 @@ def death_buttons(rgb: np.ndarray) -> list[tuple[float, float]] | None:
     return out
 
 
+VICTORY_GOLD_PX = 5000      # the gold kanji: 9,184-10,512 px on the VICTORY frames
+VICTORY_DARK_MAX = 150      # and the band around it dark (median RGB sum)
+
+
+def victory(rgb: np.ndarray) -> tuple[bool, tuple[float, float] | None]:
+    """The VICTORY screen after the Shogun, and its BACK TO CAMP pill's centre once it shows (None before). The gold kanji
+    over '- VICTORY -' (yellow-gold pixels in the screen's middle) names the screen; the pill is the death screen's colour,
+    alone at the bottom right, x 1472-1807 and y 924-987 at 1080p [rec: collect/20261029-160032 f2011-f2014 (a Day 1 win
+    after the first: VICTORY, the pill, a click on it, the camp), collect/20261028-190026 f1835-f1840 (the first win: the
+    pill lit under the cursor, then dialogue screens and the unlocks before the camp)]."""
+    a = rgb.astype(int)
+    mid = a[300:500, 800:1120]
+    gold = ((mid[..., 0] > 200) & (mid[..., 1] > 140) & (mid[..., 1] < 210) & (mid[..., 2] < 90)).sum()
+    # on a dark band (median RGB sum 47-66 there; Bamboo Grove's golden sky at Daisuke reads 16,271 gold px with a median
+    # of 423: collect/20261027-164727 f0146)
+    if gold < VICTORY_GOLD_PX or np.median(mid.sum(axis=2)) > VICTORY_DARK_MAX or boss_bar(rgb):
+        # (and no boss bar: the Shogun's yellow fire bubbles on his dark arena pass the gold test, rec1 f1779, f1781,
+        # f1802, f1807; the bar is gone on every VICTORY frame)
+        return False, None
+    h, w = rgb.shape[:2]
+    r = a[850:1060, 1400:1900]
+    pill = (np.abs(r[..., 0] - 118) < 12) & (np.abs(r[..., 1] - 68) < 12) & (np.abs(r[..., 2] - 58) < 12)
+    runs = _row_runs(pill.sum(axis=1) > 120, 30, 90)
+    if len(runs) != 1:
+        return True, None
+    y0, y1 = runs[0]
+    xs = np.where(pill[y0:y1].sum(axis=0) > (y1 - y0) // 3)[0]
+    if len(xs) == 0 or not 280 <= xs.max() - xs.min() <= 380:
+        return True, None
+    return True, ((1400 + (xs.min() + xs.max()) / 2) / w, (850 + (y0 + y1) / 2) / h)
+
+
 def find_go(rgb: np.ndarray) -> tuple[float, float] | None:
     """Centre of the lit GO pill in camp, or None when it is not lit yet."""
     a = rgb[560:780, 1000:1800].astype(int)

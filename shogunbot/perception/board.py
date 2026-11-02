@@ -253,4 +253,19 @@ def cells(rgb: np.ndarray) -> list[dict]:
     dark = dark_cells(rgb, runs)
     if dark and is_board(dark):
         return dark
+    if out and not any(c["kind"] == "hero" for c in out):
+        # no plate reads as the hero's and the dark reader makes no board either: one whose stone ends are teal is his.
+        # Right after a swap on a bright board his four swap ticks are red, and with the light there his plate's mean
+        # colour read 'empty' (97, 71, 70), so the board had no hero, read as 'unknown' for 90 s and the run stopped as
+        # stuck; _tealish read 0.32 on his plate and 0 on the other six [run 20261102-021456 stuck.png, Bamboo Grove II
+        # t31; core-requests item 12]. Only after the dark reader: on Moonlit Port's dark 9-cell board the bright plates
+        # made 5 cells with a 184-px gap and no hero, which the teal plate would have made a board (run 20261031-114119
+        # f0310, the 0.48 replay gate)
+        teal = [(_tealish(rgb, c["x0"]), i) for i, c in enumerate(out) if c["kind"] == "empty"]
+        best = max(teal, default=None)
+        if best and best[0] >= HERO_TEAL:
+            fixed = [dict(c) for c in out]
+            fixed[best[1]]["kind"] = "hero"
+            if is_board(fixed) and not open_end(rgb, fixed):
+                return fixed
     return [] if is_board(out) else out

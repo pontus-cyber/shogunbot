@@ -42,7 +42,7 @@ def test_the_map_names_the_keep_and_the_bot_goes_there():
     from shogunbot.perception import map_screen
     sel = map_screen.selected(_f(REC1, 1379))       # 'HIDEYOSHI?S KEEP': the apostrophe reads as '?'
     assert (sel["kind"], sel["region"]) == ("region", "hideyoshis_keep")
-    assert "hideyoshis_keep" in Bt.MAP_REGIONS and Bt.FULL_LAST_STAGE == 6
+    assert "hideyoshis_keep" in Bt.MAP_REGIONS and Bt.FULL_LAST_STAGE >= 6      # (0.48: the Shogun's Castle after it)
 
 
 def test_the_keep_has_one_wave_level_then_hideyoshi():
@@ -176,7 +176,8 @@ def test_the_shadow_charger_loads_charge_then_sword_and_fires_the_phase_after():
     def mk(q, last="queue"):
         return State(7, Hero(3, -1, hp=10), [Enemy("shadow_charger", 0, 1, 5, list(q), uid=1, last=last)], level="stage6-1")
     s = mk([], last="turn")
-    assert behaviour.intents(s, s.enemies[0]) == [(1.0, "queue")]
+    # (0.48: the behaviour learned from the 0.47.1 runs' Shadow Chargers loads after a turn 91% of the time, holds 9%)
+    assert max(behaviour.intents(s, s.enemies[0]))[1] == "queue"
     s = mk(["charge"])
     assert behaviour.intents(s, s.enemies[0]) == [(1.0, "queue")]
     s = mk(["charge", "sword"])

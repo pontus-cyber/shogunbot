@@ -174,7 +174,7 @@ HERO_TILES: dict[str, tuple[int, int]] = {t.label: (t.damage, t.cooldown) for t 
 
 # ---- enemies ----------------------------------------------------------------
 # enemy id: (max_hp, default tile), for every unit the simulator has presets for
-ENEMY_KINDS: dict[str, tuple[int, str]] = {e.id: (e.hp, e.tile) for e in CAT.enemies.values() if e.sim}
+ENEMY_KINDS: dict[str, tuple[int, str]] = {e.id: (e.max_hp, e.tile) for e in CAT.enemies.values() if e.sim}
 _ENEMY_TILES = sorted({t for e in CAT.enemies.values() if e.sim for t in e.tiles})
 # tile id: damage / cooldown of the tiles those units carry. Sword and Summon
 # cooldowns are hypotheses (catalogue cooldown_source); logged re-arm timing settles them.
@@ -306,14 +306,20 @@ class State:
     # phase that brings its count to 0, on its cell and both neighbours (rules._bomb_tick) [rec: collect/20261028-190026
     # f1535-f1540, collect/20261029-160032 f1717-f1726]
     bombs: list = field(default_factory=list)
+    # the Shogun's Corrupted Barrage: [centre, next distance, enemy phases to wait]; at the end of an enemy phase that
+    # finds it waiting no more it strikes the two cells at that distance and grows (rules._ring_tick) [rec:
+    # collect/20261028-190026 f1802-f1807]
+    rings: list = field(default_factory=list)
 
     def clone(self) -> "State":
         return State(self.cells, self.hero.clone(), [e.clone() for e in self.enemies],
-                     self.level, self.wave, self.waves_total, self.turn, [list(b) for b in self.bombs])
+                     self.level, self.wave, self.waves_total, self.turn, [list(b) for b in self.bombs],
+                     [list(r) for r in self.rings])
 
     def key(self) -> tuple:
         return (self.cells, self.hero.key(), tuple(sorted(e.key() for e in self.enemies if e.hp > 0)),
-                self.wave, self.waves_total, tuple(tuple(b) for b in sorted(self.bombs)))
+                self.wave, self.waves_total, tuple(tuple(b) for b in sorted(self.bombs)),
+                tuple(tuple(r) for r in sorted(self.rings)))
 
     # ---- helpers ------------------------------------------------------------
     def unit_at(self, x: int):
@@ -371,4 +377,6 @@ class State:
         board = " ".join(out)
         if self.bombs:
             board += " " + " ".join(f"bomb@{c}:{n}" for c, n in sorted(self.bombs))
+        if self.rings:
+            board += " " + " ".join(f"ring@{c}:{r}:{w}" for c, r, w in sorted(self.rings))
         return board

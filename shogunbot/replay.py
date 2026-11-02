@@ -18,11 +18,15 @@ import numpy as np
 from PIL import Image
 
 from .bridge import Tracker
+from .catalogue import CAT
 from .model import BOSS_KINDS, ENEMY_KINDS
 from .perception.perceive import perceive
 from .rules import step, legal_hero_actions
 
 KEY_ACTION = {"A": "left", "D": "right", "W": "turn", "S": "wait", "SPACE": "attack"}
+# units whose HP the screen does not show, so a read is not scored on it: the bosses (their bar is read apart) and the
+# Shogun's Summoners, which have no pips (they read 0 on every frame of both fights, rec1 f1741-f1793, rec2 f1919-f1956)
+UNSHOWN_HP = frozenset(BOSS_KINDS) | frozenset(k for k, e in CAT.enemies.items() if e.behaviour.get("summoner_of"))
 
 
 def _sig(s) -> dict:
@@ -174,12 +178,12 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
         if q.screen not in ("combat", "boss") or q.hero is None:
             continue
         obs_sig = {"hero": (q.hero["x"], q.hero["hp"]),
-                   "enemies": sorted((e["x"], e["kind"], e["hp"] if e["kind"] not in BOSS_KINDS else None)
+                   "enemies": sorted((e["x"], e["kind"], e["hp"] if e["kind"] not in UNSHOWN_HP else None)
                                      for e in q.enemies)}
         preds = []
         for prob, s2, ev in outs:
             sg = _sig(s2)
-            sg["enemies"] = sorted((x, k, h if k not in BOSS_KINDS else None) for x, k, h in sg["enemies"])
+            sg["enemies"] = sorted((x, k, h if k not in UNSHOWN_HP else None) for x, k, h in sg["enemies"])
             preds.append((prob, sg, {(e.x, e.kind): e.alt for e in s2.alive() if e.alt}))
         n += 1
         ties = kind_ties(regions())

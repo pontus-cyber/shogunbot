@@ -267,6 +267,57 @@ def cunning_intent(s: State, e, f: dict) -> str:
     return "queue"
 
 
+def shogun_intent(s: State, e, f: dict) -> str:
+    """The Shogun's telegraph [wiki: The Shogun] [rec: collect/20261028-190026 f1739-f1830, collect/20261029-160032
+    f1916-f2007; survey of 2026-11-02]. Phase 2 (his second bar) as Hideyoshi's combos (cunning_intent). Phase 1, what the
+    wiki says ('he runs up, attacks with the tile, backs off, and repeats') in the order the frames allow [hyp beyond
+    them]: the fight's first phase he rests (no bubble: rec1 f1741, rec2 f1917-f1919); a Charge gets its Spear the phase
+    after (rec1 f1775-f1778, rec2 f1941-f1943); a loaded tile that reaches the hero, Mirror, or the full Charge and Spear
+    fires (Quick: the phase after the load, rec1 f1743-f1744, f1762-f1763); a tile that does not reach him yet: a turn to
+    him when facing away, else a step toward him (rec1 f1757-f1759) or, blocked, the fire; the phase after a fire he steps
+    away when he can; facing away he turns; else he loads. f: features()."""
+    kind = CAT.enemy(e.kind)
+    if kind.phase(e.hp) >= kind.phases:
+        return cunning_intent(s, e, f)
+    if f["last"] is None and e.fage is None and not e.queue:
+        return "hold"
+    toward = 1 if s.hero.x > e.x else -1
+
+    def step(d: int) -> str:
+        nx = e.x + d
+        if not s.in_bounds(nx) or s.unit_at(nx) is not None:
+            return "hold"
+        return "move-right" if d > 0 else "move-left"
+
+    if e.queue:
+        if kind.combo_next(e.queue, abs(e.x - s.hero.x)):
+            return "queue"
+        if f["in_fp"] or e.queue[0] == "mirror" or len(e.queue) > 1:
+            return "fire"
+        if CAT.tile(e.queue[0]).directional and not f["face"]:
+            return "turn"
+        mv = step(toward)
+        return mv if mv != "hold" else "fire"
+    if e.fage == 0:
+        mv = step(-toward)
+        if mv != "hold":
+            return mv
+    if not f["face"]:
+        return "turn"
+    return "queue"
+
+
+def summoner_intent(s: State, e, f: dict) -> str:
+    """The Shogun's Summoners [wiki: The Shogun] [rec: collect/20261028-190026 f1742-f1745, f1763-f1765, f1787-f1791;
+    collect/20261029-160032 f1920-f1921, f1946-f1947]: a load ('+'), held a phase, then fired; they never move or turn
+    (Heavy, facing the centre) [hyp: the cadence between uses]."""
+    if e.queue:
+        return "hold" if f["last"] == "queue" or e.wind < 1 else "fire"
+    if e.fage == 0:
+        return "hold"
+    return "queue"
+
+
 def shieldless_ally(s: State, e, d: int):
     """The first unit after e in direction d that is an enemy without a shield, passing the hero and shielded allies:
     what Ally Shield shields [wiki: Tiles] [rec: collect/20261028-190026 f1063-f1064, f1204-f1205]."""
@@ -322,11 +373,15 @@ def intents(s: State, e, m: Model | None = None) -> list[tuple[float, str]] | No
         return [(1.0, cycle_intent(len(e.queue), f["last"], e.wind if len(e.queue) >= 3 else 0))]
     if b.get("coward"):
         return [(1.0, coward_intent(s, e, f))]
+    if b.get("phase1"):
+        return [(1.0, shogun_intent(s, e, f))]
     if b.get("chains"):
         return [(1.0, cunning_intent(s, e, f))]
     own = CAT.enemy(e.kind).behaviour if not boss and e.kind in CAT.enemies else {}
     if own.get("guard"):
         return [(1.0, guard_intent(s, e, f))]
+    if own.get("summoner_of"):
+        return [(1.0, summoner_intent(s, e, f))]
     sync = own.get("synced_with")
     if sync:
         # The Summoner loads its bell with the Statue's first load of a cycle and summons with its second [rec: rec1

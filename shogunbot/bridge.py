@@ -15,7 +15,7 @@ from . import behaviour
 from .catalogue import CAT
 from .model import (BOSS_KINDS, DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, HEAVY_KINDS, UNFREEZABLE_KINDS, Enemy, Hero,
                     Kit, KitTile, State)
-from .rules import CHAINS, ICE_TURNS, SPEC, apply_hero, Events, _enemy_fire
+from .rules import CHAINS, ICE_TURNS, PHASED, SPEC, apply_hero, chained, Events, _enemy_fire
 
 BOSS_HP = {k: CAT.enemy(k).hp for k in BOSS_KINDS}         # the bar's full width [wiki]: Daisuke 15, Rei 13
 BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
@@ -245,6 +245,10 @@ class Tracker:
         self.chain_prev: dict = {}          # kind -> (queue, telegraph) of a combo boss when the bot last acted
         self.bombs: dict = {}               # cell -> enemy phases left: Hideyoshi's bombs on the floor (State.bombs)
         self.bombs_new: dict = {}           # bombs his combo places in the coming enemy phase (acted), cell -> phases left
+        self.rings: list = []               # the Shogun's Corrupted Barrage rings (State.rings), as of the hero's turn
+        self.rings_new: list = []           # rings his combo places in the coming enemy phase (acted)
+        self.boss_phase: dict = {}          # kind -> the phase of a boss with more than one bar (the Shogun)
+        self.boss_frac: dict = {}           # kind -> his bar's last read
 
     # ------------------------------------------------------------------
     def next_level(self) -> None:
@@ -316,6 +320,8 @@ class Tracker:
             self.cycle = self._cycle_now = None
             self.loaded_tile = {}
             self.bombs, self.bombs_new = {}, {}
+            self.rings, self.rings_new = [], []
+            self.boss_phase, self.boss_frac = {}, {}
             self.chain_prev = {}
 
         h = p.hero
@@ -377,6 +383,13 @@ class Tracker:
             # stayed on, and t82's -2 was planned as -1
             self.shield = False
             self.notes.append(f"hero moved from {self.hero_x_after} to {h['x']} by an enemy: no shield")
+        if "shield_on_damage" in kit.fx and self.last_hp and 0 < hp < self.last_hp:
+            # Reactive Shield: HP lost gives the hero a shield [wiki: skills], which stays until an attack hits it. Run
+            # 20261102-145513 t529: the shield from an earlier hit took the Grappler's Hook and its Sword cut the hero
+            # (-2, a new shield after it); untracked, the Hook was planned to hit (-1), its shield to take the Sword
+            # (the same at t740, the Shadow Charger's Charge and Sword) [core-requests item 11]
+            self.shield = True
+            self.notes.append(f"HP {self.last_hp} -> {hp}: Reactive Shield")
         if hp:
             self.last_hp = hp
         # the red ticks under the hero count the turns his swap still needs (Quick Recovery shortens it)
@@ -404,7 +417,9 @@ class Tracker:
                 if was:
                     self.notes.append(f"enemy at {e['x']}: kept as {was} (read as {kind}, no tile in its bubble)")
                     kind = was
-            if kind in BOSS_KINDS:
+            if kind in PHASED:
+                hp_e = self._phased_hp(kind, p.boss_frac)
+            elif kind in BOSS_KINDS:
                 hp_e = max(1, round((p.boss_frac or 1.0) * BOSS_HP[kind]))
             else:
                 hp_e = e["hp"] or ENEMY_KINDS[kind][0]
@@ -415,7 +430,14 @@ class Tracker:
                 # reads are icon misses, set to his first tile [run 20261027-182237 crashed on a
                 # 'spear' read]. Hideyoshi's stack is always a part of one of his combos (CAT chain_fix)
                 own = BOSS_TILES[kind]
-                fixed = CAT.enemy(kind).chain_fix(queue) if kind in CHAINS else queue
+                last_phase = kind not in PHASED or CAT.enemy(kind).phase(hp_e) == CAT.enemy(kind).phases
+                if kind in PHASED and any(t not in own for t in queue) and self.chain_prev.get(kind, ([], None))[0]:
+                    # the Shogun's yellow frames: flames over the bubble read as the red bell (rec2 f1935, his Spear):
+                    # the stack he loaded is the one he fires
+                    was = list(self.chain_prev[kind][0])
+                    self.notes.append(f"{kind} queue read {queue}; kept {was}")
+                    queue = was
+                fixed = CAT.enemy(kind).chain_fix(queue) if kind in CHAINS and last_phase else queue
                 fixed = [t if t in own else own[0] for t in fixed]
                 if fixed != queue:
                     self.notes.append(f"{kind} queue read {queue}; set to {fixed}")
@@ -465,13 +487,14 @@ class Tracker:
             unit = (CAT.enemy(keep.kind).summons or next((e.summons for e in CAT.enemies.values()
                                                           if e.behaviour.get("synced_with") == keep.kind), None)
                     or "charger")
+            minder = next((k for k, e in CAT.enemies.items() if e.behaviour.get("summoner_of") == keep.kind), None)
             for en in bosses:
                 if en is not keep:
                     # a unit that stood there last turn keeps its kind and HP: the Summoner on cell 0 read as
                     # The Statue while the Hook pulled the hero past it, and a summoned Tachi on cell 3 the
                     # turn after it came [rec: collect/20261028-190026 f0868-f0869, f0879]
                     was = next((q for q in self.prev if q[0] not in BOSS_KINDS and q[1] == en.x), None)
-                    k = was[0] if was else unit
+                    k = was[0] if was else minder if minder and en.x in (0, cells - 1) else unit
                     en.kind, en.hp = k, (self.prev_hp.get(en.x) if was else None) or ENEMY_KINDS[k][0]
                     en.queue = [t for t in en.queue if t in CAT.enemy(k).tiles][:1]
             self.notes.append(f"{len(bosses)} {keep.kind} reads; kept cell {keep.x}")
@@ -494,7 +517,8 @@ class Tracker:
         self._cycle(enemies)
 
         s = State(cells, hero, enemies, level=level,
-                  wave=1, waves_total=0 if level.endswith("boss") else 99, bombs=self._bombs(p, cells))
+                  wave=1, waves_total=0 if level.endswith("boss") else 99, bombs=self._bombs(p, cells),
+                  rings=self._rings(cells))
         from .rules import _hits_hero
         for en in enemies:
             if (en.kind in behaviour.QUICK and en.queue and en.intent in ("hold", None) and en.x in sure
@@ -510,6 +534,29 @@ class Tracker:
         self._rule_telegraphs(s)
         self._chain_rules(s)
         return s
+
+    def _phased_hp(self, kind: str, frac) -> int:
+        """A boss with more than one bar (the Shogun: two of 40, pooled in the simulator): the bars still to come plus this
+        one's read. A bar that gains more than half its width starts the next phase (no heal comes near that) [rec:
+        collect/20261028-190026 f1794 0.072 -> f1797 1.000; collect/20261029-160032 f1957 0.097 -> f1960 1.000]."""
+        k = CAT.enemy(kind)
+        ph = self.boss_phase.get(kind, 1)
+        last = self.boss_frac.get(kind)
+        if frac is None:                    # no bar read on this frame (the fight's first frames): the last read
+            frac = 1.0 if last is None else last
+        if last is not None and frac - last > 0.5 and ph < k.phases:
+            ph += 1
+            self.loaded_tile[kind] = "phase2"     # his opening comes next (rules._boss_queue)
+            self.notes.append(f"{kind}: his bar refilled ({last:.2f} -> {frac:.2f}); phase {ph}")
+        self.boss_phase[kind], self.boss_frac[kind] = ph, frac
+        return max(1, round(frac * k.hp)) + k.hp * (k.phases - ph)
+
+    def _rings(self, cells: int) -> list:
+        """The Shogun's Corrupted Barrage rings, [centre, next distance, phases to wait]: those his last combo placed
+        (acted) and those tracked from before, already grown by the phase just played."""
+        out = [list(r) for r in self.rings] + [list(r) for r in self.rings_new]
+        self.rings, self.rings_new = [list(r) for r in out], []
+        return out
 
     def _bombs(self, p, cells: int) -> list:
         """The bombs on the floor, [cell, enemy phases left]: those Hideyoshi's last combo placed (acted: 2 phases left,
@@ -538,7 +585,7 @@ class Tracker:
         faces away from the hero, and a '+' with nothing loaded that he faces him (he turns first): either sets the
         tracked facing, which his sprite does not show (no templates past Stage 1)."""
         for e in s.enemies:
-            if e.kind not in CHAINS:
+            if not chained(e):
                 continue
             kind = CAT.enemy(e.kind)
             if e.last == "fire" and e.queue:
@@ -945,6 +992,11 @@ class Tracker:
         # hero (Origin and Mirror change places with a unit: no hit, so a shield stays) and place a bomb
         self.bombs = {c: n - 1 for c, n in self.bombs.items() if n - 1 > 0}
         self.bombs_new = {}
+        # rings: the coming enemy phase strikes each at its next distance and grows it (rules._ring_tick)
+        rs = State(s.cells, s.hero.clone(), [], rings=[list(r) for r in self.rings])
+        from .rules import _ring_tick
+        _ring_tick(rs, Events())
+        self.rings, self.rings_new = rs.rings, []
         fired = {}
         self.chain_prev = {e.kind: (list(e.queue), e.intent) for e in s.alive() if e.kind in CHAINS}
         for e in s2.alive():
@@ -955,6 +1007,11 @@ class Tracker:
                 _enemy_fire(c, ce, Events())
                 fired[e.kind] = (e.x, ce.x, ce.facing)
                 self.bombs_new.update({x: n - 1 for x, n in c.bombs})
+                for r in c.rings:
+                    rr = State(c.cells, c.hero.clone(), [], rings=[list(r)])
+                    from .rules import _ring_tick
+                    _ring_tick(rr, Events())
+                    self.rings_new.extend(rr.rings)
                 if c.hero.x != s2.hero.x:
                     self.hero_x_after = c.hero.x
         # where each enemy stands once the hero has acted (a swap moves one), and its telegraph

@@ -181,6 +181,11 @@ GATED_ICONS = (frozenset({"volley", "grappling_hook", "shuriken", "smoke_bomb", 
                | frozenset(str(k) for k in ICO_K if "@" in str(k)))
 
 
+# a boss who draws some tiles as another one does (catalogue behaviour 'icon_art'): the Shogun's Origin of Symmetry, Mirror
+# and Back Charge are Hideyoshi's drawings, which read them at 0.5-1.0 [rec: collect/20261028-190026 f1743, f1800, f1811]
+ICON_ART = {k: {e.behaviour["icon_art"]} for k, e in CAT.enemies.items() if e.behaviour.get("icon_art")}
+
+
 def open_icons(pips: int, base_hp: dict, elites: bool, boss_tiles=(), boss: str | None = None) -> frozenset:
     """The gated icons a unit with these HP pips may carry: those of the roster's kinds whose HP fits (and their
     'tile@kind' templates), and for a unit without pips (a boss) those of the route's current boss."""
@@ -190,12 +195,13 @@ def open_icons(pips: int, base_hp: dict, elites: bool, boss_tiles=(), boss: str 
     out |= {g for g in GATED_ICONS if "@" in g and g.split("@")[1] in fits}
     if pips == 0:
         out |= {t for t in boss_tiles if t in GATED_ICONS}
-        out |= {g for g in GATED_ICONS if boss and g.endswith("@" + boss)}
+        out |= {g for g in GATED_ICONS if boss and "@" in g and g.split("@")[1] in {boss} | ICON_ART.get(boss, set())}
     return frozenset(out)
 
 
 def classify_icon(interior: np.ndarray, allowed: tuple | None = None,
-                  exclude: frozenset = GATED_ICONS) -> tuple[str, float]:
+                  exclude: frozenset = GATED_ICONS, bell: bool = True) -> tuple[str, float]:
+    """bell: False reads the drawing alone, without the orange bell's colour rule (read_stack's 'shape')."""
     v = cv2.resize(interior, (25, 24), interpolation=cv2.INTER_AREA).astype(np.float32).ravel() / 255
     d = ((ICO_X - v) ** 2).sum(1)
     if exclude:
@@ -208,7 +214,7 @@ def classify_icon(interior: np.ndarray, allowed: tuple | None = None,
     k = ICO_TILE[i]
     rest = d[(ICO_TILE != k) & np.isfinite(d)]
     other = rest.min() if len(rest) else d[i] * 2
-    if allowed:
+    if allowed or not bell:
         return str(k), float(np.clip((other - d[i]) / max(d[i], 1e-3), 0, 1))
     # orange bell = summon (only one template, so add a colour rule)
     hsv = cv2.cvtColor(interior, cv2.COLOR_RGB2HSV)
@@ -363,10 +369,11 @@ def classify_hero_icon(rgb: np.ndarray, y0: int, y1: int, cx: int, kit: tuple) -
     return str(K[i]), float(np.clip((other - best[i]) / max(best[i], 1e-3), 0, 1))
 
 
-def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS, hero_kit: tuple | None = None) -> list[dict]:
+def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS, hero_kit: tuple | None = None,
+               enemy: bool = False) -> list[dict]:
     """Bubble slots above a unit, bottom first: {type:'tile'|'plus', tile, colour, plus_colour}.
     exclude: icons the unit cannot carry (classify_icon). hero_kit: the hero's tiles, for his own bubbles
-    (classify_hero_icon)."""
+    (classify_hero_icon). enemy: an enemy's stack, whose bubbles are never framed grey (the hero's are)."""
     out = []
     for k in range(4):
         y0, y1 = SLOT_Y0 - SLOT_PITCH * k, SLOT_Y1 - SLOT_PITCH * k
@@ -380,14 +387,27 @@ def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS, hero_
                 break
         if col is None:
             break
+        if col == "grey" and enemy:
+            # an enemy's bubbles are framed red or yellow: a grey slot over it is the backdrop, the hanging cages and snow
+            # of Hideyoshi's Keep (rec1 f1564-f1591 over a Yari Master's Spear on cell 0: 'ally_shield' and '+'; rec2
+            # f1601-f1602 and f1629 over units with no bubble at all) and the grey sky with rain over the Shogun's and his
+            # Summoners' firing bubbles (rec1 f1744-f1745), whose '+' made a fire or a hold a load. From f1400 on in both
+            # recordings 75 frames read such slots over an enemy; the six looked at (those above, rec2 f1548) were backdrop
+            break
         interior = rgb[y0 + 12:y1 - 12, cx - 50:cx + 50]
         dark = (interior.astype(int).sum(axis=2) < 150).mean()
         if dark > 0.35:
+            shape = None
             if hero_kit:
                 tile, conf = classify_hero_icon(rgb, y0, y1, cx, hero_kit)
             else:
-                tile, conf = classify_icon(_aligned_interior(rgb, y0, y1, cx, exclude), exclude=exclude)
+                inner = _aligned_interior(rgb, y0, y1, cx, exclude)
+                tile, conf = classify_icon(inner, exclude=exclude)
+                if tile == "summon":
+                    shape = classify_icon(inner, exclude=exclude, bell=False)[0]
             out.append({"type": "tile", "tile": tile, "colour": col, "conf": round(conf, 2)})
+            if shape:
+                out[-1]["shape"] = shape
         else:
             plus = plus_sign(rgb, y0, y1, cx)
             if plus is None:
@@ -842,7 +862,7 @@ def merge_blink(p: "Perception", frames: list) -> list[str]:
         if e["intent"] in ("fire", "move-left", "move-right", "turn"):
             continue
         for f in frames:
-            stack = read_stack(f, e["cx"])
+            stack = read_stack(f, e["cx"], enemy=True)
             tiles = [t for t in stack if t["type"] == "tile"]
             plus = [t for t in stack if t["type"] == "plus"]
             if e["queue"] and tiles and tiles[0]["colour"] == "yellow":
@@ -932,6 +952,18 @@ class Perception:
 
 # units that fight beside a boss from its fight's start: The Statue's Summoner [catalogue 'synced_with']
 BOSS_PARTNER = {e.behaviour["synced_with"]: k for k, e in CAT.enemies.items() if e.sim and e.behaviour.get("synced_with")}
+# The Shogun's Summoners stand on the arena's end cells and show no HP pips, as he does: their sprite is dark armour, his red
+# and black. Red sprite pixels (R > 120, R > G + 50, R > B + 40): 1,150-1,410 on theirs; 2,000-4,200 on his but for one
+# frame in the middle of his Mirror (1,361, on cell 2) [rec: collect/20261028-190026 f1741-f1814, collect/20261029-160032
+# f1917-f1974]
+SUMMONER_OF = {e.behaviour["summoner_of"]: k for k, e in CAT.enemies.items() if e.sim and e.behaviour.get("summoner_of")}
+BOSS_RED_MIN = 1800
+
+
+def sprite_red(rgb: np.ndarray, cx: int) -> int:
+    """Red pixels in the unit's sprite window (the Shogun against his Summoners)."""
+    a = rgb[SPRITE_Y0:SPRITE_Y1, max(0, cx - 64):cx + 64].astype(int)
+    return int(((a[..., 0] > 120) & (a[..., 0] > a[..., 1] + 50) & (a[..., 0] > a[..., 2] + 40)).sum())
 
 
 def boss_kind(regions: tuple[str, ...], cells: int) -> str:
@@ -959,6 +991,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
     conf = {}
     bk = boss_kind(regions, len(cs))
     boss_tiles = CAT.enemies[bk].tiles                                # icons open on a unit without pips
+    if bk in SUMMONER_OF:
+        boss_tiles = boss_tiles + CAT.enemies[SUMMONER_OF[bk]].tiles   # (his Summoners show no pips either)
     partner = BOSS_PARTNER.get(bk)                                    # a unit that fights beside this boss
     # shields are read in a region whose own units or boss give them (Hot Springs): the later regions' backdrops tint
     # many units teal (recording 1 after Hot Springs: 258 of 938 unit-frames at SHIELD_FRAC or more)
@@ -976,7 +1010,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
             kind, facing, kc = classify_sprite(crop)
             if c["kind"] == "enemy":
                 g, r = enemy_hp(rgb, cx)
-                stack = read_stack(rgb, cx, exclude=GATED_ICONS - open_icons(g + r, base_hp, day != 1, boss_tiles, bk))
+                stack = read_stack(rgb, cx, exclude=GATED_ICONS - open_icons(g + r, base_hp, day != 1, boss_tiles, bk),
+                                   enemy=True)
             else:
                 stack = read_stack(rgb, cx, hero_kit=tuple(kit_tiles) if kit_tiles else None)
             marker = plate_marker(rgb, cx)
@@ -1024,6 +1059,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                     # reads as a fight and only the sprite (Daisuke's, the one boss sprite known)
                     # says boss [run 20261029-124921 t159: Iwao read as Daisuke]
                     kind = boss_kind(regions, len(cs))
+                    if kind in SUMMONER_OF and i in (0, len(cs) - 1) and sprite_red(rgb, cx) < BOSS_RED_MIN:
+                        kind = SUMMONER_OF[kind]
                 else:
                     by_pips, alt = decide_kind(g + r, by_tile, kind if kc >= SPRITE_KIND_CONF else None, elite,
                                                base_hp, elites=day != 1, visitors=visitors)
@@ -1051,11 +1088,36 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                       "intent": intent, "spawning": spawning, "elite": elite, "alt": alt,
                       "shield": shields and shield_frac(rgb, cx) >= SHIELD_FRAC,
                       "orb": shields and orb_pixels(rgb, cx) >= ORB_PX}
+                if any(t.get("shape") for t in tiles):
+                    en["shape"] = [t.get("shape") for t in tiles]
                 p.enemies.append(en)
                 conf[f"enemy{i}"] = round(kc, 2)
             entry["unit"] = kind
         cell_list.append(entry)
     p.cells = cell_list
+    bosses = [e for e in p.enemies if e["kind"] in CAT.enemies and CAT.enemies[e["kind"]].boss]
+    ends = (0, len(cs) - 1)
+    if bk in SUMMONER_OF and len(bosses) > 1 and any(e["x"] not in ends for e in bosses):
+        # one Shogun: a Summoner whose red bell glows reads his red (rec1 f1765 cell 0: 5,378 red px, f1792 cell 6: 5,356;
+        # rec2 f1945 cell 0: 1,824); with his read off the end cells, the end cells' reads are his Summoners
+        for e in bosses:
+            if e["x"] in ends:
+                e["kind"] = cell_list[e["x"]]["unit"] = SUMMONER_OF[bk]
+        bosses = [e for e in bosses if e["x"] not in ends]
+    if len(bosses) == 1 and "summon" not in CAT.enemies[bosses[0]["kind"]].tiles and bosses[0].get("shape"):
+        # a boss without the bell: the orange flames over the Shogun's yellow frames passed the bell's colour rule, so a
+        # fire read 'summon' where the drawing read his own tile at once (rec1 f1753 his Mirror, f1816 his Shuriken; the
+        # tracker then took his first tile, the Sword, and planned a 2-HP cut that never came). The drawing's tile counts
+        # when it is one of his, and only with one boss read: a second is a Summoner read as him (rec1 f1765), whose
+        # bell the tracker keeps
+        e, own = bosses[0], CAT.enemies[bosses[0]["kind"]].tiles
+        e["queue"] = [s if t == "summon" and s in own else t for t, s in zip(e["queue"], e["shape"])]
+    for e in p.enemies:
+        # the Shogun's Summoners carry the bell, and their firing Ally Shield passes its colour rule too (its yellow beam,
+        # rec1 f1745); their bells read as Hideyoshi's bell drawing (f1763, f1787-f1791), so a drawing of their other tile wins
+        k = CAT.enemies.get(e["kind"])
+        if k and k.behaviour.get("summoner_of") and e.get("shape"):
+            e["queue"] = [s if t == "summon" and s in k.tiles and s != "summon" else t for t, s in zip(e["queue"], e["shape"])]
     p.warn = warn_cells(rgb, [c["cx"] for c in cs])
     p.bomb_ok = bool(BOMB_TILES & ({t for e in CAT.region_enemies(here) + CAT.region_visitors(here) for t in e.tiles}
                                    | set(boss_tiles)))

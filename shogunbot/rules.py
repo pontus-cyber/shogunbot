@@ -29,12 +29,26 @@ PAIRED = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).pair > 1)   # bosses wh
 ALTERNATE = {k: tuple(CAT.enemy(k).behaviour["alternate"]) for k in ENEMY_KINDS if CAT.enemy(k).behaviour.get("alternate")}
 # bosses whose allies vanish when they die (catalogue behaviour 'allies_vanish': Kowa)
 VANISH = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).behaviour.get("allies_vanish"))
-# bosses that load whole combos (catalogue behaviour 'chains': Hideyoshi)
+# bosses that load whole combos (catalogue behaviour 'chains': Hideyoshi; the Shogun in phase 2)
 CHAINS = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).behaviour.get("chains"))
+# bosses with more than one HP bar (catalogue 'phases': the Shogun, two of 40, pooled in Enemy.hp)
+PHASED = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).phases > 1)
+RING = CAT.tile("corrupted_barrage")
+
+
+def phase_of(e) -> int:
+    """The phase a boss is in (1 for a boss with one bar)."""
+    return CAT.enemy(e.kind).phase(e.hp) if e.kind in PHASED else 1
+
+
+def chained(e) -> bool:
+    """A boss that loads whole combos now: Hideyoshi always, the Shogun in his last phase [wiki: The Shogun]."""
+    return e.kind in CHAINS and (e.kind not in PHASED or phase_of(e) == CAT.enemy(e.kind).phases)
 # a bomb's explosion: its cell and both neighbours [wiki: Hideyoshi the Cunning: 'In a corner, his Bomb hits only 2
 # cells instead of 3'] [rec: collect/20261028-190026 f1554, collect/20261029-160032 f1726]; its damage is the tile's
 BOMB = CAT.tile("bomb")
 BOMB_SOURCE = SimpleNamespace(kind="bomb", uid=0)
+RING_SOURCE = SimpleNamespace(kind="corrupted_barrage", uid=0)
 
 
 def effect_tile(kind: str, effect: str) -> str | None:
@@ -169,6 +183,23 @@ def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events, cannot_
         dmg = min(dmg, e.hp - 1)   # Nagiboku leaves at least 1 HP [wiki]
         if dmg <= 0:
             return
+    if e.kind in PHASED and phase_of(e) < CAT.enemy(e.kind).phases:
+        # the Shogun: the hit that empties his first bar stops there; phase 2 starts on a full bar, both fighters keep
+        # their cells and every other unit dies [wiki: The Shogun] [rec: collect/20261028-190026 f1794-f1797: the bar
+        # 0.072 -> 1.000, the Summoners and the summoned units gone]
+        per = CAT.enemy(e.kind).hp
+        floor = per * (CAT.enemy(e.kind).phases - phase_of(e))
+        if e.hp - dmg <= floor:
+            dmg = e.hp - floor
+            e.hp = floor
+            ev.enemy_damage.append((e.kind, e.uid, dmg, source))
+            ev.enemy_actions.append((e.uid, "phase 2"))
+            for o in s.enemies:
+                if o is not e and o.hp > 0:
+                    o.hp = 0
+                    ev.kills.append((o.kind, o.uid, "phase 2"))
+            e.queue, e.intent, e.primed, e.loaded = [], None, False, "phase2"
+            return False
     e.hp -= dmg
     ev.enemy_damage.append((e.kind, e.uid, dmg, source))
     if e.hp <= 0:
@@ -262,8 +293,13 @@ def _hero_hit(s: State, e: Enemy, kt, spec: dict, ev: Events, moved: bool = Fals
 def _hero_attack(s: State, kt, ev: Events, boost: int = 0, dyn: int = 0) -> bool:
     """Fire one kit tile from the hero's current cell. Returns True when the tile recharges at once
     (Perfect Strike). boost: extra damage on every hit (Dynamic Boost after a tile moved the hero this
-    turn); dyn: Dynamic Boost's bonus, which a dash tile also gets on its own strike once it has moved
-    the hero [hyp: the wiki says 'if you moved with a tile in the same turn']."""
+    turn). dyn (Dynamic Boost's bonus) is not added to a dash tile's own strike: 0.31-0.47 added it once
+    the dash had moved the hero [hyp], and on the logged turns the strike dealt the tile's damage alone in
+    18 of 19 clean cases (dash moved the hero, target unshielded and uncursed, hit by nothing else, alive
+    after it; the one other is Kowa, whose bar reads in steps), and 4 where 6 was planned under Mass Curse
+    (runs 20261102-004152 t634: the Grappler left at 1 HP hooked and cut the hero, -3; -145513 t361);
+    run 20261102-004152 t738: a 4-HP Yari Master planned dead at 1 HP speared him (-2) [core-requests
+    item 11]."""
     h = s.hero
     spec = CAT.tile(kt.tile).attack
     k = spec["kind"]
@@ -304,7 +340,7 @@ def _hero_attack(s: State, kt, ev: Events, boost: int = 0, dyn: int = 0) -> bool
             else:
                 moved = h.x != u.x - d
                 h.x = u.x - d
-                recharge |= _hero_hit(s, u, kt, spec, ev, moved, max(boost, dyn) if moved else boost)
+                recharge |= _hero_hit(s, u, kt, spec, ev, moved, boost)
         elif k == "dash":
             # the Dash: forward as far as possible [wiki: Tiles]
             while s.in_bounds(h.x + d) and s.unit_at(h.x + d) is None:
@@ -324,7 +360,7 @@ def _hero_attack(s: State, kt, ev: Events, boost: int = 0, dyn: int = 0) -> bool
             if passed and s.in_bounds(nx):
                 h.x = nx
                 for e in passed:
-                    recharge |= _hero_hit(s, e, kt, spec, ev, True, max(boost, dyn))
+                    recharge |= _hero_hit(s, e, kt, spec, ev, True, boost)     # (as the Charge's: hyp)
     return recharge
 
 
@@ -561,6 +597,10 @@ def _intent_options(s: State, e: Enemy, move_or_wait):
             # collect/20261028-190026 f1002, f1117, f1181, f1215; collect/20261029-160032 f1162, f1315]
             ally = behaviour.shieldless_ally(s, e, e.facing) is not None
             return [(1.0, ("queue", effect_tile(e.kind, "ally_shield" if ally else "self_shield")))]
+        if CAT.enemy(e.kind).behaviour.get("summoner_of"):
+            # the Shogun's Summoners: Ally Shield with a shieldless ally ahead, else the bell [hyp from rec1 f1742-f1765]
+            ally = behaviour.shieldless_ally(s, e, e.facing) is not None
+            return [(1.0, ("queue", "ally_shield" if ally else "summon"))]
         seq = CAT.enemy(e.kind).behaviour.get("sequence")
         if seq and len(e.queue) < len(seq):
             # the Grappler loads its Hook, then its Sword [rec: collect/20261028-190026 f0776-f0778,
@@ -582,12 +622,39 @@ def _boss_queue(s: State, e: Enemy, move_or_wait) -> list[tuple[float, tuple]]:
     kind = CAT.enemy(e.kind)
     b = kind.behaviour
     dist = abs(e.x - s.hero.x)
+    if e.kind in PHASED and not chained(e):
+        # the Shogun, phase 1: Charge is followed by the Spear ('combos'); with nothing loaded one of his phase-1 tiles
+        # or the Charge, never the one he used last, evenly [wiki: The Shogun] [hyp: the order]
+        nxt = kind.combo_next(e.queue, 1)
+        if nxt:
+            return [(1.0, ("queue", nxt))]
+        firsts = list(b["phase1"]["single"]) + list(b.get("combos", {}))
+        opts = [t for t in firsts if t != e.loaded] or firsts
+        return [(1.0 / len(opts), ("queue", t)) for t in opts]
     if e.kind in CHAINS:
         # Hideyoshi: a combo's next tile; with nothing loaded the first tile of a combo or the Summon, never what he
         # used last (e.loaded) [wiki: 'never repeats the same combo twice in a row'], evenly [hyp: 14 uses seen]
         nxt = kind.chain_next(e.queue)
         if nxt:
             return [(1.0, ("queue", nxt))]
+        if e.kind in PHASED:
+            # the Shogun, phase 2: Origin first [wiki: 'If he isn't on the center cell, he first uses Origin']; the
+            # Shuriken alone after Back Charge and Mirror ('then') [wiki]; on the centre the Barrage alone [rec:
+            # collect/20261029-160032 f1984-f1985]; never the same moveset twice in a row
+            centre = e.x == s.cells // 2
+            barrage = "corrupted_barrage" if centre else b["opening2"]
+            if e.loaded == "phase2":
+                return [(1.0, ("queue", barrage))]
+            then = b.get("then", {}).get(e.loaded)
+            if then:
+                return [(1.0, ("queue", then))]
+            last = next((k for k, v in b.get("then", {}).items() if v == e.loaded), e.loaded)
+            if last == "corrupted_barrage":
+                last = b["opening2"]
+            firsts = [c[0] for c in b["chains"]]
+            opts = [t for t in firsts if t != last] or firsts
+            opts = [barrage if t == b["opening2"] else t for t in opts]
+            return [(1.0 / len(opts), ("queue", t)) for t in opts]
         firsts = [c[0] for c in b["chains"]] + list(b.get("single", ()))
         opts = [t for t in firsts if t != e.loaded] or firsts
         return [(1.0 / len(opts), ("queue", t)) for t in opts]
@@ -665,6 +732,7 @@ def _boss_options(s, e, d, dist, facing_hero, move_or_wait):
         saved = e.intent
         try:
             e.intent = (behaviour.coward_intent(s, e, f) if kind.behaviour.get("coward")
+                        else behaviour.shogun_intent(s, e, f) if e.kind in PHASED
                         else behaviour.cunning_intent(s, e, f))
             return _intent_options(s, e, move_or_wait) or [(1.0, ("wait",))]
         finally:
@@ -825,6 +893,11 @@ def _enemy_fire(s: State, e: Enemy, ev: Events) -> None:
             e.x = to
             if spec["effect"] == "mirror_position":
                 e.facing = -e.facing
+        elif k == "other" and spec.get("effect") == "corruption_ring":
+            # the Shogun's Corrupted Barrage: pillars on the two cells at distance 1 now, then one cell further out in
+            # each of the next enemy phases (the ring: _ring_tick) [rec: collect/20261028-190026 f1802-f1805]
+            _ring_strike(s, e.x, spec.get("first", 1), dmg, ev)
+            s.rings.append([e.x, spec.get("first", 1) + 1, 1])
         elif k == "other" and spec.get("effect") == "bomb":
             # a bomb on the cell directly ahead, a unit standing there or not (rec1 f1536, rec2 f1719: under the hero);
             # it explodes at the end of the second enemy phase after this one (_bomb_tick counts this one too)
@@ -954,6 +1027,41 @@ def _bomb_tick(s: State, ev: Events) -> None:
     s.enemies = [x for x in s.enemies if x.hp > 0]
 
 
+def _ring_strike(s: State, c: int, r: int, dmg: int, ev: Events) -> None:
+    """The Corrupted Barrage on the two cells at distance r from c: it damages the hero and units, and heals a boss
+    [wiki: Tiles: 'damages units and heals bosses'; the heal not seen: hyp]."""
+    for x in (c - r, c + r):
+        if not s.in_bounds(x):
+            continue
+        if s.hero.x == x:
+            _hurt_hero(s.hero, dmg, RING_SOURCE, ev)
+        u = s.enemy_at(x)
+        if u is not None and u.hp > 0:
+            if u.kind in BOSS_KINDS:
+                u.hp = min(u.hp + dmg, ENEMY_KINDS[u.kind][0])
+            else:
+                _damage_enemy(s, u, dmg, "corrupted_barrage", ev)
+
+
+def _ring_tick(s: State, ev: Events) -> None:
+    """End of an enemy phase: a ring placed in it waits (State.rings 'wait'); one placed earlier strikes the two cells at
+    its next distance and grows by one; it ends once both are off the board [rec: collect/20261028-190026 f1803-f1807:
+    distance 1 with the fire, 2 the phase after (warning signs on cells 1 and 5 at f1804), 3 after that (cells 0 and 6,
+    f1805)]."""
+    if not s.rings:
+        return
+    left = []
+    for c, r, w in s.rings:
+        if w > 0:
+            left.append([c, r, w - 1])
+            continue
+        _ring_strike(s, c, r, RING.damage or 0, ev)
+        if s.in_bounds(c - r - 1) or s.in_bounds(c + r + 1):
+            left.append([c, r + 1, 0])
+    s.rings = left
+    s.enemies = [x for x in s.enemies if x.hp > 0]
+
+
 def _poison_tick(s: State, ev: Events) -> None:
     """End of turn: every poisoned enemy takes 1 damage [wiki]."""
     for e in s.alive():
@@ -992,6 +1100,7 @@ def enemy_phase(s: State, max_outcomes: int = 12) -> list[tuple[float, State, Ev
     total = sum(p for p, _, _ in frontier) or 1.0
     for _, st, ev in frontier:
         _bomb_tick(st, ev)
+        _ring_tick(st, ev)
         if poisoned:
             _poison_tick(st, ev)
         for e in st.enemies:

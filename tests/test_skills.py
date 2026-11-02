@@ -3,8 +3,8 @@ the user's purchases at f0181 (Combo Recharge), f0447-f0460 (Quick Recovery twic
 Two-Way Move) and f0787 (Healthy)]. The kit carries them as (id, level) pairs."""
 
 from shogunbot.catalogue import CAT
-from shogunbot.model import DEFAULT_KIT, HERO_MAX_HP, SWAP_COOLDOWN, Hero, Kit, State
-from shogunbot.rules import Events, apply_hero, legal_hero_actions
+from shogunbot.model import DEFAULT_KIT, HERO_MAX_HP, SWAP_COOLDOWN, Enemy, Hero, Kit, State
+from shogunbot.rules import Events, apply_hero, legal_hero_actions, step
 
 
 def test_the_catalogue_has_the_wikis_36_skills_with_recorded_prices():
@@ -175,7 +175,23 @@ def test_dynamic_boost_after_a_tile_moved_the_hero():
     s, ev = _fire(kit, 3, -1, [("ashigaru", 0, 1, 20)], ["charge", "swirl"])
     hits = [d for _, _, d, src in ev.enemy_damage]
     assert s.hero.x == 1 and hits[-1] == 6
-    assert hits[0] == 3            # the Charge's own strike after its move [hyp]
+    # the Charge's own strike gets no boost (0.48; 0.31-0.47 gave it one [hyp]): on the logged turns 18 of 19 clean
+    # dash strikes dealt the tile's damage alone; run 20261102-004152 t634: a Charge planned at 6 (2 + 1, doubled by
+    # Mass Curse) left the 5-HP Grappler at 1, and it hooked and cut the hero (-3) [core-requests item 11]
+    assert hits[0] == 1
     # nothing moved: no boost (a Charge with its target next to the hero; rec2 f1275 -> f1276 took 1)
     s, ev = _fire(kit, 1, -1, [("ashigaru", 0, 1, 20)], ["charge"])
     assert [d for _, _, d, _ in ev.enemy_damage] == [1]
+
+
+def test_the_charge_planned_to_kill_the_grappler_leaves_it_at_one_hp():
+    # run 20261102-004152 t634, Hot Springs III: the hero on cell 6 facing right with [swirl, charge] queued (Charge 2,
+    # Dynamic Boost 1), the Grappler on cell 8 (5 HP, cursed by Mass Curse at t633) loaded with Hook and Sword. Observed:
+    # the Grappler at 1 HP, and its Hook and Sword took 3 of the hero's 10
+    kit = Kit(()).add("swirl", damage=3).add("charge", damage=2).with_skill("dynamic_boost")
+    s = State(9, Hero(6, 1, hp=10, kit=kit, queue=["swirl", "charge"]),
+              [Enemy("grappler", 8, -1, 5, ["grappling_hook", "sword"], uid=3, intent="fire", cursed=True)],
+              level="stage5-3")
+    _, s2, ev = max(step(s, "attack"), key=lambda t: t[0])
+    assert [(k, d) for k, _, d, _ in ev.enemy_damage] == [("grappler", 4)]
+    assert s2.hero.hp == 7 and next(e for e in s2.enemies if e.kind == "grappler").hp == 1

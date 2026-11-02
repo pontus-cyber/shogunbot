@@ -51,6 +51,13 @@ Charge (a '1' and a downward arrowhead; Back Charge or Earth Impale at 0.1-0.2),
 or Earth Impale at 0.1), Bomb (a '3' and a black bomb; Earth Impale), and his Swirl, Earth Impale and Spear, which read
 right on red frames and as Earth Impale at 0.0 on yellow ones. His Summon is Rei's red bell and reads with its
 template (rec1 f1561, 1.0). The Shadow Charger's Charge and Sword read with the Stage 1 templates.
+
+The Shogun's Castle (0.48) [rec: collect/20261028-190026 f1739-f1830, collect/20261029-160032 f1916-f2007; survey of
+2026-11-02]: the Shogun's tiles as he draws them ('tile@the_shogun', open on a unit without pips in his arena): Charge (a '1'
+and an upward arrowhead; read as Spear at 0.2 before), the Corrupted Barrage (a '3' and a pink bar; Earth Impale at 0.1),
+the Shuriken (a '1' and a four-point star; Back Charge or Spear at 0.0-0.2), Mirror on his yellow frames (Summon at 1.0),
+and his Sword, Spear, Swirl, Origin and Back Charge. His Summoners' Ally Shield is the Shielder's and reads with its
+template once open (1.0).
 """
 
 from __future__ import annotations
@@ -499,6 +506,85 @@ SAMPLES = {   # label: [(frame relative to ROOT, the unit's centre x at 1080p, s
         ("collect/20261028-190026/f1547_SPACE.png", 492, 1),
         ("collect/20261028-190026/f1549_idle.png", 492, 1),
         ("collect/20261028-190026/f1550_CLICK.png", 492, 1),
+    ],
+    # The Shogun (0.48): his tiles as he draws them, red and yellow frames, both fights (his Origin, Mirror and Back Charge
+    # are Hideyoshi's drawings, catalogue 'icon_art'; these add his own frames); Charge is a '1' and an upward arrowhead,
+    # the Corrupted Barrage a '3' and a pink bar, the Shuriken a '1' and a four-point star [survey of 2026-11-02]
+    "mirror@the_shogun": [
+        ("collect/20261028-190026/f1743_idle.png", 1200, 0),
+        ("collect/20261028-190026/f1744_SPACE.png", 1200, 0),
+        ("collect/20261028-190026/f1752_idle.png", 920, 0),
+        ("collect/20261028-190026/f1753_SPACE.png", 920, 0),
+        ("collect/20261028-190026/f1812_SPACE.png", 920, 1),
+        ("collect/20261028-190026/f1814_idle.png", 640, 0),
+        ("collect/20261029-160032/f1972_SPACE.png", 1012, 1),
+        ("collect/20261029-160032/f1995_SPACE.png", 920, 1),
+        ("collect/20261029-160032/f1996_idle.png", 920, 1),
+    ],
+    "spear@the_shogun": [
+        ("collect/20261028-190026/f1757_idle.png", 1200, 0),
+        ("collect/20261028-190026/f1778_idle.png", 920, 1),
+        ("collect/20261028-190026/f1781_idle.png", 920, 1),
+        ("collect/20261029-160032/f1933_idle.png", 1200, 0),
+        ("collect/20261029-160032/f1936_idle.png", 1100, 0),
+        ("collect/20261029-160032/f1943_idle.png", 1100, 1),
+        ("collect/20261029-160032/f1944_D.png", 1100, 1),
+        ("collect/20261029-160032/f1949_idle.png", 632, 0),
+        ("collect/20261029-160032/f1956_SPACE.png", 680, 0),
+    ],
+    "swirl@the_shogun": [
+        ("collect/20261028-190026/f1763_D.png", 820, 0),
+        ("collect/20261028-190026/f1807_idle.png", 1060, 1),
+        ("collect/20261028-190026/f1826_idle.png", 1108, 1),
+        ("collect/20261029-160032/f1928_SPACE.png", 1152, 0),
+        ("collect/20261029-160032/f1929_idle.png", 1012, 0),
+        ("collect/20261029-160032/f1990_idle.png", 1060, 1),
+        ("collect/20261029-160032/f1991_CLICK.png", 1060, 1),
+    ],
+    "sword@the_shogun": [
+        ("collect/20261028-190026/f1770_A.png", 732, 0),
+        ("collect/20261029-160032/f1921_CLICK.png", 1152, 0),
+        ("collect/20261029-160032/f1922_idle.png", 1012, 0),
+        ("collect/20261029-160032/f1924_idle.png", 1060, 0),
+    ],
+    "charge@the_shogun": [
+        ("collect/20261028-190026/f1775_idle.png", 920, 0),
+        ("collect/20261028-190026/f1776_idle.png", 920, 0),
+        ("collect/20261028-190026/f1778_idle.png", 920, 0),
+        ("collect/20261028-190026/f1781_idle.png", 920, 0),
+        ("collect/20261028-190026/f1807_idle.png", 1060, 0),
+        ("collect/20261028-190026/f1826_idle.png", 1108, 0),
+        ("collect/20261029-160032/f1941_SPACE.png", 1100, 0),
+        ("collect/20261029-160032/f1943_idle.png", 1100, 0),
+        ("collect/20261029-160032/f1990_idle.png", 1060, 0),
+    ],
+    "corrupted_barrage@the_shogun": [
+        ("collect/20261028-190026/f1801_SPACE.png", 920, 1),
+        ("collect/20261028-190026/f1802_idle.png", 920, 1),
+        ("collect/20261029-160032/f1964_SPACE.png", 732, 1),
+        ("collect/20261029-160032/f1965_idle.png", 732, 1),
+        ("collect/20261029-160032/f1984_idle.png", 1012, 0),
+        ("collect/20261029-160032/f1985_A.png", 1012, 0),
+    ],
+    "origin_of_symmetry@the_shogun": [
+        ("collect/20261028-190026/f1800_CLICK.png", 920, 0),
+        ("collect/20261029-160032/f1963_CLICK.png", 732, 0),
+        ("collect/20261029-160032/f1964_SPACE.png", 732, 0),
+        ("collect/20261029-160032/f1979_CLICK.png", 592, 0),
+    ],
+    "back_charge@the_shogun": [
+        ("collect/20261028-190026/f1811_CLICK.png", 920, 0),
+        ("collect/20261029-160032/f1971_CLICK.png", 1012, 0),
+        ("collect/20261029-160032/f1972_SPACE.png", 1012, 0),
+        ("collect/20261029-160032/f1994_CLICK.png", 920, 0),
+        ("collect/20261029-160032/f1995_SPACE.png", 920, 0),
+    ],
+    "shuriken@the_shogun": [
+        ("collect/20261028-190026/f1816_idle.png", 640, 0),
+        ("collect/20261028-190026/f1817_idle.png", 640, 0),
+        ("collect/20261029-160032/f1976_idle.png", 592, 0),
+        ("collect/20261029-160032/f1977_CLICK.png", 592, 0),
+        ("collect/20261029-160032/f1999_idle.png", 640, 0),
     ],
 }
 
