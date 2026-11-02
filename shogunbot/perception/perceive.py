@@ -369,10 +369,11 @@ def classify_hero_icon(rgb: np.ndarray, y0: int, y1: int, cx: int, kit: tuple) -
     return str(K[i]), float(np.clip((other - best[i]) / max(best[i], 1e-3), 0, 1))
 
 
-def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS, hero_kit: tuple | None = None) -> list[dict]:
+def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS, hero_kit: tuple | None = None,
+               enemy: bool = False) -> list[dict]:
     """Bubble slots above a unit, bottom first: {type:'tile'|'plus', tile, colour, plus_colour}.
     exclude: icons the unit cannot carry (classify_icon). hero_kit: the hero's tiles, for his own bubbles
-    (classify_hero_icon)."""
+    (classify_hero_icon). enemy: an enemy's stack, whose bubbles are never framed grey (the hero's are)."""
     out = []
     for k in range(4):
         y0, y1 = SLOT_Y0 - SLOT_PITCH * k, SLOT_Y1 - SLOT_PITCH * k
@@ -386,7 +387,7 @@ def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS, hero_
                 break
         if col is None:
             break
-        if col == "grey" and not hero_kit:
+        if col == "grey" and enemy:
             # an enemy's bubbles are framed red or yellow: a grey slot over it is the backdrop, the hanging cages and snow
             # of Hideyoshi's Keep (rec1 f1564-f1591 over a Yari Master's Spear on cell 0: 'ally_shield' and '+'; rec2
             # f1601-f1602 and f1629 over units with no bubble at all) and the grey sky with rain over the Shogun's and his
@@ -861,7 +862,7 @@ def merge_blink(p: "Perception", frames: list) -> list[str]:
         if e["intent"] in ("fire", "move-left", "move-right", "turn"):
             continue
         for f in frames:
-            stack = read_stack(f, e["cx"])
+            stack = read_stack(f, e["cx"], enemy=True)
             tiles = [t for t in stack if t["type"] == "tile"]
             plus = [t for t in stack if t["type"] == "plus"]
             if e["queue"] and tiles and tiles[0]["colour"] == "yellow":
@@ -1009,7 +1010,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
             kind, facing, kc = classify_sprite(crop)
             if c["kind"] == "enemy":
                 g, r = enemy_hp(rgb, cx)
-                stack = read_stack(rgb, cx, exclude=GATED_ICONS - open_icons(g + r, base_hp, day != 1, boss_tiles, bk))
+                stack = read_stack(rgb, cx, exclude=GATED_ICONS - open_icons(g + r, base_hp, day != 1, boss_tiles, bk),
+                                   enemy=True)
             else:
                 stack = read_stack(rgb, cx, hero_kit=tuple(kit_tiles) if kit_tiles else None)
             marker = plate_marker(rgb, cx)
