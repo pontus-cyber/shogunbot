@@ -254,6 +254,17 @@ def test_the_heros_plate_after_a_swap_on_a_bright_board(tmp_path):
     assert [(e["x"], e["kind"]) for e in p.enemies] == [(0, "ashigaru"), (1, "ashigaru"), (5, "charger")]
 
 
+def test_the_teal_plate_counts_only_when_neither_board_reader_makes_a_board():
+    # found by the 0.48 replay gate: on Moonlit Port's dark 9-cell board (run 20261031-114119 f0310) the bright plates
+    # made 5 cells with a 184-px gap and no hero; with the teal rule tried first they were a board, and the Ashigaru on
+    # cell 4 lost its Sword and its step; the dark reader reads the 9 cells
+    from shogunbot.perception.perceive import perceive
+    p = perceive(frame("runs/20261031-114119/frames/f0310_SPACE.png"), ["swirl", "arrow"],
+                 regions=("bamboo_grove", "whispering_caves", "moonlit_port"), day=1)
+    assert len(p.cells) == 9 and p.hero["x"] == 2
+    assert [(e["x"], e["kind"], e["queue"], e["intent"]) for e in p.enemies][2] == (4, "ashigaru", ["sword"], "move-left")
+
+
 def test_a_run_that_starts_on_a_fight_it_cannot_read_gives_it_up(tmp_path, monkeypatch):
     # item 13: runs 20261102-031727, -045205 and -055546 found that frozen board as 'unknown' and stopped after 90 s with
     # 0 turns, leaving it for the next; a fight screen (its HUD) that stays unreadable at a run start is given up
