@@ -74,13 +74,15 @@ POISON_MIN_VALUE = 4      # use Mass Poison when it deals at least this much in 
 # ended five runs holding Mass Ice, Edamame, Cool Up and Kami Brew]. With --stage1 that is Stage
 # 1's boss; a --full run is won, and in a series given up, after the boss of FULL_LAST_STAGE
 # [m4-plan: the bot clears the region 2 boss]. Items carry over between stages [user 2026-10-29].
-FULL_LAST_STAGE = 6       # Hideyoshi's Keep, Hideyoshi the Cunning [user 2026-11-01 16:50, claude/core-requests.md item 8:
-                          # "Region 6: Hideyoshi's Keep ... extend --full"; region 5 since 2026-10-31, region 4 since the
-                          # review of run 20261030-213120]
+FULL_LAST_STAGE = 7       # the Shogun's Castle, the Shogun: the last region of the Day 1 route [standing rule, user
+                          # 2026-11-01 16:50: "it should always extend when it's ready"; claude/core-requests.md item 14;
+                          # region 6 since 0.47, region 5 since 2026-10-31, region 4 since the review of run 20261030-213120]
 MAP_TRIES_MAX = 12        # map inputs that leave the map unchanged before the run stops as 'stuck'
                           # [run 20261029-072042: 18 inputs on a Stage 2 map, none applied]
 START_GIVE_UPS_MAX = 2    # give-ups at a run start that still do not reach the camp: 'stuck'
 SHOP_GO_TRIES = 3         # GO clicks before the run stops as 'stuck' in a shop
+VICTORY_MAX_S = 60        # the VICTORY screen without its BACK TO CAMP pill this long: the run ends there [rec: the pill
+                          # showed 8.8 s after the kanji, collect/20261029-160032 f2011-f2013]
 HOVER_S = 0.5             # the cursor on a counter slot this long before its tooltip is read
 HOVER_TRIES = 2           # looks per slot
 NO_CHANGE_STOP = 20       # inputs in a row that change nothing on screen before the run stops as 'stuck'
@@ -90,13 +92,15 @@ NO_CHANGE_STOP = 20       # inputs in a row that change nothing on screen before
 # turns it on, the up/down arrows move the mark among the reachable nodes, Enter travels there, and
 # any mouse click turns it off again (perception/map_screen.py). Regions in order of preference;
 # a shop is always taken (both shops after Bamboo Grove led to both regions).
-MAP_REGIONS = ("whispering_caves", "moonlit_port", "spirit_gateway", "hot_springs", "hideyoshis_keep")   # [user
+MAP_REGIONS = ("whispering_caves", "moonlit_port", "spirit_gateway", "hot_springs", "hideyoshis_keep",
+               "shoguns_castle")   # [user
 # 2026-10-28: Whispering Caves first; 2026-10-29: region 3, the one region after the Caves; review of run 20261030-213120:
 # region 4, Spirit Gateway, which both recordings took after Moonlit Port's shop (collect/20261028-190026 f0597,
 # collect/20261029-160032 f0798); 2026-10-31 (core-requests.md): region 5, Hot Springs, which both recordings
 # took after Spirit Gateway's shop (rec1 f0944 'HOT SPRINGS'); 2026-11-01 (core-requests.md item 8): region 6,
 # Hideyoshi's Keep, which both recordings took after Hot Springs' shop (rec1 f1379 reads 'HIDEYOSHI?S KEEP'), not
-# Nobunaga's Fortress]
+# Nobunaga's Fortress; 2026-11-02 (core-requests.md item 14): region 7, the Shogun's Castle, after the Keep's shop
+# (rec1 f1613 reads 'THE SHOGUN?S CASTLE')]
 MAP_LOOKS_MAX = 4         # arrow presses spent looking for a preferred region before taking the mark
 MOUSE_MODE_SPOT = (0.97, 0.27)   # an empty spot: a click there turns keyboard-only mode off
 BLINK_SAMPLES = 6         # extra frames per turn to catch the yellow blink
@@ -172,14 +176,16 @@ def worst_loss(s, action: str, plies: int = 2, free_left: int = 1) -> int:
     return worst
 
 
-def edamame_reason(s, action: str, hp_cap: int) -> str | None:
+def edamame_reason(s, action: str, hp_cap: int, reserve: bool = False) -> str | None:
     """Why to drink Edamame Brew now, or None [user 2026-10-29]: (b) all of its HP heal, or (a) a
     hit this turn (with the chosen action) or the next (with the least damaging reply) would kill
-    the hero or leave HP within one enemy hit of 0, and the brew prevents that."""
+    the hero or leave HP within one enemy hit of 0, and the brew prevents that. reserve: the last
+    brew held before the run's final region, which only (a) spends [core-requests item 11: runs
+    20261102-004152 and -145513 drank every brew by Hot Springs (HP 6-7) and reached Hideyoshi at 1 HP]."""
     hp = s.hero.hp
     if hp <= 0 or hp >= hp_cap:
         return None
-    if hp <= hp_cap - HEAL:
+    if hp <= hp_cap - HEAL and not reserve:
         return f"all {HEAL} of its HP heal (HP {hp} of {hp_cap})"
     if not s.alive():
         return None
@@ -726,6 +732,10 @@ class Bot:
             self.say(f"   {item} still in its slot; the click may not have registered")
 
     # ------------------------------------------------------------------ series
+    def last_stage(self) -> int:
+        """The run's final stage: 1 with --stage1, else FULL_LAST_STAGE."""
+        return 1 if self.stage1 else FULL_LAST_STAGE
+
     def _give_up(self, wait_map: bool = True) -> bool:
         """End a won run so the next one can start [user 2026-10-28], or a run found in
         progress when a run starts (0.24) [user 2026-10-29]: after the boss the
@@ -1178,6 +1188,8 @@ class Bot:
         tr.route = self.regions               # the same list: the map appends each region travelled to
         self.gave_up = None
         death_since = None
+        victory_since = None
+        start_unknown_since = None            # a run start on a fight screen that cannot be read (item 13)
         progress, last_progress = None, 0     # stall rule: see planner.stall_weights; progress: planner.progress_mark
         boards = BoardLoop()                  # turns on boards seen before in the level (a second stop)
         hp_cap = HERO_MAX_HP                  # most HP pips seen on two turns in a row this run
@@ -1229,6 +1241,32 @@ class Bot:
                     self._mouse_mode(frame, scr)      # the map's keyboard mode is still on
                     continue
 
+                # ---------------- the VICTORY screen after the Shogun (the game's own end of a Day 1 run): its BACK TO
+                # CAMP pill leads to the camp, where the next run starts [rec: collect/20261029-160032 f2011-f2016]. At a
+                # run start it is a run left over (item 13: a screen the start did not know blocked the loop for hours)
+                won, back = screens.victory(normalize(frame)) if not started or seen_final else (False, None)
+                if not won:
+                    victory_since = None
+                if won and (back is not None or seen_final):
+                    # (at a run start only with its pill: a dark wave level's yellow bubbles can pass the kanji test)
+                    victory_since = victory_since or time.time()
+                    if back is not None:
+                        log.save_frame(frame, "win" if seen_final else "start_victory")
+                        self.say("victory: BACK TO CAMP")
+                        log.event("menu", screen="victory", back_to_camp=[round(v, 4) for v in back])
+                        self.click(*back, frame, screen="victory")
+                        time.sleep(3.0)
+                        if seen_final:
+                            result = "win"
+                            break
+                        continue
+                    if time.time() - victory_since > VICTORY_MAX_S:
+                        result = "win" if seen_final else "stuck"
+                        log.save_frame(frame, "stuck_victory")
+                        break
+                    time.sleep(0.5)            # the pill shows after the quests
+                    continue
+
                 # ---------------- run start [user 2026-10-29]: every run starts at the camp, where
                 # Day 1 is chosen. Run 20261029-072042 began on the Stage 2 map a single run had
                 # left (a lone run is not given up), repeated its Stage 1 map inputs 18 times and
@@ -1252,12 +1290,18 @@ class Bot:
                         else:
                             time.sleep(0.5)            # the buttons fade in after the kanji
                         continue
-                    elif scr in ("map", "shop", "reward", "combat", "boss"):
+                    elif scr in ("map", "shop", "reward", "combat", "boss") or (
+                            scr == "unknown" and screens.combat_hud(normalize(frame))
+                            and time.time() - (start_unknown_since := start_unknown_since or time.time())
+                            > UNKNOWN_FRAME_S):
+                        # (a fight screen whose board cannot be read is a run left over too: run 20261102-021456 stopped
+                        # on one, and the next three runs read it as 'unknown' from their first frame and stopped as
+                        # stuck after 90 s without giving it up; the loop was blocked 03:19-06:59 [core-requests item 13])
                         if start_give_ups >= START_GIVE_UPS_MAX:
                             result = "stuck"
                             log.save_frame(frame, "stuck_start")
                             break
-                        how = self._start_elsewhere(scr, p, frame)
+                        how = self._start_elsewhere("combat" if scr == "unknown" else scr, p, frame)
                         if how is None:
                             result = "stuck"
                             break
@@ -1628,7 +1672,8 @@ class Bot:
                 if "green_potion" in have:
                     # [user 2026-10-29] when all of its HP heal, or against a hit that would kill or
                     # leave HP within one enemy hit of 0 (edamame_reason)
-                    why = edamame_reason(s, d.action, hp_cap)
+                    brews = sum(1 for it in p.items if it.get("item") == "green_potion")
+                    why = edamame_reason(s, d.action, hp_cap, reserve=brews <= 1 and tr.stage < self.last_stage())
                     if why:
                         self._use_item("green_potion", p, s, frame, turn, why, tr, item_tries)
                         potion_check = (s.hero.hp, "green_potion")
@@ -1704,6 +1749,15 @@ class Bot:
                 except BaseException as e:   # the give-up must never turn a win into an error
                     log.exception("give_up", e)
                     self.gave_up = False
+            last = locals().get("frame")
+            if result == "stuck" and last is not None and screens.combat_hud(normalize(last)):
+                # a run that stops as stuck on a fight screen gives itself up, so the next run starts at the camp
+                # [core-requests item 13: run 20261102-021456 left its frozen board, and three runs stopped on it]
+                try:
+                    self.say("the run stopped on a fight screen; giving it up so the next run starts at the camp")
+                    log.event("stuck_give_up", gave_up=self._give_up(wait_map=False))
+                except BaseException as e:
+                    log.exception("stuck_give_up", e)
             self.rec.flush()
             summary = log.end_run(result)
             self.live.end(result, summary)

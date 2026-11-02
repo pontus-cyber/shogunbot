@@ -95,6 +95,19 @@ class EnemyKind:
     hero_cell: int | None = None
     behaviour: dict = field(default_factory=dict, compare=False, hash=False)   # a boss's opening, combos, loads
     pair: int = 1                       # units that share the boss's HP bar (The Twins: 2) [wiki]
+    phases: int = 1                     # HP bars one after the other (The Shogun: 2 of 40) [wiki] [rec]
+
+    @property
+    def max_hp(self) -> int | None:
+        """HP over all phases: the simulator pools a boss's bars (The Shogun: two of 40, so 80)."""
+        return None if self.hp is None else self.hp * self.phases
+
+    def phase(self, hp: int) -> int:
+        """The phase a unit of this kind is in at this HP (pooled): The Shogun is in phase 1 above 40, in phase 2 at 40
+        and below [rec: collect/20261028-190026 f1794-f1797: the bar refills and the other units vanish]."""
+        if self.phases <= 1 or not self.hp:
+            return 1
+        return max(1, self.phases - max(0, (hp - 1) // self.hp))
 
     @property
     def tile(self) -> str | None:
@@ -243,7 +256,7 @@ class Catalogue:
                 sim=bool(d.get("sim")), summons=d.get("summons"), text=d.get("text", ""),
                 arena_cells=(d.get("arena") or {}).get("cells"), boss_cell=(d.get("arena") or {}).get("boss_cell"),
                 hero_cell=(d.get("arena") or {}).get("hero_cell"), behaviour=d.get("behaviour") or {},
-                pair=d.get("pair", 1))
+                pair=d.get("pair", 1), phases=d.get("phases", 1))
 
         c = load("consumables.json")
         self.consumable_rules = c["rules"]

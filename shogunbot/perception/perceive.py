@@ -181,6 +181,11 @@ GATED_ICONS = (frozenset({"volley", "grappling_hook", "shuriken", "smoke_bomb", 
                | frozenset(str(k) for k in ICO_K if "@" in str(k)))
 
 
+# a boss who draws some tiles as another one does (catalogue behaviour 'icon_art'): the Shogun's Origin of Symmetry, Mirror
+# and Back Charge are Hideyoshi's drawings, which read them at 0.5-1.0 [rec: collect/20261028-190026 f1743, f1800, f1811]
+ICON_ART = {k: {e.behaviour["icon_art"]} for k, e in CAT.enemies.items() if e.behaviour.get("icon_art")}
+
+
 def open_icons(pips: int, base_hp: dict, elites: bool, boss_tiles=(), boss: str | None = None) -> frozenset:
     """The gated icons a unit with these HP pips may carry: those of the roster's kinds whose HP fits (and their
     'tile@kind' templates), and for a unit without pips (a boss) those of the route's current boss."""
@@ -190,7 +195,7 @@ def open_icons(pips: int, base_hp: dict, elites: bool, boss_tiles=(), boss: str 
     out |= {g for g in GATED_ICONS if "@" in g and g.split("@")[1] in fits}
     if pips == 0:
         out |= {t for t in boss_tiles if t in GATED_ICONS}
-        out |= {g for g in GATED_ICONS if boss and g.endswith("@" + boss)}
+        out |= {g for g in GATED_ICONS if boss and "@" in g and g.split("@")[1] in {boss} | ICON_ART.get(boss, set())}
     return frozenset(out)
 
 
@@ -932,6 +937,18 @@ class Perception:
 
 # units that fight beside a boss from its fight's start: The Statue's Summoner [catalogue 'synced_with']
 BOSS_PARTNER = {e.behaviour["synced_with"]: k for k, e in CAT.enemies.items() if e.sim and e.behaviour.get("synced_with")}
+# The Shogun's Summoners stand on the arena's end cells and show no HP pips, as he does: their sprite is dark armour, his red
+# and black. Red sprite pixels (R > 120, R > G + 50, R > B + 40): 1,150-1,410 on theirs; 2,000-4,200 on his but for one
+# frame in the middle of his Mirror (1,361, on cell 2) [rec: collect/20261028-190026 f1741-f1814, collect/20261029-160032
+# f1917-f1974]
+SUMMONER_OF = {e.behaviour["summoner_of"]: k for k, e in CAT.enemies.items() if e.sim and e.behaviour.get("summoner_of")}
+BOSS_RED_MIN = 1800
+
+
+def sprite_red(rgb: np.ndarray, cx: int) -> int:
+    """Red pixels in the unit's sprite window (the Shogun against his Summoners)."""
+    a = rgb[SPRITE_Y0:SPRITE_Y1, max(0, cx - 64):cx + 64].astype(int)
+    return int(((a[..., 0] > 120) & (a[..., 0] > a[..., 1] + 50) & (a[..., 0] > a[..., 2] + 40)).sum())
 
 
 def boss_kind(regions: tuple[str, ...], cells: int) -> str:
@@ -959,6 +976,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
     conf = {}
     bk = boss_kind(regions, len(cs))
     boss_tiles = CAT.enemies[bk].tiles                                # icons open on a unit without pips
+    if bk in SUMMONER_OF:
+        boss_tiles = boss_tiles + CAT.enemies[SUMMONER_OF[bk]].tiles   # (his Summoners show no pips either)
     partner = BOSS_PARTNER.get(bk)                                    # a unit that fights beside this boss
     # shields are read in a region whose own units or boss give them (Hot Springs): the later regions' backdrops tint
     # many units teal (recording 1 after Hot Springs: 258 of 938 unit-frames at SHIELD_FRAC or more)
@@ -1024,6 +1043,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                     # reads as a fight and only the sprite (Daisuke's, the one boss sprite known)
                     # says boss [run 20261029-124921 t159: Iwao read as Daisuke]
                     kind = boss_kind(regions, len(cs))
+                    if kind in SUMMONER_OF and i in (0, len(cs) - 1) and sprite_red(rgb, cx) < BOSS_RED_MIN:
+                        kind = SUMMONER_OF[kind]
                 else:
                     by_pips, alt = decide_kind(g + r, by_tile, kind if kc >= SPRITE_KIND_CONF else None, elite,
                                                base_hp, elites=day != 1, visitors=visitors)

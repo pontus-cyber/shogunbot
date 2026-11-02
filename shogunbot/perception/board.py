@@ -248,6 +248,15 @@ def cells(rgb: np.ndarray) -> list[dict]:
     if that is not certain either, no cells (the screen reads as 'unknown' and the bot looks again)."""
     runs = plate_runs(rgb)
     out = _cells(rgb, runs)
+    if out and not any(c["kind"] == "hero" for c in out):
+        # no plate reads as the hero's: one whose stone ends are teal is his. Right after a swap on a bright board his
+        # four swap ticks are red, and with the light there his plate's mean colour read 'empty' (97, 71, 70), so the
+        # board had no hero, read as 'unknown' for 90 s and the run stopped as stuck; _tealish read 0.32 on his plate and
+        # 0 on the other six [run 20261102-021456 stuck.png, Bamboo Grove II t31; core-requests item 12]
+        teal = [(_tealish(rgb, c["x0"]), i) for i, c in enumerate(out) if c["kind"] == "empty"]
+        best = max(teal, default=None)
+        if best and best[0] >= HERO_TEAL:
+            out[best[1]]["kind"] = "hero"
     if is_board(out) and not open_end(rgb, out):
         return out
     dark = dark_cells(rgb, runs)
