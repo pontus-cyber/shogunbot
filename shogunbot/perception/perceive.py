@@ -501,6 +501,31 @@ def orb_pixels(rgb: np.ndarray, cx: int) -> int:
     return int(((r >= 130) & (r <= 195) & (g >= 180) & (g <= 225) & (b >= 135) & (b <= 210) & (g - r >= 15)).sum())
 
 
+# The Warden's lantern (0.51): a Warden has the Spike Charger's one HP pip, and its bubble shows a tile only while it loads, so
+# 0.48-0.50 read it as a Spike Charger and its explosion on death went unplanned (run 20261103-085026 t841, t847: -2 each).
+# Its lantern is the largest blob of orange over its plate (R >= 140, 40 <= G <= 175, B <= 70, R - G >= 50, G - B >= 25,
+# closed with a 5 x 5 kernel; y 650-740, the unit's centre +- 64): 377-1,383 px on 24 Warden unit-frames of six runs (the
+# lantern glows and dims, a floor card may stand in front of it), at most 112 on the 26 Spike and Blight Charger unit-frames
+# and 304 on the 73 other units of the same frames (an Ashigaru on cell 0 under the item column) [bot: runs 20261102-232559
+# t958, t962; 20261103-020829 t794, t801; -052436 t757, t759, t772, t790; -070730 t789, t794, t800; -085026 t798, t831,
+# t839-t847; -113809 t729; -035113 t698, t705, t749]
+LANTERN_KIND = "warden"
+LANTERN_Y0, LANTERN_Y1, LANTERN_HALF = 650, 740, 64
+LANTERN_MIN = 250
+
+
+def lantern_px(rgb: np.ndarray, cx: int) -> int:
+    """The largest blob of lantern orange over a unit's plate (LANTERN_MIN and up: a Warden)."""
+    box = rgb[LANTERN_Y0:LANTERN_Y1, max(0, cx - LANTERN_HALF):cx + LANTERN_HALF].astype(np.int16)
+    r, g, b = box[..., 0], box[..., 1], box[..., 2]
+    m = ((r >= 140) & (g >= 40) & (g <= 175) & (b <= 70) & (r - g >= 50) & (g - b >= 25)).astype(np.uint8)
+    if not m.any():
+        return 0
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    k, _, st, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
+    return int(st[1:, cv2.CC_STAT_AREA].max()) if k > 1 else 0
+
+
 def stack_kind(tile: str, pips: int, base_hp: dict, elites: bool) -> str | None:
     """The first simulated kind of the route's roster (base_hp, route order) whose HP fits the pips and that can
     show this tile at the bottom of its stack: one of its tiles, and for a kind that loads a fixed sequence (catalogue
@@ -1115,6 +1140,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                            if tiles else None)
                 elite = day != 1 and elite_pixels(rgb, cx) >= ELITE_PX     # Day 1 has no elites
                 alt = None
+                sprite_named = False
                 if (g + r) == 0 and (screen == "boss" or (kind in CAT.enemies and CAT.enemies[kind].boss)):
                     # no pips: a boss. The fight's first frame shows no boss bar yet, so the screen
                     # reads as a fight and only the sprite (Daisuke's, the one boss sprite known)
@@ -1133,6 +1159,10 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                         kind = partner          # The Statue's Summoner: 15 pips, no standard unit has more than 5
                     elif by_tile:
                         kind = by_tile
+                    if (kind != LANTERN_KIND and base_hp.get(LANTERN_KIND) == g + r
+                            and lantern_px(rgb, cx) >= LANTERN_MIN):
+                        # a Warden by its lantern, whatever its pips' first kind (the Spike Charger) says (LANTERN_MIN)
+                        kind, alt, sprite_named = LANTERN_KIND, None, True
                 if (plus and not marker and red_sky and kind in CAT.enemies and not CAT.enemies[kind].boss
                         and len(tiles) >= (len(CAT.enemies[kind].behaviour.get("sequence", ())) or 1)):
                     # Spirit Gateway's red sky passes the bubble frame's colour test, so a '+' reads above a unit's
@@ -1152,6 +1182,8 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                       "intent": intent, "spawning": spawning, "elite": elite, "alt": alt, "flash": flash,
                       "shield": shields and shield_frac(rgb, cx) >= SHIELD_FRAC,
                       "orb": shields and orb_pixels(rgb, cx) >= ORB_PX}
+                if sprite_named:
+                    en["sprite_named"] = True
                 if any(t.get("shape") for t in tiles):
                     en["shape"] = [t.get("shape") for t in tiles]
                 p.enemies.append(en)

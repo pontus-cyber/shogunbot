@@ -275,7 +275,13 @@ def shogun_intent(s: State, e, f: dict) -> str:
     after (rec1 f1775-f1778, rec2 f1941-f1943); a loaded tile that reaches the hero, Mirror, or the full Charge and Spear
     fires (Quick: the phase after the load, rec1 f1743-f1744, f1762-f1763); a tile that does not reach him yet: a turn to
     him when facing away, else a step toward him (rec1 f1757-f1759) or, blocked, the fire; the phase after a fire he steps
-    away when he can; facing away he turns; else he loads. f: features()."""
+    away when he can; facing away he turns; else he loads. f: features().
+    A unit between him and the hero (0.51): a loaded tile that does not reach the hero is held, neither fired into the unit
+    nor walked up: 43 of 43 such phases of his first bar held [bot: runs 20261103-020829 t842-t856 and t904-t907,
+    -085026 t863-t868 (his Dragon Punch, the Yari Master between; he stepped at t869 once it had died and punched the hero
+    at t870), -113809 t791-t806 and t823-t824 (his Spear; at t823 the cell next to him was free)]; with nothing between
+    he stepped toward the hero. A full combo fires when one of its tiles reaches the hero (020829 t866-t868: his Charge
+    and Spear held two phases behind an Ashigaru and fired once the hero stood in the Spear's reach)."""
     kind = CAT.enemy(e.kind)
     if kind.phase(e.hp) >= kind.phases:
         return cunning_intent(s, e, f)
@@ -292,7 +298,12 @@ def shogun_intent(s: State, e, f: dict) -> str:
     if e.queue:
         if kind.combo_next(e.queue, abs(e.x - s.hero.x)):
             return "queue"
-        if f["in_fp"] or e.queue[0] == "mirror" or len(e.queue) > 1:
+        if f["in_fp"] or e.queue[0] == "mirror" or any(in_footprint(s, e, t) for t in e.queue[1:]):
+            return "fire"
+        lo, hi = sorted((e.x, s.hero.x))
+        if any(s.enemy_at(x) is not None for x in range(lo + 1, hi)):
+            return "hold"
+        if len(e.queue) > 1:
             return "fire"
         if CAT.tile(e.queue[0]).directional and not f["face"]:
             return "turn"

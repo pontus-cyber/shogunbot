@@ -25,10 +25,12 @@ def test_values_match_the_013_constants():
     # (4 HP, Shuriken), The Statue (30 HP) and its Summoner (15 HP); 0.45: Hot Springs' Shielder (4 HP; Ally Shield,
     # Shield) and Kowa the Coward (30 HP; Shield, Smoke Bomb); 0.47: Hideyoshi's Keep's Shadow Charger (5 HP; Charge,
     # Sword) and Hideyoshi the Cunning (45 HP; four combos and the Summon); 0.48: the Shogun (two bars of 40, pooled: 80)
-    # and his two Summoners (30 HP, hidden; Ally Shield, the bell)
+    # and his two Summoners (30 HP, hidden; Ally Shield, the bell); 0.51: the Warden (1 HP; Summon, Mark), a visitor in the
+    # Shogun's Castle, for its explosion on death
     assert set(ENEMY_KINDS) - stage1 == {"yari_master", "rei", "iwao", "guardian", "ashigaru_archer", "the_twins",
                                          "yumi_sniper", "grappler", "shinobi", "the_statue", "summoner", "shielder",
-                                         "kowa", "shadow_charger", "hideyoshi", "the_shogun", "shogun_summoner"}
+                                         "kowa", "shadow_charger", "hideyoshi", "the_shogun", "shogun_summoner",
+                                         "warden"}
     assert ENEMY_KINDS["the_shogun"] == (80, "sword") and ENEMY_KINDS["shogun_summoner"] == (30, "ally_shield")
     assert ENEMY_KINDS["shadow_charger"] == (5, "charge") and ENEMY_KINDS["hideyoshi"] == (45, "origin_of_symmetry")
     assert ENEMY_KINDS["kowa"] == (30, "shield") and ENEMY_KINDS["shielder"] == (4, "ally_shield")
@@ -47,13 +49,16 @@ def test_values_match_the_013_constants():
                                  # 0.47: Hideyoshi's: the teleports deal none, his Bomb 3 [wiki: Tiles]
                                  "origin_of_symmetry": 0, "mirror": 0, "bomb": 3,
                                  # 0.48: the Shogun's Corrupted Barrage (3 on each ring cell) [wiki: Tiles]
-                                 "corrupted_barrage": 3}
+                                 "corrupted_barrage": 3,
+                                 # 0.51: the Warden's Mark (no effect on the wiki: simulated as none)
+                                 "mark": 0}
     assert ENEMY_TILE_COOLDOWN == {"sword": 2, "swirl": 3, "charge": 4, "summon": 6, "spear": 5,
                                    "dragon_punch": 4, "back_charge": 3, "summon_double": 6, "earth_impale": 4,
                                    "arrow": 5, "tetsubo": 7, "shadow_dash": 5, "dash": 6, "swap_toss": 7,
                                    "grappling_hook": 4, "shuriken": 3, "smoke_bomb": 5, "shadow_kama": 3,
                                    "volley": 0, "shield": 0, "ally_shield": 0,
-                                   "origin_of_symmetry": 6, "mirror": 6, "bomb": 0, "corrupted_barrage": 0}   # no cooldown on the wiki: the Sniper loaded again one or two turns
+                                   "origin_of_symmetry": 6, "mirror": 6, "bomb": 0, "corrupted_barrage": 0,
+                                   "mark": 0}   # no cooldown on the wiki: the Sniper loaded again one or two turns
                                                   # after firing [rec: collect/20261029-160032 f0201; run 20261030-115221 t176]
 
 

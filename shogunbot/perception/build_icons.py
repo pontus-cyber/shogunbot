@@ -58,6 +58,13 @@ and an upward arrowhead; read as Spear at 0.2 before), the Corrupted Barrage (a 
 the Shuriken (a '1' and a four-point star; Back Charge or Spear at 0.0-0.2), Mirror on his yellow frames (Summon at 1.0),
 and his Sword, Spear, Swirl, Origin and Back Charge. His Summoners' Ally Shield is the Shielder's and reads with its
 template once open (1.0).
+
+The Shogun's Dragon Punch (0.51) [bot: the Shogun fights of runs 20261103-020829 ... -113809; core-requests item 19]: a '1'
+and a white fist with a tan inside, red or yellow, in his first bar. His bubbles sit higher than the standard slot (the
+'1' is cut at the slot's top, as in his other templates), so Rei's Dragon Punch templates miss it: 0.48-0.50 read it as
+Charge (at 1.0 on his yellow frames), Back Charge or Shuriken (0.0-0.46), and the punch, its push and the collision
+were not simulated (run 20261103-052436 t820, t841; run 20261103-085026 t870, -2). Samples from four runs; the frames of
+runs 20261103-085026 and -113809 are the check.
 """
 
 from __future__ import annotations
@@ -578,6 +585,23 @@ SAMPLES = {   # label: [(frame relative to ROOT, the unit's centre x at 1080p, s
         ("collect/20261029-160032/f1972_SPACE.png", 1012, 0),
         ("collect/20261029-160032/f1994_CLICK.png", 920, 0),
         ("collect/20261029-160032/f1995_SPACE.png", 920, 0),
+    ],
+    # his Dragon Punch (0.51): every one seen on the bot's frames of four runs (3 yellow, 11 red), all in his first bar
+    "dragon_punch@the_shogun": [
+        ("runs/20261103-020829/frames/t0877_before.png", 772, 0),
+        ("runs/20261103-020829/frames/t0878_before.png", 912, 0),
+        ("runs/20261103-020829/frames/t0904_before.png", 724, 0),
+        ("runs/20261103-020829/frames/t0906_before.png", 772, 0),
+        ("runs/20261103-035113/frames/t0760_before.png", 1200, 0),
+        ("runs/20261103-035113/frames/t0762_before.png", 1012, 0),
+        ("runs/20261103-035113/frames/t0776_before.png", 1292, 0),
+        ("runs/20261103-035113/frames/t0777_before.png", 1192, 0),
+        ("runs/20261103-052436/frames/t0818_before.png", 632, 0),
+        ("runs/20261103-052436/frames/t0820_before.png", 912, 0),
+        ("runs/20261103-052436/frames/t0840_before.png", 1152, 0),
+        ("runs/20261103-052436/frames/t0841_before.png", 1100, 0),
+        ("runs/20261103-070730/frames/t0842_before.png", 1152, 0),
+        ("runs/20261103-070730/frames/t0843_before.png", 1012, 0),
     ],
     "shuriken@the_shogun": [
         ("collect/20261028-190026/f1816_idle.png", 640, 0),

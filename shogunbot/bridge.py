@@ -456,7 +456,9 @@ class Tracker:
             kind = e["kind"] if e["kind"] in ENEMY_KINDS else "ashigaru"
             if kind != e["kind"]:
                 self.notes.append(f"enemy at {e['x']} read as {e['kind']}; assumed ashigaru")
-            if kind in ties and not e["queue"] and not e.get("spawning"):
+            if kind in ties and not e["queue"] and not e.get("spawning") and not e.get("sprite_named"):
+                # (a unit its sprite names keeps that name: the Warden by its lantern, perceive.lantern_px; one read
+                # by its pips alone, its lantern dim or hidden, keeps the Warden's name it had)
                 # a unit named by its tile keeps that name while its bubble is empty: the Yumi Sniper has the
                 # Ashigaru's 3 HP pips and shows its Volley only while loaded [run 20261030-115221 t175-t176: the
                 # Sniper that had fired at t174 read as an Ashigaru again]; the Archer and the Tachi share 2
