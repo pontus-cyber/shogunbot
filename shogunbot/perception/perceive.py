@@ -431,7 +431,8 @@ def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS, hero_
 # icon's dark field nor a '+': two were such flashes, white 0.23 and yellow 0.46-0.47 of the window (run
 # 20261102-065902 t748, a firing Ashigaru; run 20261102-232559 t241, a firing Guardian), read as an empty bubble and
 # planned as a hold, and each cut the hero for 2 unpredicted; the other 22 held yellow at most 0.021 (the Twins' Shadow
-# Dash bubble 19 times, Rei, a Yari Master) [scan of 2026-11-03; core-requests item 17c]
+# Dash bubble 19 times, Rei, a Yari Master) [scan of 2026-11-03; core-requests item 17c]. Recording 2's Guardian at
+# f0584 flashed so too and cut for 2 after the player's attack (f0586: HP 10 -> 8)
 FLASH_WHITE, FLASH_YELLOW = 0.15, 0.30
 
 
