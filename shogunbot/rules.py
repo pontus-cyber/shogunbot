@@ -29,6 +29,9 @@ PAIRED = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).pair > 1)   # bosses wh
 ALTERNATE = {k: tuple(CAT.enemy(k).behaviour["alternate"]) for k in ENEMY_KINDS if CAT.enemy(k).behaviour.get("alternate")}
 # bosses whose allies vanish when they die (catalogue behaviour 'allies_vanish': Kowa)
 VANISH = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).behaviour.get("allies_vanish"))
+# units that explode when they die (catalogue trait 'explosive': the Warden), for the trait's damage to both neighbours
+EXPLOSIVE = frozenset(k for k in ENEMY_KINDS if "explosive" in CAT.enemy(k).traits)
+EXPLOSION_DAMAGE = CAT.traits["explosive"]["damage"]
 # bosses that load whole combos (catalogue behaviour 'chains': Hideyoshi; the Shogun in phase 2)
 CHAINS = frozenset(k for k in BOSS_KINDS if CAT.enemy(k).behaviour.get("chains"))
 # bosses with more than one HP bar (catalogue 'phases': the Shogun, two of 40, pooled in Enemy.hp)
@@ -209,6 +212,8 @@ def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events, cannot_
             for o in s.enemies:
                 if o is not e and o.hp > 0:
                     o.hp = 0
+        if e.kind in EXPLOSIVE:
+            _explode(s, e, ev)
     if e.kind in PAIRED:
         # The Twins share one HP bar: a hit on either takes it from both, and both die at 0 [wiki]
         # [rec: collect/20261028-190026 f0580, collect/20261029-160032 f0775]
@@ -218,6 +223,20 @@ def _damage_enemy(s: State, e: Enemy, dmg: int, source: str, ev: Events, cannot_
                 if o.hp <= 0:
                     ev.kills.append((o.kind, o.uid, source))
     return False
+
+
+def _explode(s: State, e: Enemy, ev: Events) -> None:
+    """Explosive [wiki: Enemies, 'Upon death, explodes dealing 2 damage to any unit in adjacent cells']: the units on both
+    neighbouring cells as the unit dies, the hero where he stands at that moment (after a dash) and enemies, whose own
+    explosion follows when one dies of it [bot: run 20261103-085026 t841, the hero next to the Warden he killed, and the
+    Yari Master on its other side 4 -> 2; t847, the hero beside the Warden his Spear killed after his Shadow Dash; -2
+    each]. A shield takes it as any hit (_hurt_hero)."""
+    for x in (e.x - 1, e.x + 1):
+        u = s.unit_at(x) if s.in_bounds(x) else None
+        if u is s.hero:
+            _hurt_hero(s.hero, EXPLOSION_DAMAGE, e, ev)
+        elif u is not None:
+            _damage_enemy(s, u, EXPLOSION_DAMAGE, f"{e.kind}:explosion", ev)
 
 
 def _push(s: State, u, d: int, ev: Events, collision: int, src: str, by: Enemy | None,
