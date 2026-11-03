@@ -322,7 +322,8 @@ def test_a_hero_moved_by_an_enemy_ends_a_tracked_shield():
     # HP lost) and stayed on in the tracker, so t82's -2 was planned as -1
     tr = Tracker()
     ash = [{"x": 6, "kind": "ashigaru", "hp": 3}]
-    tr.shield = True
+    tr.state(_synthetic(4, 10, ash, cells=7))
+    tr.shield = True                  # (after the level's first state: since 0.49 a level starts without a shield)
     s = tr.state(_synthetic(4, 10, ash, cells=7))
     tr.acted(s, "wait")
     s = tr.state(_synthetic(4, 10, ash, cells=7))
@@ -373,6 +374,7 @@ def test_a_grappler_firing_with_its_hook_read_alone_fires_its_sword_too():
     tr = Tracker()
     tr.route = route
     tr.stage, tr.level_i, tr.advance, tr.level = 4, -1, True, ""
+    tr.state(_synthetic(8, 10, [], cells=9))          # the level's first state: since 0.49 a level starts without one
     tr.shield = True
     s = tr.state(_synthetic(8, 10, [{"x": 3, "kind": "grappler", "hp": 5, "facing": 1, "queue": ["grappling_hook"],
                                      "queue_conf": [1.0], "intent": "fire"}], cells=9))

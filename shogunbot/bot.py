@@ -46,7 +46,7 @@ from .catalogue import CAT
 from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HEAVY_KINDS, HERO_MAX_HP, UNFREEZABLE_KINDS
 from .perception import map_screen, reward_screen, screens, shop_screen
 from .perception.board import cells as board_cells
-from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
+from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive, read_consumables
 from .perception.tiles import FACE_H, FACE_W
 from .planner import (STALL_STUCK_TURNS, STALL_TURNS, WEIGHTS, BoardLoop, plan, plan_live, progress_key, progress_mark,
                       stall_budget, stall_push, stall_weights)
@@ -847,7 +847,7 @@ class Bot:
         return False
 
     # ------------------------------------------------------------------ shop
-    def _shop(self, frame, tr=None, hp: int | None = None) -> bool:
+    def _shop(self, frame, tr=None, hp: int | None = None, hp_cap: int | None = None) -> bool:
         """The shop between regions [user 2026-10-29: read the offers and prices]: what
         perception/shop_screen.py reads (the statue's upgrade and price, the counter's prices, the
         coins) is logged, with each coin offer on the counter named by its tooltip (0.32); the purchases
@@ -878,7 +878,8 @@ class Bot:
         self.say(f"shop: {shop_screen.describe(offer)}")
         if tr is not None and offer:
             try:
-                frame = self._shop_buy(frame, offer, hand, tr, hp if hp is not None else HERO_MAX_HP)
+                frame = self._shop_buy(frame, offer, hand, tr, hp if hp is not None else HERO_MAX_HP,
+                                       hp_cap if hp_cap is not None else HERO_MAX_HP)
             except Exception as e:            # buying must never keep the bot in the shop
                 self.log.exception("shop_buy", e, frame=frame)
         self.say("shop: GO")
@@ -929,34 +930,81 @@ class Bot:
                                      coins=shop_screen.number_in(f, shop_screen.COINS_BOX))
         return frame, look
 
-    def _shop_buy(self, frame, offer: dict, hand: list, tr, hp: int):
+    def _shop_buy(self, frame, offer: dict, hand: list, tr, hp: int, hp_cap: int = HERO_MAX_HP):
         """The shop's purchases in your order [user 2026-10-29: -2 cooldown and +1 damage upgrades,
         Healthy, +1 upgrade slot]: the statue's upgrade when it adds damage or takes cooldown off, then
         Healthy, a slot-only statue upgrade, the other simulated skills, then trade-offs
         (rewards.shop_priority); each is valued against keeping the coins when its turn comes
-        (rewards.decide_shop, decide_skill), with the coins read again after every purchase.
-        Returns the last frame."""
+        (rewards.decide_shop, decide_skill), with the coins read again after every purchase. With HP at
+        or below max - 3, an Edamame Brew on the counter and then Healthy come first [core-requests
+        item 17b]. Returns the last frame."""
         notes: list = []
         if hand:
             tr.kit = kit_from_faces(tr.kit, hand, notes)
+        low = hp <= hp_cap - HEAL
         steps = []
         pri = rewards.shop_priority(upgrade_id=offer.get("upgrade")) if offer.get("upgrade") else None
         steps.append((pri if pri is not None else 9, 0, None))     # the statue: logged even when never bought
         for i, g in enumerate(offer.get("goods") or []):
-            pri = rewards.shop_priority(good=g)
+            pri = rewards.shop_priority(good=g, low_hp=low)
             if pri is not None:
                 steps.append((pri, i + 1, g))
             elif g.get("title"):
+                why = (f"HP {hp} of {hp_cap}: not low enough" if g.get("kind") == "consumable"
+                       else g.get("kind") or "unread")
                 notes.append(f"counter: {g['title']} for {g['price']} {g['currency']}s is not bought "
-                             f"({g.get('kind') or 'unread'}{', not simulated' if g.get('kind') == 'skill' else ''})")
+                             f"({why}{', not simulated' if g.get('kind') == 'skill' else ''})")
         coins = offer.get("coins")
         for _, _, g in sorted(steps, key=lambda t: (t[0], t[1])):
             if g is None:
                 frame, coins = self._shop_statue(frame, offer, hand, tr, hp, coins, notes)
+            elif g.get("kind") == "consumable":
+                frame, coins = self._shop_brew(frame, g, tr, hp, hp_cap, coins)
             else:
                 frame, coins = self._shop_skill(frame, g, tr, hp, coins)
             hand = []                         # read again by the statue's flow when it comes later
         return frame
+
+    def _shop_brew(self, frame, g: dict, tr, hp: int, hp_cap: int, coins):
+        """A healing brew on the counter while HP is at or below max - 3 (shop_priority): bought when
+        affordable and the item column has a free slot (3, one more per Big Pockets level
+        [data/consumables.json max_held]); the fights drink it (edamame_reason). Bought with one click
+        on its slot, checked by the coins dropping, as a skill [rules: counter 'buy']. Returns the last
+        frame and the coins."""
+        name = CAT.consumable(g["id"]).name
+        price = g.get("price")
+        held = len(read_consumables(normalize(frame)))
+        room = CAT.consumable_rules["max_held"] + tr.kit.level("big_pockets")
+        why = None
+        if coins is None or price is None:
+            why = f"{'coins' if coins is None else 'price'} not read"
+        elif price > coins:
+            why = f"costs {price}, {coins} coins held"
+        elif held >= room:
+            why = f"the item column is full ({held} of {room})"
+        rule = f"shop: {name} at HP {hp} of {hp_cap}: " + (why + "; coins kept" if why else
+                                                            f"HP first, for {price} of {coins} coins")
+        self.log.event("shop_decision", consumable=g["id"], price=price, coins=coins, hp=hp, hp_cap=hp_cap,
+                       held=held, room=room, seconds=0.0, choice="skip" if why else f"buy:{g['id']}", rule=rule)
+        self.say(f"   {name}: {'keep the coins' if why else 'buy it'}  [{rule}]")
+        if why:
+            return frame, coins
+        now = None
+        for attempt in (1, 2):
+            self.click(g["x"] / 1920, shop_screen.SLOT_Y / 1080, frame, screen="shop", shop=f"buy:{g['id']}",
+                       attempt=attempt)
+            time.sleep(1.0)
+            self._park_mouse()
+            frame = self.gw.grab_stable(settle_s=0.25, timeout_s=3.0)
+            now = shop_screen.number_in(normalize(frame), shop_screen.COINS_BOX)
+            if now is not None and now < coins:
+                self.log.event("shop_bought", choice=f"buy:{g['id']}", consumable=g["id"], price=price,
+                               coins_before=coins, coins_after=now)
+                self.say(f"   bought {name} for {coins - now} coins")
+                return frame, now
+        self.log.event("shop_buy_failed", choice=f"buy:{g['id']}", reason="the coins did not drop after the click",
+                       coins_before=coins, coins_after=now)
+        return frame, coins if now is None else now
 
     def _valuation_feed(self):
         printed = [time.time()]
@@ -1356,7 +1404,7 @@ class Bot:
                     log.save_frame(frame, "win")
                     break
                 if scr == "shop":
-                    if not self._shop(frame, tr, last_hp):
+                    if not self._shop(frame, tr, last_hp, hp_cap):
                         self.say("shop: GO did not leave the shop; stopping")
                         result = "stuck"
                         break

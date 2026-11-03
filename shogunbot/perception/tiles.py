@@ -244,16 +244,15 @@ def classify(g: np.ndarray, allowed=None) -> tuple[str | None, float, float]:
 
 
 # ---------------------------------------------------------------- dots
-def read_dots(rgb: np.ndarray, box) -> tuple[int, int]:
-    """(levels, used) from the dots above a face on reward screens: grey dots
-    (~158,163,145) are free levels, golden ones (~200,156,24) are used
-    [collect 20261027-164727 f0112]. Dots are 12 px wide on a 20 px pitch,
-    centred over the face, 29 px above its top edge."""
-    x0, y0 = box[0], box[1]
-    y = y0 - 29
+DOT_ROW = 29         # px from a face's top edge up to its first row of level dots
+DOT_ROW_PITCH = 20   # px between stacked rows [run 20261102-202249 reward_9_shrine: rows 29 and 49 px up]
+DOTS_PER_ROW = 4     # a row holds 4 dots; above 4 levels they stack, at most 8 [wiki: 8 upgrade slots]
+
+
+def _dot_row(rgb: np.ndarray, cx: int, y: int) -> tuple[int, int]:
+    """(dots, gold dots) on one row centred on y."""
     if y < 3:
         return 0, 0
-    cx = x0 + FACE_W // 2
     band = rgb[y - 3:y + 4, cx - 80:cx + 80].astype(np.int16)
     r, g, b = band[..., 0], band[..., 1], band[..., 2]
     grey = (b > 110) & (np.abs(r - g) < 16) & (r > 120)
@@ -266,6 +265,25 @@ def read_dots(rgb: np.ndarray, box) -> tuple[int, int]:
             if 7 <= c1 - c0 <= 16:
                 levels += 1
                 used += is_used
+    return levels, used
+
+
+def read_dots(rgb: np.ndarray, box) -> tuple[int, int]:
+    """(levels, used) from the dots above a face on reward screens: grey dots
+    (~158,163,145) are free levels, golden ones (~200,156,24) are used
+    [collect 20261027-164727 f0112]. Dots are 12 px wide on a 20 px pitch,
+    centred over the face, 29 px above its top edge. Above 4 levels the dots
+    stack: a second row 20 px higher [run 20261102-202249 reward_9_shrine: the
+    Swirl's 6 levels as 1 gold + 3 grey, and 2 grey above; one row read 4
+    levels, core-requests item 16b]. A higher row is read only over a full row."""
+    cx = box[0] + FACE_W // 2
+    levels = used = 0
+    for k in range(2):
+        n, u = _dot_row(rgb, cx, box[1] - DOT_ROW - k * DOT_ROW_PITCH)
+        levels += n
+        used += u
+        if n < DOTS_PER_ROW:
+            break
     return levels, used
 
 

@@ -12,8 +12,11 @@
     "one_enchantment": "A tile can hold one enchantment, except Free-Play [wiki].",
     "floor": "Damage and cooldown do not go below 0 [hyp].",
     "shrine_flow": "Click a hand tile: it moves into the statue's mouth and UPGRADE lights up; click UPGRADE. REROLL costs coins; SKIP leaves [bot: collect 20261027-164727 f0109-f0112].",
-    "tile_choice_flow": "Click a pedestal tile to add it to the hand; REROLL costs coins; SKIP leaves [bot: collect 20261027-164727 f0042-f0043]."
+    "tile_choice_flow": "Click a pedestal tile to add it to the hand; REROLL costs coins; SKIP leaves [bot: collect 20261027-164727 f0042-f0043].",
+    "cooldown_cap": "A tile's cooldown stays within 0-8 [wiki: 'Tiles can have a valid Cooldown range of 0-8', fetched 2026-11-03]. A statue does not take a tile whose cooldown an upgrade would raise above 8: the tile stays in the hand [bot: all 14 logged shrine upgrades that would have done so failed, 10 of them Double-Strike (+4) on an Arrow (cooldown 5 or more), e.g. run 20261102-232559 reward_11_shrine; all 19 that raised a tile to exactly 8 were taken; runs 20261027-182237 to 20261103-035113; core-requests item 17d].",
+    "slot_cap": "A tile has at most 8 upgrade slots [wiki: 'The maximum amount of Upgrade Slots a single Tile can have is 8', fetched 2026-11-03]; above 4 the dots stack in two rows [bot: run 20261102-202249 reward_9_shrine]."
   },
+  "limits": {"max_cooldown": 8, "max_levels": 8, "source": "rules.cooldown_cap, rules.slot_cap"},
   "stat_upgrades": [
     {"id": "damage_1", "name": "+1 Damage", "lines": ["+1 DAMAGE"], "seen": false, "damage": 1, "cooldown": 0, "slots": 0, "uses_level": true},
     {"id": "damage_1_cooldown_1", "name": "+1 Damage, +1 Cooldown", "lines": ["+1 DAMAGE", "+1 COOLDOWN"], "seen": true, "damage": 1, "cooldown": 1, "slots": 0, "uses_level": true},

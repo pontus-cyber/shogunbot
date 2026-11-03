@@ -411,9 +411,30 @@ def read_stack(rgb: np.ndarray, cx: int, exclude: frozenset = GATED_ICONS, hero_
         else:
             plus = plus_sign(rgb, y0, y1, cx)
             if plus is None:
+                if enemy and col == "yellow" and firing_flash(interior):
+                    # the bottom bubble washed out as its tile fires: the tile is the unit's own (perceive fills it in)
+                    out.append({"type": "tile", "tile": None, "colour": "yellow", "conf": 0.0, "flash": True})
                 break
             out.append({"type": "plus", "colour": col, "plus": plus})
     return out
+
+
+# A bubble flashes as its unit fires: the yellow frame's fill washes over the icon with a white streak down the middle.
+# On the 15,174 'before' frames of the bot's runs to 20261103-035113, 24 enemy slots framed yellow showed neither an
+# icon's dark field nor a '+': two were such flashes, white 0.23 and yellow 0.46-0.47 of the window (run
+# 20261102-065902 t748, a firing Ashigaru; run 20261102-232559 t241, a firing Guardian), read as an empty bubble and
+# planned as a hold, and each cut the hero for 2 unpredicted; the other 22 held yellow at most 0.021 (the Twins' Shadow
+# Dash bubble 19 times, Rei, a Yari Master) [scan of 2026-11-03; core-requests item 17c]
+FLASH_WHITE, FLASH_YELLOW = 0.15, 0.30
+
+
+def firing_flash(interior: np.ndarray) -> bool:
+    """True when a yellow-framed slot's interior is the firing flash (FLASH_WHITE, FLASH_YELLOW)."""
+    a = interior.astype(int)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    white = float((a.min(axis=2) > 200).mean())
+    yellow = float(((r > 190) & (g > 140) & (b < 100)).mean())
+    return white >= FLASH_WHITE and yellow >= FLASH_YELLOW
 
 
 def elite_pixels(rgb: np.ndarray, cx: int) -> int:
@@ -869,6 +890,11 @@ def merge_blink(p: "Perception", frames: list) -> list[str]:
                 e["intent"], e["fire_now"] = "fire", True
                 notes.append(f"enemy at {e['x']}: yellow on a later frame -> fire")
                 break
+            if (not e["queue"] and tiles and tiles[0].get("flash")
+                    and not (e["kind"] in CAT.enemies and CAT.enemies[e["kind"]].boss)):
+                e["intent"], e["fire_now"], e["flash"] = "fire", True, True      # (firing_flash)
+                notes.append(f"enemy at {e['x']}: its bubble flashed on a later frame -> fire")
+                break
             if e["intent"] is None and plus:
                 e["intent"] = "queue"
                 notes.append(f"enemy at {e['x']}: a '+' on a later frame -> queue")
@@ -1030,6 +1056,9 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 conf["hero_hp"] = 1.0 if (g1 + g2 + r1 + r2) in (5, 10, 12, 14, 16) else 0.3
             else:
                 tiles = [s for s in stack if s["type"] == "tile"]
+                flash = bool(tiles and tiles[0].get("flash"))
+                if flash:
+                    tiles = tiles[1:]                  # its tile comes from the unit's kind, below
                 plus = [s for s in stack if s["type"] == "plus"]
                 intent = None
                 if marker:
@@ -1081,11 +1110,14 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                 if kind == "ashigaru" and tiles and intent != "fire" and windup_pixels(rgb, cx) >= WINDUP_MIN:
                     intent = "fire"
                     tiles[0] = dict(tiles[0], colour="yellow")
+                flash = flash and not tiles and not marker and not (kind in CAT.enemies and CAT.enemies[kind].boss)
+                if flash:
+                    intent = "fire"                    # the firing flash (firing_flash): the tracker gives its tile
                 spawning = spawn_pixels(rgb, cx) >= SPAWN_RED_PX
                 en = {"x": i, "cx": cx, "kind": kind, "facing": 0 if spawning else facing, "hp": g,
                       "hp_max": g + r, "queue": [t["tile"] for t in tiles], "queue_conf": [t["conf"] for t in tiles],
                       "fire_now": bool(tiles and tiles[0]["colour"] == "yellow"),
-                      "intent": intent, "spawning": spawning, "elite": elite, "alt": alt,
+                      "intent": intent, "spawning": spawning, "elite": elite, "alt": alt, "flash": flash,
                       "shield": shields and shield_frac(rgb, cx) >= SHIELD_FRAC,
                       "orb": shields and orb_pixels(rgb, cx) >= ORB_PX}
                 if any(t.get("shape") for t in tiles):
