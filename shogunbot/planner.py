@@ -10,7 +10,8 @@ from dataclasses import dataclass, field
 
 from .catalogue import CAT
 from .model import QUEUE_MAX, State
-from .rules import SPEC, _first_unit_ahead, _furthest_unit_ahead, draw_intents, legal_hero_actions, step, threats
+from .rules import (SPEC, _first_unit_ahead, _furthest_unit_ahead, draw_intents, item_rank, legal_hero_actions, step,
+                    threats)
 
 WEIGHTS: dict[str, float] = {
     "hero_hp": 1000.0,           # damage-first [user]: one HP outweighs any kill combo
@@ -41,6 +42,10 @@ WEIGHTS: dict[str, float] = {
                                  # its HP instead. HYP: below a kill's 30 for a card, above it for the HP items
     "item_now": 20.0,            # per item taken from the floor at a step, counted where it happens: the leaf values
                                  # above are the same whether the line takes it now or later, this makes it sooner
+    "item_near": 3.0,            # x the best floor item's rank x cells nearer than the board's width, while the column
+                                 # has room: draws the hero toward an item beyond the search's reach (an Edamame Brew at
+                                 # low HP, rank 8: 24 a cell, below a kill's 30) [user 2026-11-03 09:36: "keep a look at the
+                                 # floor and include it into strategy"]. HYP
 }
 
 SPAWN_THRESHOLD = 1  # [web] Normal rooms spawn the next wave at 1-2 alive; HYP: 1
@@ -284,6 +289,9 @@ def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
     if s.heal_due:
         # a brew taken on the line's last turn, drunk as the next begins (rules._pick_up)
         terms["heal_due"] = w["hero_hp"] * min(s.heal_due, h.kit.max_hp - h.hp)
+    if s.floor and s.room > 0:
+        near = max(item_rank(cid, h.hp, h.kit.max_hp) * (s.cells - 1 - abs(c - h.x)) for c, cid in s.floor)
+        terms["item_near"] = w.get("item_near", 0.0) * near
     return sum(terms.values()), terms
 
 
@@ -667,6 +675,9 @@ _WORDS = {
                       lambda n: f"{_pl(n, 'fewer tile', 'fewer tiles')} recharged for the next wave"),
     "below_floor": (None, lambda n: "stays within the stall budget", lambda n: "goes past the stall budget"),
     "death": (None, lambda n: "survives", lambda n: "dies"),
+    "item_picked": (None, lambda n: "takes an item from the floor", lambda n: "leaves an item on the floor"),
+    "heal_due": (None, lambda n: "takes a brew from the floor to drink", lambda n: "leaves the brew on the floor"),
+    "item_near": (None, lambda n: "nearer an item on the floor", lambda n: "further from an item on the floor"),
 }
 
 

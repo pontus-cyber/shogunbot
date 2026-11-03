@@ -56,7 +56,7 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.49"
+VERSION = "0.50"
 COOLUP_LOW_HP = 4                  # HP at or below which Cool Up is weighed every turn (core-requests item 15b)
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0

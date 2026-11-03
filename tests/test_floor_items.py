@@ -118,6 +118,14 @@ def test_the_planner_walks_to_a_brew_at_low_hp():
     assert plan_live(s).action == "left"
 
 
+def test_the_planner_walks_toward_a_brew_beyond_its_search():
+    # five cells away (WEIGHTS 'item_near'); nothing threatens the hero
+    s = _state(3, [[2, "edamame_brew"]], room=1, hero_x=7)
+    assert plan_live(s).action == "left"
+    s.room = 0                                                     # the column full: no pull
+    assert plan_live(s).action != "left"
+
+
 def test_the_planner_does_not_trade_hp_for_a_brew():
     # the step onto the brew lies in a fire lane: a loaded Ashigaru beside the brew faces it [damage-first]
     s = _state(5, [[2, "edamame_brew"]], room=1)
