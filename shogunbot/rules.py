@@ -398,6 +398,11 @@ def apply_hero(s: State, action: str, ev: Events) -> State:
     """Apply the hero's action (no enemy phase). Returns a new state."""
     s = s.clone()
     h = s.hero
+    if s.heal_due:
+        # a brew taken from the floor last turn, drunk as this turn begins (an item costs no turn [wiki]) (_pick_up)
+        h.hp = min(h.kit.max_hp, h.hp + s.heal_due)
+        s.heal_due = 0
+    x0 = h.x
     fired: set[str] = set()
     if action in ("left", "right"):
         d = -1 if action == "left" else 1
@@ -438,7 +443,48 @@ def apply_hero(s: State, action: str, ev: Events) -> State:
                 ch[lb] = min(cd, ch.get(lb, 0) + extra)
         h.swap_charge = min(h.kit.swap_cooldown, h.swap_charge + extra)
     s.enemies = [e for e in s.enemies if e.hp > 0]
+    if s.floor and h.x != x0:
+        _pick_up(s)
     return s
+
+
+ITEM_RULES = CAT.consumable_rules
+BREW_HEAL = CAT.consumable("edamame_brew").effect["amount"]
+
+
+def item_rank(cid: str, hp: int, hp_max: int) -> int:
+    """An item's tier for floor pickups and trades: its sell value [wiki], and while HP is at or below max - Edamame
+    Brew's heal, low_hp_bonus more for an item that saves HP, a heal or a shield (data/consumables.json rules 'tier',
+    'low_hp_bonus') [user 2026-11-03 09:36]."""
+    c = CAT.consumables.get(cid)
+    if c is None:
+        return 0
+    rank = c.sell or 0
+    if hp <= hp_max - BREW_HEAL and c.effect.get("type") in ("heal", "shield"):
+        rank += ITEM_RULES["low_hp_bonus"]
+    return rank
+
+
+def _pick_up(s: State) -> None:
+    """The hero takes the item on the cell he moved onto, when the item column has a free slot [user 2026-11-03 09:36:
+    "It goes into item column if there is space"]; with the column full it stays (the cautious read: the game's rule for
+    that step is not known). A healing brew taken while all of its heal fits (HP at or below max - its amount) is drunk
+    as the next turn begins, as the bot does (bot.edamame_reason (b)), unless it would be the last brew kept for the
+    final region (State.brew_keep, the rule's reserve): heal_due, applied at the next apply_hero, so the state after this
+    turn shows the HP the next frame shows (the replay compares them). Another item counts its rank (item_rank) in
+    State.picked (planner WEIGHTS 'item_picked')."""
+    h = s.hero
+    item = next((f for f in s.floor if f[0] == h.x), None)
+    if item is None or s.room <= 0:
+        return
+    s.floor = [f for f in s.floor if f is not item]
+    eff = CAT.consumables[item[1]].effect if item[1] in CAT.consumables else {}
+    amount = eff.get("amount", 0) if eff.get("type") == "heal" else 0
+    if amount and h.hp <= h.kit.max_hp - amount and not s.brew_keep:
+        s.heal_due += amount            # drunk: its slot stays free
+    else:
+        s.room -= 1
+        s.picked += item_rank(item[1], h.hp, h.kit.max_hp)
 
 
 # ---------------------------------------------------------------------------

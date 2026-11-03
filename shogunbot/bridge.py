@@ -214,6 +214,11 @@ def region_boss_index(region: str | None) -> int:
     return max(1, int(reg["levels"]) - 1) if reg and reg.get("levels") else 2
 
 
+# reads without a floor item that keep it on an empty cell: its sprite's pale flash (run 20261101-021522 t770 and t798,
+# one frame each between reads of 0.998)
+FLOOR_MISS_MAX = 1
+
+
 class Tracker:
     def __init__(self, kit: Kit = DEFAULT_KIT) -> None:
         self.kit = kit
@@ -263,6 +268,9 @@ class Tracker:
         self.rings_new: list = []           # rings his combo places in the coming enemy phase (acted)
         self.boss_phase: dict = {}          # kind -> the phase of a boss with more than one bar (the Shogun)
         self.boss_frac: dict = {}           # kind -> his bar's last read
+        self.floor: dict = {}               # cell -> (screen id, states in a row it was read, reads missed): items on the
+                                            # floor (_floor)
+        self.items_held: int | None = None  # items read in the column at the last state (_floor: a pickup)
 
     # ------------------------------------------------------------------
     def next_level(self) -> None:
@@ -355,6 +363,7 @@ class Tracker:
             self.rings, self.rings_new = [], []
             self.boss_phase, self.boss_frac = {}, {}
             self.chain_prev = {}
+            self.floor, self.items_held = {}, None
 
         h = p.hero
         facing = self._hero_facing(h, p.confidence.get("hero_facing", 0.0))
@@ -568,7 +577,7 @@ class Tracker:
 
         s = State(cells, hero, enemies, level=level,
                   wave=1, waves_total=0 if level.endswith("boss") else 99, bombs=self._bombs(p, cells),
-                  rings=self._rings(cells))
+                  rings=self._rings(cells), floor=self._floor(p, cells, hero.x), room=self.room(p))
         from .rules import _hits_hero
         for en in enemies:
             if (en.kind in behaviour.QUICK and en.queue and en.intent in ("hold", None) and en.x in sure
@@ -600,6 +609,54 @@ class Tracker:
             self.notes.append(f"{kind}: his bar refilled ({last:.2f} -> {frac:.2f}); phase {ph}")
         self.boss_phase[kind], self.boss_frac[kind] = ph, frac
         return max(1, round(frac * k.hp)) + k.hp * (k.phases - ph)
+
+    def room(self, p) -> int:
+        """Free slots in the item column: the column's size (data/consumables.json 'max_held', plus Big Pockets' levels
+        [wiki]) less the items read in it (a dimmed item fills its slot too)."""
+        size = CAT.consumable_rules["max_held"] + self.kit.level("big_pockets")
+        return max(0, size - len(getattr(p, "items", None) or []))
+
+    def _floor(self, p, cells: int, hero_x: int) -> list:
+        """Items on the floor, [cell, consumable id] (State.floor) [user 2026-11-03 09:36: "important to keep a look at
+        the floor"]. An empty cell is taken as read, but an item read there before is kept through FLOOR_MISS_MAX reads
+        without it (its sprite flashes pale now and then: perceive.merge_blink); a cell a unit stands on keeps what was
+        read there before (the unit is drawn in front of it); the hero's own cell is left out: he took the item if the
+        column had room (one item more in the column: dropped), else it waits under him until he steps off. self.floor
+        counts the states in a row each item was read (bot.floor_trade waits for FLOOR_SEEN_MIN)."""
+        read = {f["x"]: f["item"] for f in getattr(p, "floor", None) or [] if 0 <= f["x"] < cells}
+        held = len(getattr(p, "items", None) or [])
+        if not read and not self.floor:
+            self.items_held = held
+            return []
+        empty = {c["x"] for c in p.cells if isinstance(c, dict) and c.get("kind") == "empty"}
+        out, picked = {}, None
+        for c in range(cells):
+            if c in read:
+                sid, n, _ = self.floor.get(c, (None, 0, 0))
+                out[c] = (read[c], n + 1 if sid == read[c] else 1, 0)
+            elif c in self.floor:
+                sid, n, miss = self.floor[c]
+                if c == hero_x and self.items_held is not None and held > self.items_held:
+                    picked = c
+                    self.notes.append(f"picked up {sid} on {c}")
+                elif c not in empty:
+                    out[c] = (sid, n, miss)
+                elif miss < FLOOR_MISS_MAX:
+                    out[c] = (sid, n, miss + 1)
+        self.items_held = held
+        gone = sorted(c for c in set(self.floor) - set(out) if c != picked)
+        new = sorted(c for c in out if c not in self.floor or self.floor[c][0] != out[c][0])
+        if new:
+            self.notes.append("on the floor: " + ", ".join(f"{out[c][0]} on {c}" for c in new))
+        if gone:
+            self.notes.append("no longer on the floor: " + ", ".join(f"{self.floor[c][0]} on {c}" for c in gone))
+        self.floor = out
+        state = []
+        for c, (sid, _, _) in sorted(out.items()):
+            cons = CAT.consumable_by_screen(sid)
+            if cons is not None and c != hero_x:
+                state.append([c, cons.id])
+        return state
 
     def _rings(self, cells: int) -> list:
         """The Shogun's Corrupted Barrage rings, [centre, next distance, phases to wait]: those his last combo placed

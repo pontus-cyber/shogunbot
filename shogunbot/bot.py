@@ -50,13 +50,13 @@ from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive, re
 from .perception.tiles import FACE_H, FACE_W
 from .planner import (STALL_STUCK_TURNS, STALL_TURNS, WEIGHTS, BoardLoop, plan, plan_live, progress_key, progress_mark,
                       stall_budget, stall_push, stall_weights)
-from .rules import POISON_TICK, POISON_TURNS, free_action, legal_hero_actions, step
+from .rules import POISON_TICK, POISON_TURNS, free_action, item_rank, legal_hero_actions, step
 from .live import LiveView
 from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.49"
+VERSION = "0.50"
 COOLUP_LOW_HP = 4                  # HP at or below which Cool Up is weighed every turn (core-requests item 15b)
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
@@ -64,9 +64,9 @@ VK_F8 = 0x77
 # Edamame Brew restores up to 3 HP [catalogue]. It is drunk [user 2026-10-29] (a) when a hit this
 # turn or the next would kill the hero or leave HP within one enemy hit of 0, and its HP prevent
 # that; or (b) when all of its HP heal (HP <= max - 3), threat or not; or (c) to free its slot for a
-# better item or another potion on the ground (ground items are not read yet, so (c) never
-# applies). 0.24-0.27.1 required (a) and (b) together, so run 20261029-124921 held two brews from
-# HP 7 down to 3 [user review]. It is not part of the last level's 'use it or lose it' pass.
+# better item or another potion on the ground (floor_trade, since 0.50 reads the floor). 0.24-0.27.1
+# required (a) and (b) together, so run 20261029-124921 held two brews from HP 7 down to 3 [user
+# review]. It is not part of the last level's 'use it or lose it' pass.
 HEAL = CAT.consumable_by_screen("green_potion").effect["amount"]
 RISK_P = 0.1              # an outcome this likely or more counts as a hit that can land
 POISON_MIN_VALUE = 4      # use Mass Poison when it deals at least this much in total
@@ -202,6 +202,60 @@ def edamame_reason(s, action: str, hp_cap: int, reserve: bool = False) -> str | 
         return None                                  # the brew would not prevent it
     risk = "kill the hero" if without <= 0 else f"leave {without} HP (one hit: {hit})"
     return f"a hit this turn or the next could {risk}; with the brew {with_brew} HP"
+
+
+# Floor items [user 2026-11-03 09:36: "It goes into item column if there is space. So depending on situation you want to
+# trade lesser potions for higher tier ones when needed ... Any pots on the floor when item column is full gets
+# discarded and lost"]. With the column full and an item of a higher rank (rules.item_rank: the sell value [wiki], an HP
+# item more while HP is low) read on the floor on FLOOR_SEEN_MIN states in a row, a held item of a lower rank is used
+# (it costs no turn [wiki]) so the planner can step onto the better one, or the fight's end collect it [wiki]. Run
+# 20261102-191231 died at 3 HP in Hot Springs III with three Cool Ups in the column and two Edamame Brews and a Kami
+# Brew on the floor (t0653_after). Of the lower items, the one whose use now loses least goes first (TRADE_ORDER, HYP):
+# Kami Brew while no shield is up (its shield waits for the next hit), then the items that only help, then Rain of
+# Mirrors while no enemy is armed and the Lucky Die against a fire telegraph (their use can turn against the hero).
+FLOOR_SEEN_MIN = 2
+TRADE_ORDER = ("blue_potion", "white_potion", "skull_card", "curse_card", "ice_card", "mirror_card", "dice_card")
+
+
+def _trade_safe(item: str, s) -> bool:
+    if item == "blue_potion":
+        return not s.hero.shield
+    if item == "mirror_card":
+        return not any(e.armed for e in s.alive() if e.kind not in HEAVY_KINDS)
+    if item == "dice_card":
+        return any(e.intent == "fire" for e in s.alive())
+    return item in TRADE_ORDER
+
+
+def floor_trade(s, items: list, seen: dict, hp_cap: int, have: set | None = None) -> tuple[str, str] | None:
+    """The held item to use now so a better one on the floor fits in the column, with the reason, or None (see
+    FLOOR_SEEN_MIN). items: the column's reads (perceive.read_consumables); seen: the tracker's floor (cell -> (screen
+    id, states in a row)); have: the items that may be used (tries left, not dimmed). A held Edamame Brew is drunk for
+    another brew on the floor while HP is below the cap (rule (c) above), when no lower item can go."""
+    if s.room > 0 or not s.floor or not s.alive():
+        return None
+    hp = s.hero.hp
+    ready = [(c, cid) for c, cid in s.floor if seen.get(c, (None, 0))[1] >= FLOOR_SEEN_MIN]
+    if not ready:
+        return None
+    cell, best_id = max(ready, key=lambda f: (item_rank(f[1], hp, hp_cap), -abs(f[0] - s.hero.x)))
+    best = item_rank(best_id, hp, hp_cap)
+    name = CAT.consumable(best_id).name
+    held = [it["item"] for it in items if not it.get("dim") and (have is None or it["item"] in have)]
+    lower = []
+    for item in held:
+        cons = CAT.consumable_by_screen(item)
+        if cons is None or item not in TRADE_ORDER:
+            continue
+        rank = item_rank(cons.id, hp, hp_cap)
+        if rank < best and _trade_safe(item, s):
+            lower.append((rank, TRADE_ORDER.index(item), item, cons.name))
+    if lower:
+        rank, _, item, held_name = min(lower)
+        return item, f"frees a slot for the {name} on cell {cell} (rank {best}; {held_name} {rank})"
+    if best_id == "edamame_brew" and 0 < hp < hp_cap and "green_potion" in held:
+        return "green_potion", f"frees its slot for the {name} on cell {cell} (HP {hp} of {hp_cap})"
+    return None
 
 
 KEY_LABEL = {"a": "A", "d": "D", "w": "W", "s": "S", "space": "SPACE", "enter": "ENTER", "esc": "ESC",
@@ -1655,11 +1709,25 @@ class Bot:
                         log.save_frame(frame, f"item_{it['item']}")
                         log.event("item_seen", item=it["item"], fy=round(float(it["fy"]), 3), dim=bool(it.get("dim")))
                 # ---- items before planning (all cost no turn [obs]; effects from the wiki)
+                # a brew taken from the floor now with none held would be the last one before the final region: kept for
+                # a hit that would kill, not drunk at once (edamame_reason's reserve; rules._pick_up)
+                s.brew_keep = (not any(it.get("item") == "green_potion" for it in p.items)
+                               and tr.stage < self.last_stage())
                 spend = level == final
                 use = self._pre_plan_item(p, s, item_tries)
                 if use:
                     item, reason = use
                     self._use_item(item, p, s, frame, turn, reason, tr, item_tries)
+                    continue
+                # floor items: make room for a better one [user 2026-11-03 09:36] (floor_trade)
+                usable = {it["item"] for it in p.items if item_tries.get(it["item"], 0) < 2 and not it.get("dim")}
+                use = floor_trade(s, p.items, tr.floor, hp_cap, usable) if s.floor else None
+                if use:
+                    log.event("floor_trade", turn=turn, item=use[0], reason=use[1], floor=s.floor, room=s.room,
+                              hp=s.hero.hp, hp_cap=hp_cap)
+                    self._use_item(use[0], p, s, frame, turn, use[1], tr, item_tries)
+                    if use[0] == "green_potion":
+                        potion_check = (s.hero.hp, "green_potion")
                     continue
                 last_hp = s.hero.hp if p.hero["hp_max"] else last_hp
                 if not s.alive():
