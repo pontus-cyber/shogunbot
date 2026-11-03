@@ -269,6 +269,8 @@ class Catalogue:
 
         u = load("upgrades.json")
         self.upgrade_rules = u["rules"]
+        self.max_cooldown: int = u["limits"]["max_cooldown"]   # a statue refuses an upgrade past it
+        self.max_levels: int = u["limits"]["max_levels"]       # upgrade slots per tile
         self.upgrades: dict[str, Upgrade] = {}
         for d in u["stat_upgrades"]:
             self.upgrades[d["id"]] = Upgrade(

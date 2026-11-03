@@ -150,10 +150,18 @@ def offerable(up) -> bool:
 
 def upgraded(kt: KitTile, up) -> KitTile | None:
     """The tile after a shrine upgrade, or None when it cannot take it or it
-    would change nothing (e.g. -1 cooldown on a cooldown-0 tile)."""
+    would change nothing (e.g. -1 cooldown on a cooldown-0 tile). A statue does not
+    take a tile whose cooldown the upgrade would raise above CAT.max_cooldown (8):
+    Double-Strike (+4) on an Arrow (cooldown 5) failed all 10 times it was chosen,
+    e.g. run 20261102-232559 reward_11_shrine, and the shrine was skipped
+    [data/upgrades.json rules.cooldown_cap; core-requests item 17d]."""
     if not offerable(up):
         return None
     if up.uses_level and kt.used >= kt.levels:
+        return None
+    if up.cooldown > 0 and kt.cooldown + up.cooldown > CAT.max_cooldown:
+        return None
+    if up.slots > 0 and kt.levels + up.slots > CAT.max_levels:
         return None
     if up.kind == "enchant":
         if kt.enchant is not None:
@@ -664,11 +672,24 @@ def decide_upgrade(kit: Kit, upgrade_id: str, hp: int, *, seeds=SEEDS, depth: in
         if len(cands) == 1:
             return Decision(cands[0], opts, "pure gain: always taken; one tile can take it", 0.0)
         if up.damage == 0 and up.cooldown == 0:
-            # only adds an upgrade slot: no fight changes, so no simulation can tell
-            # tiles apart; give it to the strongest tile, the one most worth upgrading again
-            best = max(cands, key=lambda o: (CAT.tile(kit[o.detail["label"]].tile).ready_value,
-                                             -kit[o.detail["label"]].free_levels, -cands.index(o)))
-            return Decision(best, opts, "pure gain: always taken; slot goes to the strongest tile", 0.0)
+            # only adds an upgrade slot: no fight changes, so no simulation can tell tiles apart. It goes to a
+            # tile with no free slot left, first one at cooldown 1 (a -1 cooldown makes it free), then the
+            # strongest of them; only when every tile has a free slot, to the strongest tile [user 2026-11-02
+            # 20:47, run 20261102-202249 reward_8_shrine: the slot went to the Swirl with free slots while the
+            # Arrow at cooldown 1 had none; core-requests item 16a]
+            def kt(o):
+                return kit[o.detail["label"]]
+            full = [o for o in cands if kt(o).free_levels <= 0]
+            if full:
+                best = max(full, key=lambda o: (kt(o).cooldown == 1, CAT.tile(kt(o).tile).ready_value,
+                                                -cands.index(o)))
+                why = ("the tile at cooldown 1 with no free slot (a -1 cooldown makes it free)"
+                       if kt(best).cooldown == 1 else "the strongest tile with no free slot")
+                return Decision(best, opts, f"pure gain: always taken; slot goes to {why}", 0.0)
+            best = max(cands, key=lambda o: (CAT.tile(kt(o).tile).ready_value, -kt(o).free_levels,
+                                             -cands.index(o)))
+            return Decision(best, opts, "pure gain: always taken; every tile has a free slot, so the slot goes "
+                                        "to the strongest tile", 0.0)
         stats = evaluator(cands, hp, seeds, depth, workers, scenario, progress=progress)
         n = max((len(o.scores) for o in cands), default=0)
         return Decision(_best(cands), opts, f"pure gain: always taken; simulation picked the tile on {n} seeds"
@@ -707,12 +728,15 @@ def skill_class(sid: str | None) -> str | None:
     return "pure"
 
 
-def shop_priority(upgrade_id: str | None = None, good: dict | None = None) -> int | None:
+def shop_priority(upgrade_id: str | None = None, good: dict | None = None, low_hp: bool = False) -> float | None:
     """The order of the shop's purchases [user 2026-10-29, review of recording 2: "your priorities
     first: -2 cooldown and +1 damage upgrades, Healthy (+2 max HP), +1 upgrade slot"]: 1 a statue
     upgrade that adds damage or takes cooldown off, 2 Healthy, 3 a statue upgrade that only adds a slot,
     4 the other simulated skills, 5 trade-offs (the statue's or a skill's); None: never bought (an
-    unread, unknown or unsimulated offer, Sacrifice, items and services)."""
+    unread, unknown or unsimulated offer, Sacrifice, services, and items other than below).
+    low_hp (HP at or below max - 3): HP comes first, a healing brew (Edamame Brew) 0, then Healthy 0.5
+    [user: HP priority, use consumables; core-requests item 17b: run 20261102-232559 left the shops
+    after Kowa and Hideyoshi at HP 3 and 2 with 60 and 69 coins and no HP bought]."""
     if upgrade_id is not None:
         up = CAT.upgrades.get(upgrade_id)
         if up is None or not offerable(up):
@@ -720,14 +744,21 @@ def shop_priority(upgrade_id: str | None = None, good: dict | None = None) -> in
         if pure_gain(up):
             return 1 if (up.damage > 0 or up.cooldown < 0) else 3
         return 5
-    if not good or good.get("kind") != "skill" or good.get("currency") != "coin" or good.get("price") is None:
+    if not good or good.get("currency") != "coin" or good.get("price") is None:
+        return None
+    if good.get("kind") == "consumable":
+        cons = CAT.consumables.get(good.get("id"))
+        return 0 if low_hp and cons is not None and cons.effect.get("type") == "heal" else None
+    if good.get("kind") != "skill":
         return None
     cls = skill_class(good.get("id"))
     if cls is None:
         return None
     if cls == "trade":
         return 5
-    return 2 if CAT.skill(good["id"]).effect.get("type") == "max_hp" else 4
+    if CAT.skill(good["id"]).effect.get("type") == "max_hp":
+        return 0.5 if low_hp else 2
+    return 4
 
 
 def decide_skill(kit: Kit, sid: str | None, price: int | None, coins: int | None, hp: int, *,

@@ -13,6 +13,7 @@ from itertools import permutations
 
 from . import behaviour
 from .catalogue import CAT
+from .perception.tiles import DOTS_PER_ROW
 from .model import (BOSS_KINDS, DEFAULT_KIT, SWAP_COOLDOWN, ENEMY_KINDS, HEAVY_KINDS, UNFREEZABLE_KINDS, Enemy, Hero,
                     Kit, KitTile, State)
 from .rules import CHAINS, ICE_TURNS, PHASED, SPEC, apply_hero, chained, Events, _enemy_fire
@@ -22,6 +23,7 @@ BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
 # a Quick unit counts as loaded for the fire rule (Tracker.state) on a read of its own tile at least this sure: the
 # Shinobi's Shuriken read 0.96-1.0 when it fired (rec1 f0694, f0711, f0712); reads of tiles it does not carry 0.02-0.16
 QUICK_READ_CONF = 0.5
+HERO_SHIELD_GONE = 0.005   # perceive.hero_shield below this: no shield around the hero (Tracker.state)
 HERO_FACING_WEAK_N = 3     # weak contrary hero-facing reads in a row that override the tracked facing [0.42]
 # sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
 # symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
@@ -82,6 +84,9 @@ def match_faces(kit: Kit, faces: list[dict], charge: dict | None = None, guess: 
             tiles.append(kt.tile)
     for tile in tiles:
         labels = [kt.label for kt in kit if kt.tile == tile]
+        if len(labels) > 1 and skip:
+            # copies: a queued copy is not in the hand (the tracker passes the queue as skip), so the faces go to the others
+            labels = [lb for lb in labels if lb not in skip] or labels
         fs = [f for f in faces if f.get("tile") == tile]
         if not fs:
             continue
@@ -93,6 +98,10 @@ def match_faces(kit: Kit, faces: list[dict], charge: dict | None = None, guess: 
                 c += 10
             if f.get("damage") is not None and f.get("damage_conf", 0) >= 0.75 and f["damage"] != kt.damage:
                 c += 10
+            if f.get("levels"):
+                # reward screens show the level dots: two Arrows at 2/5 with 4 and 3 levels swapped labels at
+                # every read of run 20261102-232559 (reward_2_shrine: 'arrow: read 2/5 L0/4, kit had 2/5 L0/3')
+                c += (f["levels"] != kt.levels) + (f.get("used", kt.used) != kt.used)
             want = charge.get(lb, kt.cooldown)
             return c + abs(f.get("charged", want) - want)
 
@@ -150,6 +159,10 @@ def kit_from_faces(kit: Kit, faces: list[dict], notes: list | None = None) -> Ki
         dmg = f["damage"] if f.get("damage") is not None and f.get("damage_conf", 0) >= 0.75 else kt.damage
         cd = f.get("cooldown", kt.cooldown)
         levels = f.get("levels") or kt.levels
+        if f.get("levels") and f["levels"] < kt.levels and f["levels"] % DOTS_PER_ROW == 0:
+            # a read of full dot rows only, the kit has more: the stacked row above was missed (levels never go
+            # down; before 0.49 one row was read, 4 for the Swirl's 6 at run 20261102-202249 reward_9) [item 16b]
+            levels = kt.levels
         used = f.get("used", kt.used) if f.get("levels") else kt.used
         if (dmg, cd, levels, used) != (kt.damage, kt.cooldown, kt.levels, kt.used):
             notes.append(f"{kt.label}: read {dmg}/{cd} L{used}/{levels}, kit had "
@@ -225,6 +238,7 @@ class Tracker:
         self.advance = False               # a reward screen ended the level: the next fight is the next level
         self.notes: list[str] = []
         self.prev: list = []          # enemies of the last state (for facing persistence)
+        self.prev_queues: list = []   # their queues, in the same order (a bubble that flashed as it fired)
         self.prev_hp: dict = {}       # cell -> HP of the last state's units
         self.fresh: list = []         # (x, kind, facing) of the units new in the last state
         self.hist: list = []          # enemies when the bot last acted: (kind, x, telegraph, fage), for the
@@ -258,6 +272,20 @@ class Tracker:
         'bamboo-2' at the boss shrine]."""
         if self.level_i >= 0:
             self.advance = True
+
+    def start_region(self, region: str) -> bool:
+        """The map took the hero to a region of the route: its first fight is that region's first level, whatever reward
+        screens were read. Hideyoshi's Keep shows none after him, the map comes at once (rec1 f1594), so 0.48 played the
+        Castle's wave level as 'stage6-boss', with no wave to come and the boss rules on, in all three runs that reached it
+        (20261102-232559, 20261103-020829, -035113: map_travel, then no level_start until the Shogun) [core-requests item
+        17a]. Levels only move forward. Returns whether the tracker moved."""
+        if region not in self.route:
+            return False
+        stage = self.route.index(region) + 1
+        if stage < self.stage or (stage == self.stage and self.level_i >= 0):
+            return False
+        self.stage, self.level_i, self.advance = stage, -1, False
+        return True
 
     def boss_index(self, stage: int | None = None) -> int:
         """The boss level's index in a stage's region (the route: the regions the run travels, set by
@@ -308,12 +336,16 @@ class Tracker:
                 if self.kit != before:
                     self.notes.append(f"kit at level start: {self.kit}")
             self.charge = {t.label: t.cooldown for t in self.kit}
-            if self.kit.fx.get("start_shield"):
-                self.shield = True        # Fortress: every fight starts with a shield [wiki]
+            # a shield does not outlast its fight: run 20261102-232559 carried a Reactive Shield from Spirit Gateway II
+            # into III (t434) and from Kowa into Keep I (t796), and each first hit there cost HP planned as blocked (-2 at
+            # t440 and t803, 4 of the run's 9 unpredicted HP) [core-requests item 17c]; Fortress gives one at every
+            # fight's start [wiki]
+            self.shield = bool(self.kit.fx.get("start_shield"))
             self.queue_track = []
             self.level = level
             self.facing_known = False
             self.prev = []
+            self.prev_queues = []
             self.prev_hp = {}
             self.hero_x_after = None
             self.hist = []
@@ -390,6 +422,12 @@ class Tracker:
             # (the same at t740, the Shadow Charger's Charge and Sword) [core-requests item 11]
             self.shield = True
             self.notes.append(f"HP {self.last_hp} -> {hp}: Reactive Shield")
+        if self.shield and h.get("shield_frac") is not None and h["shield_frac"] < HERO_SHIELD_GONE:
+            # no sphere around the hero: no shield (perceive.hero_shield). Run 20261103-052436 at the Shogun: a Reactive
+            # Shield gained from his Dragon Punch was used up by its collision (t820, t841), and the next Spear cut for
+            # 2 planned as blocked (t823, t846); the frames show no sphere [core-requests items 17c, 19]
+            self.shield = False
+            self.notes.append("no shield around the hero on the screen")
         if hp:
             self.last_hp = hp
         # the red ticks under the hero count the turns his swap still needs (Quick Recovery shortens it)
@@ -449,6 +487,17 @@ class Tracker:
                 queue = [ENEMY_KINDS[kind][1]]
             elif queue and min(e.get("queue_conf") or [1.0]) >= QUICK_READ_CONF:
                 sure.add(e["x"])
+            if e.get("flash") and not queue and kind not in BOSS_KINDS:
+                # its bubble washed out as it fired (perceive.firing_flash): it fires what it held the turn before, else
+                # its one tile (runs 20261102-065902 t748, 20261102-232559 t241: read as holding, -2 each)
+                held = [j for j, q in enumerate(self.prev) if self._same(q[0], kind) and self._could_be(q, e["x"])]
+                j = min(held, key=lambda j: abs(self.prev[j][1] - e["x"]), default=None)
+                queue = list(self.prev_queues[j]) if j is not None and j < len(self.prev_queues) else []
+                if not queue and len(CAT.enemy(kind).tiles) == 1:
+                    queue = [CAT.enemy(kind).tiles[0]]
+                if queue:
+                    intent = "fire"
+                    self.notes.append(f"enemy at {e['x']}: its bubble flashed as it fired; fires {queue}")
             seq = CAT.enemy(kind).behaviour.get("sequence") if kind not in BOSS_KINDS else None
             if seq and intent == "fire" and 0 < len(queue) < len(seq) and queue == seq[:len(queue)]:
                 # the Grappler loads its Sword the phase after its Hook and fires both (behaviour.intents): a fire
@@ -500,6 +549,7 @@ class Tracker:
             self.notes.append(f"{len(bosses)} {keep.kind} reads; kept cell {keep.x}")
         self.fresh = [(en.x, en.kind, en.facing) for en in self._unmatched(enemies)]
         self.prev = [(en.kind, en.x, en.facing, en.intent) for en in enemies]
+        self.prev_queues = [list(en.queue) for en in enemies]
         self.prev_hp = {en.x: en.hp for en in enemies}
         self.swapped_uid_x = None
         self.mirrored = False
@@ -864,10 +914,15 @@ class Tracker:
         telegraph shows it [0.20.1, user review of the 0.20 series].
         """
         toward = 1 if hero_x > e["x"] else -1
+        # The Shogun's first bar has no combos: 'he runs up, attacks with the tile, backs off' [wiki], loaded facing the hero
+        # like the other bosses (behaviour.shogun_intent turns him first when he faces away). Run 20261103-020829 t895-t897:
+        # tracked facing away since his Mirror (t887), he loaded the Sword, stepped right twice toward the hero and cut him
+        # (-2 planned as a miss) [core-requests, found while doing item 11]
+        phase1 = kind in PHASED and self.boss_phase.get(kind, 1) < CAT.enemy(kind).phases
         # the Moonlit Port units (0.31) load like the Ashigaru: Sword and Arrow strike ahead; the Twins' loads
         # all point at the hero (Tetsubo, Shadow Dash, the Dash and Swap Toss with the hero next to them)
         directional = kind in ("ashigaru", "charger", "guardian", "ashigaru_archer") or (
-            kind in BOSS_KINDS and kind not in CHAINS and queue and queue[0] in (
+            kind in BOSS_KINDS and (kind not in CHAINS or phase1) and queue and queue[0] in (
                 "sword", "charge", "dragon_punch", "spear", "tetsubo", "shadow_dash", "dash", "swap_toss"))
         # (Hideyoshi loads facing the hero, but the hero may pass him while he loads, and his Mirror turns him: his
         # facing persists from his turns and his combos' moves, Tracker._chain_rules and acted)
@@ -956,6 +1011,10 @@ class Tracker:
             self.cursed = True            # Mass Curse: next hit on each enemy is doubled [wiki]
         elif kind == "turn_all":
             self.mirror()                 # Rain of Mirrors: every enemy turned around [wiki]
+        elif kind == "recharge_all":
+            # Cool Up: every tile full again (the hand shows it too; a tile left dimmed by a slow frame is planned
+            # as recharging otherwise) [catalogue]
+            self.charge = {t.label: t.cooldown for t in self.kit}
         # Lucky Die rerolls every enemy's intent [wiki] [user 2026-10-28]: nothing to model, the next frame shows
         # the new telegraphs; brews change HP and charge, which the next frame shows too
 

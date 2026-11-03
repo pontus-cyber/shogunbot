@@ -79,6 +79,21 @@ def test_the_castle_has_one_wave_level_then_the_shogun():
     assert {"the_shogun", "shogun_summoner"} <= UNSHOWN_HP          # no pips: the replay scores them on cell and kind
 
 
+def test_the_map_to_the_castle_starts_its_wave_level_without_a_reward_screen():
+    # core-requests item 17a: no reward screen after Hideyoshi (the map comes at once, rec1 f1594), so runs 20261102-232559,
+    # 20261103-020829 and -035113 (0.48) played the Castle's 9-cell wave level as 'stage6-boss', with no waves to come
+    tr = Tracker()
+    tr.route = list(ROUTE1[:6])
+    tr.stage, tr.level_i = 6, tr.boss_index(6)            # Hideyoshi's fight; no reward screen after it
+    tr.route.append("shoguns_castle")                       # the map's travel (bot._map_travel)
+    assert tr.start_region("shoguns_castle")
+    assert tr._level("combat", 9) == "stage7-1"
+    tr.next_level()                                         # its reward screen
+    assert tr._level("boss", 7) == "stage7-boss"
+    assert not tr.start_region("hideyoshis_keep")          # levels only move forward
+    assert not tr.start_region("shoguns_castle")           # already in it
+
+
 # ---------------------------------------------------------------- perception
 def test_his_summoners_are_told_from_him_and_his_tiles_read():
     # rec1 f1743: the Summoners on the end cells load Ally Shield, the Shogun on cell 4 his Mirror (Hideyoshi's drawing)

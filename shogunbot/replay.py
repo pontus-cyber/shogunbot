@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .bridge import Tracker
+from .bridge import Tracker, match_faces
 from .catalogue import CAT
 from .model import BOSS_KINDS, ENEMY_KINDS
 from .perception.perceive import perceive
@@ -73,6 +73,18 @@ def to_action(rec: dict, p) -> str | None:
         if abs(t["fx"] - fx) < 0.04:
             return f"queue:{t['tile']}"
     return None
+
+
+def copy_label(act: str, rec: dict, p, s) -> str:
+    """A recorded click on a hand tile as the kit label of the clicked face, as the bot clicks the face the tracker
+    gives a label (bot.do): with copies of a tile (swirl, swirl#2) to_action names the tile only, and the queued copy
+    named 'swirl' made a later click on the other copy illegal once the tracker kept the bot's queued label
+    (0.49: run 20261102-145513 f0370, 7 turns no longer scored)."""
+    if not act.startswith("queue:") or not rec.get("click"):
+        return act
+    face = min(p.hand, key=lambda h: abs(h["fx"] - rec["click"][0]))
+    faces = match_faces(s.hero.kit, p.hand, s.hero.charge, skip=tuple(s.hero.queue))
+    return next((f"queue:{lb}" for lb, f in faces.items() if f is face), act)
 
 
 ITEM_FX = 0.12        # the item column at the screen's left edge: recorded item clicks at fx 0.058-0.072
@@ -167,6 +179,7 @@ def replay(folder: str | Path, verbose: bool = True, route: list | None = None, 
         s = tr.state(p)
         if s is None:
             continue
+        act = copy_label(act, recs[i], p, s)
         legal = legal_hero_actions(s)
         if act not in legal:
             # e.g. a tile outside the default kit (the recorded run took a Spear)

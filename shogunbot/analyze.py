@@ -107,7 +107,8 @@ def analyze(run_dir: Path) -> str:
             scored = [o for o in e.get("options", []) if o.get("scored", True)]
             opts = ", ".join(f"{o['name']} {o['value']:+.2f}" + (f" [{o['seeds']} seeds]" if o.get("seeds") else "")
                              for o in sorted(scored, key=lambda o: -o["value"]))
-            what = f"skill {e['skill']}, " if e.get("skill") else ""                    # 0.32: the counter
+            what = (f"skill {e['skill']}, " if e.get("skill") else                       # 0.32: the counter
+                    f"item {e['consumable']}, " if e.get("consumable") else "")         # 0.49: a brew at low HP
             # no option scored: nothing to simulate (a pure gain, or an offer never bought) [user review of
             # run 20261030-041652 read 'not simulated' as 'not modelled']
             L.append(f"    shop decision ({what}{e.get('seconds')}s, HP {e.get('hp')}): {opts or 'no simulation needed'} -> "

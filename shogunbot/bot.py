@@ -46,7 +46,7 @@ from .catalogue import CAT
 from .model import BOSS_KINDS, DEFAULT_KIT, ENEMY_TILE_DAMAGE, HEAVY_KINDS, HERO_MAX_HP, UNFREEZABLE_KINDS
 from .perception import map_screen, reward_screen, screens, shop_screen
 from .perception.board import cells as board_cells
-from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive
+from .perception.perceive import BASE_POOL, merge_blink, normalize, perceive, read_consumables
 from .perception.tiles import FACE_H, FACE_W
 from .planner import (STALL_STUCK_TURNS, STALL_TURNS, WEIGHTS, BoardLoop, plan, plan_live, progress_key, progress_mark,
                       stall_budget, stall_push, stall_weights)
@@ -56,7 +56,8 @@ from .runlog import RunLogger
 from .waves import Waves
 from .winio import GameWindow
 
-VERSION = "0.48"
+VERSION = "0.49"
+COOLUP_LOW_HP = 4                  # HP at or below which Cool Up is weighed every turn (core-requests item 15b)
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -662,6 +663,21 @@ class Bot:
         return None
 
     @staticmethod
+    def _coolup_gain(s) -> float:
+        """Cool Up (catalogue 'recharge_all': every tile and the swap full again) as a move: the HP its recharged kit
+        saves on the best line of a depth-3 search, in HP (the plan values' difference over WEIGHTS hero_hp; ready
+        tiles' own small bonus stays far below one HP); 0 when nothing is recharging. Run 20261102-191231 (0.47.1) died
+        at 3 HP in Hot Springs III with three Cool Ups in the column, which only the run's last level spent [user
+        2026-11-02 20:25: "It should consume the white pots for that easily"; core-requests item 15b]."""
+        h = s.hero
+        if all(h.charge.get(lb, 0) >= cd for lb, cd in h.kit.cooldowns) and h.swap_ready:
+            return 0.0
+        m = s.clone()
+        m.hero.charge = {lb: cd for lb, cd in m.hero.kit.cooldowns}
+        m.hero.swap_charge = m.hero.kit.swap_cooldown
+        return max(0.0, (plan(m, 3).value - plan(s, 3).value) / WEIGHTS["hero_hp"])
+
+    @staticmethod
     def _best_tile_recharging(s) -> bool:
         """Cool Up is worth most when the strongest tile (catalogue ready value) is empty."""
         h = s.hero
@@ -831,7 +847,7 @@ class Bot:
         return False
 
     # ------------------------------------------------------------------ shop
-    def _shop(self, frame, tr=None, hp: int | None = None) -> bool:
+    def _shop(self, frame, tr=None, hp: int | None = None, hp_cap: int | None = None) -> bool:
         """The shop between regions [user 2026-10-29: read the offers and prices]: what
         perception/shop_screen.py reads (the statue's upgrade and price, the counter's prices, the
         coins) is logged, with each coin offer on the counter named by its tooltip (0.32); the purchases
@@ -862,7 +878,8 @@ class Bot:
         self.say(f"shop: {shop_screen.describe(offer)}")
         if tr is not None and offer:
             try:
-                frame = self._shop_buy(frame, offer, hand, tr, hp if hp is not None else HERO_MAX_HP)
+                frame = self._shop_buy(frame, offer, hand, tr, hp if hp is not None else HERO_MAX_HP,
+                                       hp_cap if hp_cap is not None else HERO_MAX_HP)
             except Exception as e:            # buying must never keep the bot in the shop
                 self.log.exception("shop_buy", e, frame=frame)
         self.say("shop: GO")
@@ -913,34 +930,81 @@ class Bot:
                                      coins=shop_screen.number_in(f, shop_screen.COINS_BOX))
         return frame, look
 
-    def _shop_buy(self, frame, offer: dict, hand: list, tr, hp: int):
+    def _shop_buy(self, frame, offer: dict, hand: list, tr, hp: int, hp_cap: int = HERO_MAX_HP):
         """The shop's purchases in your order [user 2026-10-29: -2 cooldown and +1 damage upgrades,
         Healthy, +1 upgrade slot]: the statue's upgrade when it adds damage or takes cooldown off, then
         Healthy, a slot-only statue upgrade, the other simulated skills, then trade-offs
         (rewards.shop_priority); each is valued against keeping the coins when its turn comes
-        (rewards.decide_shop, decide_skill), with the coins read again after every purchase.
-        Returns the last frame."""
+        (rewards.decide_shop, decide_skill), with the coins read again after every purchase. With HP at
+        or below max - 3, an Edamame Brew on the counter and then Healthy come first [core-requests
+        item 17b]. Returns the last frame."""
         notes: list = []
         if hand:
             tr.kit = kit_from_faces(tr.kit, hand, notes)
+        low = hp <= hp_cap - HEAL
         steps = []
         pri = rewards.shop_priority(upgrade_id=offer.get("upgrade")) if offer.get("upgrade") else None
         steps.append((pri if pri is not None else 9, 0, None))     # the statue: logged even when never bought
         for i, g in enumerate(offer.get("goods") or []):
-            pri = rewards.shop_priority(good=g)
+            pri = rewards.shop_priority(good=g, low_hp=low)
             if pri is not None:
                 steps.append((pri, i + 1, g))
             elif g.get("title"):
+                why = (f"HP {hp} of {hp_cap}: not low enough" if g.get("kind") == "consumable"
+                       else g.get("kind") or "unread")
                 notes.append(f"counter: {g['title']} for {g['price']} {g['currency']}s is not bought "
-                             f"({g.get('kind') or 'unread'}{', not simulated' if g.get('kind') == 'skill' else ''})")
+                             f"({why}{', not simulated' if g.get('kind') == 'skill' else ''})")
         coins = offer.get("coins")
         for _, _, g in sorted(steps, key=lambda t: (t[0], t[1])):
             if g is None:
                 frame, coins = self._shop_statue(frame, offer, hand, tr, hp, coins, notes)
+            elif g.get("kind") == "consumable":
+                frame, coins = self._shop_brew(frame, g, tr, hp, hp_cap, coins)
             else:
                 frame, coins = self._shop_skill(frame, g, tr, hp, coins)
             hand = []                         # read again by the statue's flow when it comes later
         return frame
+
+    def _shop_brew(self, frame, g: dict, tr, hp: int, hp_cap: int, coins):
+        """A healing brew on the counter while HP is at or below max - 3 (shop_priority): bought when
+        affordable and the item column has a free slot (3, one more per Big Pockets level
+        [data/consumables.json max_held]); the fights drink it (edamame_reason). Bought with one click
+        on its slot, checked by the coins dropping, as a skill [rules: counter 'buy']. Returns the last
+        frame and the coins."""
+        name = CAT.consumable(g["id"]).name
+        price = g.get("price")
+        held = len(read_consumables(normalize(frame)))
+        room = CAT.consumable_rules["max_held"] + tr.kit.level("big_pockets")
+        why = None
+        if coins is None or price is None:
+            why = f"{'coins' if coins is None else 'price'} not read"
+        elif price > coins:
+            why = f"costs {price}, {coins} coins held"
+        elif held >= room:
+            why = f"the item column is full ({held} of {room})"
+        rule = f"shop: {name} at HP {hp} of {hp_cap}: " + (why + "; coins kept" if why else
+                                                            f"HP first, for {price} of {coins} coins")
+        self.log.event("shop_decision", consumable=g["id"], price=price, coins=coins, hp=hp, hp_cap=hp_cap,
+                       held=held, room=room, seconds=0.0, choice="skip" if why else f"buy:{g['id']}", rule=rule)
+        self.say(f"   {name}: {'keep the coins' if why else 'buy it'}  [{rule}]")
+        if why:
+            return frame, coins
+        now = None
+        for attempt in (1, 2):
+            self.click(g["x"] / 1920, shop_screen.SLOT_Y / 1080, frame, screen="shop", shop=f"buy:{g['id']}",
+                       attempt=attempt)
+            time.sleep(1.0)
+            self._park_mouse()
+            frame = self.gw.grab_stable(settle_s=0.25, timeout_s=3.0)
+            now = shop_screen.number_in(normalize(frame), shop_screen.COINS_BOX)
+            if now is not None and now < coins:
+                self.log.event("shop_bought", choice=f"buy:{g['id']}", consumable=g["id"], price=price,
+                               coins_before=coins, coins_after=now)
+                self.say(f"   bought {name} for {coins - now} coins")
+                return frame, now
+        self.log.event("shop_buy_failed", choice=f"buy:{g['id']}", reason="the coins did not drop after the click",
+                       coins_before=coins, coins_after=now)
+        return frame, coins if now is None else now
 
     def _valuation_feed(self):
         printed = [time.time()]
@@ -1138,6 +1202,8 @@ class Bot:
             if not isinstance(self.regions, list):
                 self.regions = list(self.regions)
             self.regions.append(sel["region"])   # its enemies can appear from now on; the tracker counts its levels
+        if sel and sel["kind"] == "region":
+            self.entered = sel["region"]         # run() starts the region's first level in the tracker (item 17a)
         self.key("enter", frame, screen="map", step="travel")
         look.clear()
         time.sleep(2.5)
@@ -1191,6 +1257,7 @@ class Bot:
         victory_since = None
         start_unknown_since = None            # a run start on a fight screen that cannot be read (item 13)
         progress, last_progress = None, 0     # stall rule: see planner.stall_weights; progress: planner.progress_mark
+        progress_seen: set = set()
         boards = BoardLoop()                  # turns on boards seen before in the level (a second stop)
         hp_cap = HERO_MAX_HP                  # most HP pips seen on two turns in a row this run
         cap_seen = None                       # (pips, turn) of a read above the cap, not yet confirmed
@@ -1337,7 +1404,7 @@ class Bot:
                     log.save_frame(frame, "win")
                     break
                 if scr == "shop":
-                    if not self._shop(frame, tr, last_hp):
+                    if not self._shop(frame, tr, last_hp, hp_cap):
                         self.say("shop: GO did not leave the shop; stopping")
                         result = "stuck"
                         break
@@ -1433,7 +1500,10 @@ class Bot:
                         if tr.level_i >= 2 or tr.stage > 1:
                             # the map after a boss: keyboard-only mode (M4) [user 2026-10-29]
                             map_tries += 1
+                            self.entered = None
                             self._map_step(frame, map_look)
+                            if self.entered and tr.start_region(self.entered):
+                                log.event("region_start", region=self.entered, stage=tr.stage)
                             continue
                         # [run 20261027-175511] a click followed by an instant mouse move did not
                         # register; keep the cursor on the node, then try other inputs in turn
@@ -1538,6 +1608,7 @@ class Bot:
                     continue
                 if s.level != level:
                     level = s.level
+                    progress_seen = set()         # (enemies, total HP) read in this level (planner.progress_mark)
                     waves.reset()
                     log.level_start(level, s.hero.hp, p.wave[1] if p.wave else LEVEL_WAVES.get(level, 0))
                     log.event("kit", level=level, kit=tr.kit.to_list())
@@ -1597,7 +1668,7 @@ class Bot:
                 s.turn = turn
                 # stall rule [user 2026-10-28]: after STALL_TURNS turns in which no enemy lost
                 # HP, died or appeared, a 1-HP trade that makes progress is allowed
-                mark = progress_mark(progress_key(s), progress)
+                mark = progress_mark(progress_key(s), progress, progress_seen)
                 if mark is not None:
                     progress, last_progress = mark, turn
                 stalled = turn - last_progress >= STALL_TURNS
@@ -1663,6 +1734,15 @@ class Bot:
                 # every move takes damage: the least damaging one (in stall mode the chosen move
                 # may take a 1-HP trade while a safe move exists; that is not 'every move')
                 every = min((c["exp_damage"] for c in d.candidates), default=0.0)
+                if "white_potion" in have and (every >= 1.0 or s.hero.hp <= COOLUP_LOW_HP or d.value < 0):
+                    # a hit coming, low HP or a losing line: a recharged kit that saves at least one HP on the best
+                    # line (a kill, a block, an escape) is worth the cheapest item, before the cards and Kami Brew
+                    # (core-requests item 15b)
+                    saved = self._coolup_gain(s)
+                    if saved >= 1.0:
+                        self._use_item("white_potion", p, s, frame, turn,
+                                       f"recharged tiles save {saved:.1f} HP on the best line", tr, item_tries)
+                        continue
                 if every >= 1.0:
                     item = self._damage_item(s, have)
                     if item:
