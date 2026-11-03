@@ -96,3 +96,20 @@ def test_a_row_with_a_hole_is_not_a_board():
     assert not board.is_board(holed)
     assert not board.is_board(row[:4])                      # 4 cells: no level is 4 wide
     assert not board.is_board([dict(c, kind="empty") for c in row])   # no hero
+
+
+def test_the_first_plate_of_a_panned_board_beside_the_item_column_keeps_its_place():
+    # core-requests item 18, run 20261103-011318 (0.48), Spirit Gateway III: with the hero on cell 8 the camera panned the
+    # 9-cell board, the potions' bright run went on into the first plate (x 84-268), and split from the left that plate
+    # sat at x0 80 instead of 140; its Archer was looked for over the item column and missed, and it came back on every
+    # step to cell 7 (t0378): 200 turns of steps and no stall mode. Split from the run's right end it is in its place
+    from shogunbot.perception.perceive import perceive
+    run = "runs/20261103-011318/frames/"
+    route = ("bamboo_grove", "whispering_caves", "moonlit_port", "spirit_gateway")
+    for t, hero in ((378, 7), (379, 8)):
+        rgb = normalize(frame(run + f"t{t:04d}_before.png"))
+        cs = board.cells(rgb)
+        assert [c["x0"] for c in cs][:2] == ([192, 332] if hero == 7 else [140, 280])
+        p = perceive(frame(run + f"t{t:04d}_before.png"), ["swirl", "arrow"], regions=route, day=1)
+        assert p.hero["x"] == hero
+        assert [(e["x"], e["kind"]) for e in p.enemies] == [(0, "ashigaru_archer"), (5, "ashigaru"), (6, "guardian")]

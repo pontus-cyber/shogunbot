@@ -68,6 +68,16 @@ def plate_runs(rgb: np.ndarray) -> list[tuple[int, int]]:
         w = x1 - x0
         if MIN_W <= w <= MAX_W:
             out.append((x0, x1))
+        elif w > MAX_W and x0 < ITEM_X:
+            # the item column's potions run on into the first plate of a panned 9-cell board: the plates end where the
+            # run ends, so they are split from the right. Split from the left, the first plate sat 60 px left of its
+            # place (x0 80, not 140), its unit was looked for over the item column and missed, and every step of the
+            # hero between cells 7 and 8 made it vanish and come back: 200 turns in Spirit Gateway III and no stall
+            # [run 20261103-011318 t0379_before; core-requests item 18]
+            k = round(w / PITCH)
+            for i in range(k):
+                if x1 - (k - i) * PITCH + 12 >= 0:
+                    out.append((x1 - (k - i) * PITCH + 12, x1 - (k - i - 1) * PITCH))
         elif w > MAX_W:  # two plates touching: split by pitch
             k = round(w / PITCH)
             for i in range(k):

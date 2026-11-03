@@ -193,15 +193,25 @@ def progress_key(s: State) -> tuple:
     return tuple(sorted(e.hp for e in s.alive()))
 
 
-def progress_mark(key: tuple, mark: tuple | None) -> tuple | None:
+def progress_mark(key: tuple, mark: tuple | None, seen: set | None = None) -> tuple | None:
     """The stall counter's new mark (enemies alive, their total HP) when this turn's progress_key shows progress: an
     enemy died or appeared, or the enemies' total HP fell below its lowest since the last progress. Else None: a read
     that puts HP back is no progress, so a pip read flipping between two counts resets the counter once, not on every
     flip [0.47; run 20261101-201012 (0.46), Spirit Gateway III from t376: a loaded Grappler on cell 0 read with its 5
     pips while the hero stood on cell 7, and with 4 pips as a Yari Master when he stepped to cell 8 and the camera
     panned the 9-cell board; the key changed every fourth turn, 220 times in the level's first 466 turns, and the
-    stall rule never started]."""
+    stall rule never started].
+
+    seen: the (enemies, total HP) pairs read before in the level (the caller keeps it per level). A pair read again is no
+    progress: a unit that vanishes and comes back, read at its cell one turn and missed the next, made both reads look
+    like progress, a death and a spawn, every step (0.49; run 20261103-011318 (0.48), Spirit Gateway III t383-t583: an
+    Archer on cell 0 of a 9-cell board, missed while the camera panned it beside the item column; 200 turns of steps
+    between cells 7 and 8 and no stall mode; core-requests item 18)."""
     count, total = len(key), sum(key)
+    if seen is not None:
+        if (count, total) in seen:
+            return None
+        seen.add((count, total))
     if mark is None or count != mark[0] or total < mark[1]:
         return count, total
     return None

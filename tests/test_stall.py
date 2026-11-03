@@ -274,3 +274,23 @@ def test_a_loop_over_boards_seen_before_stops_whatever_the_progress_key():
     d.enemies[0].hp = 1                                       # a board not seen before
     assert loop.quiet("stage4-3", d, 210) == 0
     assert loop.quiet("stage4-boss", a, 211) == 0               # a new level starts afresh
+
+
+def test_a_unit_read_and_missed_by_turns_is_no_progress():
+    # core-requests item 18, run 20261103-011318 (0.48), Spirit Gateway III t383-t583: an Archer on cell 0, missed while
+    # the camera panned the board beside the item column, vanished and came back on every step, so each turn looked like
+    # a death or a spawn and 200 turns passed without stall mode. A pair (enemies, total HP) read before in the level is
+    # no progress
+    from shogunbot.planner import progress_mark
+    seen = set()
+    with_archer, without = (2, 3, 5), (3, 5)               # progress_key: the enemies' HP, sorted
+    marks = [progress_mark(k, None, seen) for k in (with_archer,)]
+    mark = marks[0]
+    quiet = []
+    for k in (without, with_archer) * 10:
+        m = progress_mark(k, mark, seen)
+        quiet.append(m is None)
+        mark = m or mark
+    assert quiet[0] is False and all(quiet[1:])             # the first miss looks like a death once, then nothing
+    assert progress_mark((2, 2, 5), mark, seen) is not None    # a real hit is progress
+    assert progress_mark((2, 3, 5), mark, None) is not None     # without the level's pairs: as before (0.47)

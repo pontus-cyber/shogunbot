@@ -1193,6 +1193,7 @@ class Bot:
         victory_since = None
         start_unknown_since = None            # a run start on a fight screen that cannot be read (item 13)
         progress, last_progress = None, 0     # stall rule: see planner.stall_weights; progress: planner.progress_mark
+        progress_seen: set = set()
         boards = BoardLoop()                  # turns on boards seen before in the level (a second stop)
         hp_cap = HERO_MAX_HP                  # most HP pips seen on two turns in a row this run
         cap_seen = None                       # (pips, turn) of a read above the cap, not yet confirmed
@@ -1543,6 +1544,7 @@ class Bot:
                     continue
                 if s.level != level:
                     level = s.level
+                    progress_seen = set()         # (enemies, total HP) read in this level (planner.progress_mark)
                     waves.reset()
                     log.level_start(level, s.hero.hp, p.wave[1] if p.wave else LEVEL_WAVES.get(level, 0))
                     log.event("kit", level=level, kit=tr.kit.to_list())
@@ -1602,7 +1604,7 @@ class Bot:
                 s.turn = turn
                 # stall rule [user 2026-10-28]: after STALL_TURNS turns in which no enemy lost
                 # HP, died or appeared, a 1-HP trade that makes progress is allowed
-                mark = progress_mark(progress_key(s), progress)
+                mark = progress_mark(progress_key(s), progress, progress_seen)
                 if mark is not None:
                     progress, last_progress = mark, turn
                 stalled = turn - last_progress >= STALL_TURNS
