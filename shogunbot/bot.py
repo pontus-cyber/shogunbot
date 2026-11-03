@@ -57,6 +57,7 @@ from .waves import Waves
 from .winio import GameWindow
 
 VERSION = "0.48"
+COOLUP_LOW_HP = 4                  # HP at or below which Cool Up is weighed every turn (core-requests item 15b)
 ACTION_KEY = {"left": "a", "right": "d", "turn": "w", "wait": "s", "attack": "space"}
 LEVEL_WAVES = {lv["id"]: lv["waves"] for lv in CAT.regions["bamboo_grove"]["level_list"]}  # 4, 5, boss 0
 VK_F8 = 0x77
@@ -660,6 +661,21 @@ class Bot:
         if "blue_potion" in have and not s.hero.shield:
             return "blue_potion"
         return None
+
+    @staticmethod
+    def _coolup_gain(s) -> float:
+        """Cool Up (catalogue 'recharge_all': every tile and the swap full again) as a move: the HP its recharged kit
+        saves on the best line of a depth-3 search, in HP (the plan values' difference over WEIGHTS hero_hp; ready
+        tiles' own small bonus stays far below one HP); 0 when nothing is recharging. Run 20261102-191231 (0.47.1) died
+        at 3 HP in Hot Springs III with three Cool Ups in the column, which only the run's last level spent [user
+        2026-11-02 20:25: "It should consume the white pots for that easily"; core-requests item 15b]."""
+        h = s.hero
+        if all(h.charge.get(lb, 0) >= cd for lb, cd in h.kit.cooldowns) and h.swap_ready:
+            return 0.0
+        m = s.clone()
+        m.hero.charge = {lb: cd for lb, cd in m.hero.kit.cooldowns}
+        m.hero.swap_charge = m.hero.kit.swap_cooldown
+        return max(0.0, (plan(m, 3).value - plan(s, 3).value) / WEIGHTS["hero_hp"])
 
     @staticmethod
     def _best_tile_recharging(s) -> bool:
@@ -1670,6 +1686,15 @@ class Bot:
                 # every move takes damage: the least damaging one (in stall mode the chosen move
                 # may take a 1-HP trade while a safe move exists; that is not 'every move')
                 every = min((c["exp_damage"] for c in d.candidates), default=0.0)
+                if "white_potion" in have and (every >= 1.0 or s.hero.hp <= COOLUP_LOW_HP or d.value < 0):
+                    # a hit coming, low HP or a losing line: a recharged kit that saves at least one HP on the best
+                    # line (a kill, a block, an escape) is worth the cheapest item, before the cards and Kami Brew
+                    # (core-requests item 15b)
+                    saved = self._coolup_gain(s)
+                    if saved >= 1.0:
+                        self._use_item("white_potion", p, s, frame, turn,
+                                       f"recharged tiles save {saved:.1f} HP on the best line", tr, item_tries)
+                        continue
                 if every >= 1.0:
                     item = self._damage_item(s, have)
                     if item:

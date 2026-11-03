@@ -970,6 +970,10 @@ class Tracker:
             self.cursed = True            # Mass Curse: next hit on each enemy is doubled [wiki]
         elif kind == "turn_all":
             self.mirror()                 # Rain of Mirrors: every enemy turned around [wiki]
+        elif kind == "recharge_all":
+            # Cool Up: every tile full again (the hand shows it too; a tile left dimmed by a slow frame is planned
+            # as recharging otherwise) [catalogue]
+            self.charge = {t.label: t.cooldown for t in self.kit}
         # Lucky Die rerolls every enemy's intent [wiki] [user 2026-10-28]: nothing to model, the next frame shows
         # the new telegraphs; brews change HP and charge, which the next frame shows too
 
