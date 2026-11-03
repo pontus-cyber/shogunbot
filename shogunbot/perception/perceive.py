@@ -256,6 +256,13 @@ def _frame_at(rgb: np.ndarray, y0: int, y1: int, cx: int) -> str | None:
     return None
 
 
+# The outline's darkness bar (max channel): 60 until 0.48. Over Hot Springs' bright sky the outline beside a yellow
+# bubble 4 px left of its Ashigaru read 59-63, so half its rows failed and the fire was read as no bubble (run
+# 20261102-232559 t512, -2 unpredicted). At 72, of the 15,174 'before' frames of the bot's runs to 20261103-035113 only
+# that bubble is newly found [scan of 2026-11-03; core-requests item 17c]
+OUTLINE_DARK = 72
+
+
 def _frame_off_centre(rgb: np.ndarray, y0: int, y1: int, cx: int) -> str | None:
     """An enemy's bubble centred within 2 px of cx: from its centre, a 4 px dark outline at 65-68
     px out, the coloured frame from 53 to 64 px [run 20261029-124921 t70-t71, Rei's bubble]."""
@@ -265,7 +272,7 @@ def _frame_off_centre(rgb: np.ndarray, y0: int, y1: int, cx: int) -> str | None:
         return None
 
     def dark(x: int) -> float:
-        return float((rows[:, x].max(axis=1) < 60).mean())
+        return float((rows[:, x].max(axis=1) < OUTLINE_DARK).mean())
 
     if max(dark(cx + d) for d in range(-70, -63)) < 0.8 or max(dark(cx + d) for d in range(64, 71)) < 0.8:
         return None

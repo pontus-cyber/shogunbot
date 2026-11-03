@@ -242,3 +242,15 @@ def test_a_bubble_that_flashed_as_it_fired_is_a_fire():
     assert en.queue == ["sword"] and en.intent == "fire" and en.facing == 1
     d = plan_live(s)
     assert next(c for c in d.candidates if c["action"] == "wait")["exp_damage"] >= 2
+
+
+def test_a_bubble_beside_its_unit_on_a_bright_sky_is_read():
+    # run 20261102-232559 t512, Hot Springs I: the Ashigaru's yellow Sword bubble sat 4 px left of its cell; its outline
+    # over the bright sky read 59-63 (the bar was 60), the bubble went unread, the unit was planned as holding: -2
+    from test_bot_flow import frame
+    from shogunbot.perception.perceive import perceive
+    route = ("bamboo_grove", "whispering_caves", "moonlit_port", "spirit_gateway", "hot_springs")
+    p = perceive(frame("runs/20261102-232559/frames/t0512_before.png"), ["swirl", "arrow", "shuriken"], regions=route,
+                 day=1)
+    a = next(e for e in p.enemies if e["x"] == 0)
+    assert a["kind"] == "ashigaru" and a["queue"] == ["sword"] and a["intent"] == "fire"
