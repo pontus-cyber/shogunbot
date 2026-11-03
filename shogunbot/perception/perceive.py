@@ -26,7 +26,7 @@ import numpy as np
 
 from ..catalogue import CAT
 from ..model import DEFAULT_KIT
-from . import hud, screens
+from . import floor as floor_items, hud, screens
 from .board import cells as find_cells, is_board
 
 ASSETS = Path(__file__).parent / "assets"
@@ -898,6 +898,18 @@ def merge_blink(p: "Perception", frames: list) -> list[str]:
                 if i not in p.bombs:
                     p.bombs.append(i)
                     notes.append(f"a bomb on {i} on a later frame")
+    if p.cells and frames:
+        # a floor item's sprite flashes pale now and then, and its frame reads no item (run 20261101-021522 t770 and
+        # t798: the Edamame Brew on cell 4 read at 0.998 on the frames before and after) (floor.read)
+        for f in frames:
+            have = {it["x"] for it in p.floor}
+            missing = [c if c.get("kind") == "empty" and c["x"] not in have else dict(c, kind="seen") for c in p.cells]
+            if not any(c["kind"] == "empty" for c in missing):
+                break
+            for it in floor_items.read(f, missing):
+                p.floor.append(it)
+                notes.append(f"{it['item']} on the floor of {it['x']} on a later frame")
+        p.floor.sort(key=lambda it: it["x"])
     for e in p.enemies:
         if e["intent"] in ("fire", "move-left", "move-right", "turn"):
             continue
@@ -988,11 +1000,12 @@ class Perception:
     warn: list = field(default_factory=list)     # cells under an aimed attack's warning sign (warn_cells)
     bombs: list = field(default_factory=list)    # cells with a red bomb on the floor (bomb_cells), where one can be
     bomb_ok: bool = False                        # a bomb can lie here: a unit or the boss of the region carries the tile
+    floor: list = field(default_factory=list)    # consumables lying on empty cells (floor.read): {x, item, score, px}
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in
                 ("screen", "cells", "hero", "enemies", "hand", "items", "boss_frac", "wave", "wave_alert",
-                 "confidence", "warn", "bombs")}
+                 "confidence", "warn", "bombs", "floor")}
 
 
 # units that fight beside a boss from its fight's start: The Statue's Summoner [catalogue 'synced_with']
@@ -1174,6 +1187,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                                    | set(boss_tiles)))
     if p.bomb_ok:
         p.bombs = bomb_cells(rgb, [c["cx"] for c in cs])
+    p.floor = floor_items.read(rgb, cs)
     p.hand = read_hand(rgb, kit_tiles)
     p.items = read_consumables(rgb)
     if screen == "boss":

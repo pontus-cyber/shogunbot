@@ -36,6 +36,11 @@ WEIGHTS: dict[str, float] = {
     "turn_action": -3.0,         # turning costs tempo and can drop a swap line
     "at_edge": -6.0,             # standing on an edge cell while enemies are alive
     "spawn_unready": -25.0,      # per tile not ready when the next wave is about to spawn
+    "item_picked": 10.0,         # per rank point of the items taken from the floor along the line (rules.item_rank:
+                                 # Edamame Brew 50, Kami Brew 20 or 50 at low HP, a card 20); a brew drunk at once counts
+                                 # its HP instead. HYP: below a kill's 30 for a card, above it for the HP items
+    "item_now": 20.0,            # per item taken from the floor at a step, counted where it happens: the leaf values
+                                 # above are the same whether the line takes it now or later, this makes it sooner
 }
 
 SPAWN_THRESHOLD = 1  # [web] Normal rooms spawn the next wave at 1-2 alive; HYP: 1
@@ -272,6 +277,13 @@ def evaluate(s: State, w: dict[str, float] = WEIGHTS) -> tuple[float, dict]:
     floor = w.get("hp_floor")
     if floor is not None and h.hp < floor:          # stall weights only
         terms["below_floor"] = w["below_floor"] * (floor - h.hp)
+    if s.picked:
+        # items taken from the floor (their ranks): of use in this fight, and the fight's end collects only into free
+        # slots [user 2026-11-03 09:36: "important to keep a look at the floor and include it into strategy"]
+        terms["item_picked"] = w["item_picked"] * s.picked
+    if s.heal_due:
+        # a brew taken on the line's last turn, drunk as the next begins (rules._pick_up)
+        terms["heal_due"] = w["hero_hp"] * min(s.heal_due, h.kit.max_hp - h.hp)
     return sum(terms.values()), terms
 
 
@@ -376,6 +388,8 @@ def _action_value(s: State, a: str, depth: int, w: dict, stats: dict):
             p_dmg += p
             exp_dmg += p * lost
         bonus = w["kill"] * len(ev.kills) + w["hp_lost_path"] * lost + w["turn_cost"]
+        if s.floor and len(s2.floor) < len(s.floor):
+            bonus += w.get("item_now", 0.0) * (len(s.floor) - len(s2.floor))
         if a == "turn":
             bonus += w["turn_action"]
         v += p * (bonus + GAMMA * _search(s2, depth - 1, w, stats))

@@ -310,16 +310,27 @@ class State:
     # finds it waiting no more it strikes the two cells at that distance and grows (rules._ring_tick) [rec:
     # collect/20261028-190026 f1802-f1807]
     rings: list = field(default_factory=list)
+    # consumables lying on the floor: [cell, consumable id] (bridge.Tracker._floor). The hero takes one by stepping onto
+    # its cell when the item column has a free slot; what is left while the column is full is lost [user 2026-11-03
+    # 09:36: "It goes into item column if there is space ... Any pots on the floor when item column is full gets
+    # discarded and lost"] (rules._pick_up)
+    floor: list = field(default_factory=list)
+    room: int = 0                 # free slots in the item column
+    picked: int = 0               # rank points of the items taken from the floor along the line (planner.evaluate)
+    heal_due: int = 0             # HP of a brew taken this turn, drunk as the next begins (rules.apply_hero)
+    brew_keep: bool = False       # a brew taken now would be the last one, kept for the final region (bot.edamame_reason)
 
     def clone(self) -> "State":
         return State(self.cells, self.hero.clone(), [e.clone() for e in self.enemies],
                      self.level, self.wave, self.waves_total, self.turn, [list(b) for b in self.bombs],
-                     [list(r) for r in self.rings])
+                     [list(r) for r in self.rings], [list(f) for f in self.floor], self.room, self.picked,
+                     self.heal_due, self.brew_keep)
 
     def key(self) -> tuple:
         return (self.cells, self.hero.key(), tuple(sorted(e.key() for e in self.enemies if e.hp > 0)),
                 self.wave, self.waves_total, tuple(tuple(b) for b in sorted(self.bombs)),
-                tuple(tuple(r) for r in sorted(self.rings)))
+                tuple(tuple(r) for r in sorted(self.rings)), tuple(tuple(f) for f in sorted(self.floor)), self.room,
+                self.picked, self.heal_due)
 
     # ---- helpers ------------------------------------------------------------
     def unit_at(self, x: int):
@@ -379,4 +390,6 @@ class State:
             board += " " + " ".join(f"bomb@{c}:{n}" for c, n in sorted(self.bombs))
         if self.rings:
             board += " " + " ".join(f"ring@{c}:{r}:{w}" for c, r, w in sorted(self.rings))
+        if self.floor:
+            board += " " + " ".join(f"item@{c}:{i}" for c, i in sorted(self.floor))
         return board
