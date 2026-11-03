@@ -160,26 +160,6 @@ def test_the_shop_buys_the_brew_first_at_low_hp(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------- item 17c
-def test_the_copy_the_bot_queued_is_the_one_off_the_hand():
-    # run 20261102-232559 t426-t431: the bot queued the 2-damage Arrow; the 4-damage copy left in the hand read with an
-    # unsure digit, was matched to 'arrow', and the queue was tracked as 'arrow#2': t431 planned the Shinobi killed by 4
-    # before its Shuriken, the 2 left it at 2 HP and it threw (-1)
-    from shogunbot.bridge import Tracker
-    from shogunbot.model import KitTile
-    tr = Tracker(Kit([KitTile("arrow", "arrow", 2, 5, None, 4, 0), KitTile("arrow#2", "arrow", 4, 5, None, 3, 2),
-                      KitTile("swirl", "swirl", 3, 2, None, 4, 3)]))
-    tr.queue_track = ["arrow"]
-    hand = [{"tile": "arrow", "damage": 2, "damage_conf": 0.4, "cooldown": 5, "charged": 5, "ready": True},
-            {"tile": "swirl", "damage": 3, "damage_conf": 1.0, "cooldown": 2, "charged": 2, "ready": True}]
-    assert tr._queue({"queue": ["arrow"], "queue_conf": [0.9]}, hand) == ["arrow"]
-    # a sure digit on the face left in the hand wins over the bot's own record
-    hand[0].update(damage=2, damage_conf=1.0)
-    tr.queue_track = ["arrow#2"]
-    assert tr._queue({"queue": ["arrow"], "queue_conf": [0.9]}, hand) == ["arrow#2"]
-    hand[0].update(damage=4, damage_conf=1.0)
-    assert tr._queue({"queue": ["arrow"], "queue_conf": [0.9]}, hand) == ["arrow"]
-
-
 def test_a_queued_copy_gets_no_hand_face():
     # with the queue known, the face in the hand belongs to the copy that is not queued (else it is planned recharging)
     from shogunbot.bridge import match_faces
@@ -254,3 +234,24 @@ def test_a_bubble_beside_its_unit_on_a_bright_sky_is_read():
                  day=1)
     a = next(e for e in p.enemies if e["x"] == 0)
     assert a["kind"] == "ashigaru" and a["queue"] == ["sword"] and a["intent"] == "fire"
+
+
+def test_no_sphere_around_the_hero_means_no_shield():
+    # run 20261103-052436 at the Shogun: a tracked Reactive Shield the screen does not show (his Dragon Punch's collision
+    # used it up at t820), and t823's Spear cut for 2 planned as blocked; t0823_before shows no sphere, t0823_after one
+    from test_bot_flow import frame
+    from shogunbot.bridge import Tracker
+    from shogunbot.perception.perceive import perceive
+    route = ("bamboo_grove", "whispering_caves", "moonlit_port", "spirit_gateway", "hot_springs", "hideyoshis_keep",
+             "shoguns_castle")
+    kit = Kit.of("swirl", "arrow", "charge").with_skill("reactive_shield")
+    before = perceive(frame("runs/20261103-052436/frames/t0823_before.png"), ["swirl", "arrow", "charge"],
+                      regions=route, day=1)
+    after = perceive(frame("runs/20261103-052436/frames/t0823_after.png"), ["swirl", "arrow", "charge"], regions=route,
+                     day=1)
+    assert before.hero["shield_frac"] == 0.0 and after.hero["shield_frac"] > 0.3
+    tr = Tracker(kit)
+    tr.route, tr.stage, tr.level_i, tr.level = list(route), 7, 1, "stage7-boss"
+    tr.shield, tr.last_hp = True, 9
+    s = tr.state(before)
+    assert not s.hero.shield and any("no shield" in n for n in tr.notes)

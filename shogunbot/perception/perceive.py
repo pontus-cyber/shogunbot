@@ -482,6 +482,17 @@ def shield_frac(rgb: np.ndarray, cx: int) -> float:
     return float(teal[SHIELD_DISC].mean())
 
 
+def hero_shield(rgb: np.ndarray, cx: int) -> float | None:
+    """shield_frac at the hero's cell, None where the disc leaves the frame. A read of 0 (below
+    bridge.HERO_SHIELD_GONE) means no shield: on the 64 logged turns with a tracked shield and a saved frame, every
+    shield that took a hit read 0.014 to 0.75, and every turn read 0 whose hit landed lost the HP (runs
+    20261029-095311 t82, 20261031-185210 t160, 20261102-232559 t440 and t803, 20261103-052436 t820, t823, t841 and
+    t846). A teal backdrop reads high without a shield (Moonlit Port, 0.47-0.51), so a high read sets nothing."""
+    if cx - SHIELD_R < 0 or cx + SHIELD_R + 1 > rgb.shape[1]:
+        return None
+    return round(shield_frac(rgb, cx), 3)
+
+
 def orb_pixels(rgb: np.ndarray, cx: int) -> int:
     """Pale cyan pixels of the Shielder's fire orb at a unit's chest (ORB_PX and up: it fires this turn)."""
     box = rgb[650:740, max(0, cx - 45):cx + 45].astype(np.int16)
@@ -1058,7 +1069,7 @@ def perceive(rgb: np.ndarray, kit_tiles=None, regions: tuple[str, ...] = ROSTER,
                           "hp": g1 + g2, "hp_max": g1 + g2 + r1 + r2,
                           "queue": [s["tile"] for s in stack if s["type"] == "tile"],
                           "queue_conf": [s["conf"] for s in stack if s["type"] == "tile"],
-                          "swap_red": rt}
+                          "swap_red": rt, "shield_frac": hero_shield(rgb, cx)}
                 conf["hero_facing"] = round(kc, 2) if kind == "hero" else 0.0
                 conf["hero_hp"] = 1.0 if (g1 + g2 + r1 + r2) in (5, 10, 12, 14, 16) else 0.3
             else:

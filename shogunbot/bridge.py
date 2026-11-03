@@ -23,6 +23,7 @@ BOSS_TILES = {k: CAT.enemy(k).tiles for k in BOSS_KINDS}
 # a Quick unit counts as loaded for the fire rule (Tracker.state) on a read of its own tile at least this sure: the
 # Shinobi's Shuriken read 0.96-1.0 when it fired (rec1 f0694, f0711, f0712); reads of tiles it does not carry 0.02-0.16
 QUICK_READ_CONF = 0.5
+HERO_SHIELD_GONE = 0.005   # perceive.hero_shield below this: no shield around the hero (Tracker.state)
 HERO_FACING_WEAK_N = 3     # weak contrary hero-facing reads in a row that override the tracked facing [0.42]
 # sprites that do not show the facing: a new one is taken to face the hero. The Spike Charger is
 # symmetric [0.20.1]; Iwao faces the viewer: in run 20261029-124921 (t159-t198) the hero was on his
@@ -421,6 +422,12 @@ class Tracker:
             # (the same at t740, the Shadow Charger's Charge and Sword) [core-requests item 11]
             self.shield = True
             self.notes.append(f"HP {self.last_hp} -> {hp}: Reactive Shield")
+        if self.shield and h.get("shield_frac") is not None and h["shield_frac"] < HERO_SHIELD_GONE:
+            # no sphere around the hero: no shield (perceive.hero_shield). Run 20261103-052436 at the Shogun: a Reactive
+            # Shield gained from his Dragon Punch was used up by its collision (t820, t841), and the next Spear cut for
+            # 2 planned as blocked (t823, t846); the frames show no sphere [core-requests items 17c, 19]
+            self.shield = False
+            self.notes.append("no shield around the hero on the screen")
         if hp:
             self.last_hp = hp
         # the red ticks under the hero count the turns his swap still needs (Quick Recovery shortens it)
@@ -810,21 +817,6 @@ class Tracker:
         in_hand = match_faces(kit, hand, self.charge, guess=False)   # queue count: as before 0.43
         missing = [lb for lb in kit.labels if lb not in in_hand]
         track = [x for x in self.queue_track if x in kit]
-        for i, lb in enumerate(missing):
-            # copies of a tile: the one the bot queued is the one off the hand, unless the face left in the hand surely
-            # shows that copy's damage. Run 20261102-232559 t426-t431: the bot queued the 2-damage Arrow, the hand's
-            # other Arrow (4) read with an unsure digit was matched to it, the queue was tracked as the 4-damage copy,
-            # and t431 planned the Shinobi killed by 4 before its Shuriken: the 2 left it at 2 HP and it threw (-1)
-            twin = next((x for x in track if x in in_hand and x not in missing and kit[x].tile == kit[lb].tile), None)
-            if twin is None or lb in track:
-                continue
-            f = in_hand[twin]
-            if (kit[twin].damage != kit[lb].damage and f.get("damage") == kit[twin].damage
-                    and f.get("damage_conf", 0) >= 0.75):
-                continue
-            missing[i] = twin
-            in_hand[lb] = in_hand.pop(twin)
-            self.notes.append(f"{twin} and {lb}: the bot queued {twin}; the hand's copy taken as {lb}")
 
         def rank(lb):
             return track.index(lb) if lb in track else len(track) + kit.labels.index(lb)
