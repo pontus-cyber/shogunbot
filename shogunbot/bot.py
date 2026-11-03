@@ -1138,6 +1138,8 @@ class Bot:
             if not isinstance(self.regions, list):
                 self.regions = list(self.regions)
             self.regions.append(sel["region"])   # its enemies can appear from now on; the tracker counts its levels
+        if sel and sel["kind"] == "region":
+            self.entered = sel["region"]         # run() starts the region's first level in the tracker (item 17a)
         self.key("enter", frame, screen="map", step="travel")
         look.clear()
         time.sleep(2.5)
@@ -1433,7 +1435,10 @@ class Bot:
                         if tr.level_i >= 2 or tr.stage > 1:
                             # the map after a boss: keyboard-only mode (M4) [user 2026-10-29]
                             map_tries += 1
+                            self.entered = None
                             self._map_step(frame, map_look)
+                            if self.entered and tr.start_region(self.entered):
+                                log.event("region_start", region=self.entered, stage=tr.stage)
                             continue
                         # [run 20261027-175511] a click followed by an instant mouse move did not
                         # register; keep the cursor on the node, then try other inputs in turn

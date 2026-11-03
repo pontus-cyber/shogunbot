@@ -259,6 +259,20 @@ class Tracker:
         if self.level_i >= 0:
             self.advance = True
 
+    def start_region(self, region: str) -> bool:
+        """The map took the hero to a region of the route: its first fight is that region's first level, whatever reward
+        screens were read. Hideyoshi's Keep shows none after him, the map comes at once (rec1 f1594), so 0.48 played the
+        Castle's wave level as 'stage6-boss', with no wave to come and the boss rules on, in all three runs that reached it
+        (20261102-232559, 20261103-020829, -035113: map_travel, then no level_start until the Shogun) [core-requests item
+        17a]. Levels only move forward. Returns whether the tracker moved."""
+        if region not in self.route:
+            return False
+        stage = self.route.index(region) + 1
+        if stage < self.stage or (stage == self.stage and self.level_i >= 0):
+            return False
+        self.stage, self.level_i, self.advance = stage, -1, False
+        return True
+
     def boss_index(self, stage: int | None = None) -> int:
         """The boss level's index in a stage's region (the route: the regions the run travels, set by
         the bot as it goes and by the replay from the recording's route)."""

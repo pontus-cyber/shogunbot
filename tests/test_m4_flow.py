@@ -375,6 +375,7 @@ def test_map_after_a_boss_looks_for_the_preferred_region(tmp_path):
     assert travel["region"] == "whispering_caves" and len(travel["seen"]) == 2
     # its enemies can appear from now on: perception reads with the Caves roster (0.26)
     assert list(b.regions) == ["bamboo_grove", "whispering_caves"]
+    assert b.entered == "whispering_caves"                # run() starts the region's first level (0.49, item 17a)
     assert [e["kind"] for e in b._see(frame(FULL + "f0204_CLICK.png")).enemies] == \
         ["yari_master", "ashigaru", "yari_master"]
     # 0.26-0.27.1 read this Spear as a Sword, which fits an elite Ashigaru (4 = 3 + 1) unless the day
