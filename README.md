@@ -1,34 +1,85 @@
 # shogunbot
 
-Standalone Python bot for Shogun Showdown (Stage 1: Bamboo Grove I, II, boss Daisuke), Wanderer default kit.
-Zero token cost per run: screen capture -> perception -> expectimax planner over a rules simulator -> keys/clicks, with full run logs.
+A Python bot that plays Shogun Showdown from the screen. It reads the game window, plans each turn in a simulator of the game's rules, and sends the keys and clicks
+itself. It plays a full Day 1 run unattended with the Wanderer, from the camp through seven regions to the Shogun.
 
-Project docs (claude.ai project "autogame"): `claude/00-start-here.md`, `claude/status.md`, `claude/run-review-procedure.md`, `claude/stage1-domain-model.md`.
+**Status:** wrapped up on 2026-11-04 at version 0.51. The bot was built for one PC and is kept here as a record of the
+project. It is not packaged for other machines, and no installer is planned.
 
-Game catalogue: `shogunbot/data/*.json` holds every tile, enemy, trait, consumable, upgrade, region and hero (from the wiki, with source tags); `shogunbot/catalogue.py` loads it.
+The code was written by Claude (Anthropic) as the coding agent. The author played the game, ran the bot and reviewed
+its runs.
 
-Enemy behaviour (0.17, M3): learned from the bot's own run logs. `python -m shogunbot.mine build <folder with runs/>` rebuilds `shogunbot/data/behaviour.json`; `python -m shogunbot.mine report <folder>` scores it against the logs.
+## Result
 
-Rewards (0.16, `rewards.py`): pure-gain upgrades (+damage, −cooldown, +slot) are always taken and simulation picks the tile; trade-offs and tile choices are simulated against skipping on the same seeded fights in a harder-than-Stage-1 scenario, and skipped only when every option is a net loss. It never rerolls. Enchantment shrines (Free-Play, Perfect Strike) are read since 0.20.
+The bot won Day 1 six times. The first win was run 20261103-020829 on 2026-11-03 (version 0.48).
 
-Items (0.20): on the run's last level (`bot.SPEND_ITEMS_LEVELS`, the boss while a series stops after Stage 1) every item still held is spent at its first useful moment: Mass Ice when an enemy is armed or adjacent, Kami Brew when one is armed, Lucky Die on a fire telegraph, Cool Up when the best tile is recharging, Mass Curse on the first attack that hits the boss, Edamame Brew below full HP. Earlier levels keep the older rules (heal at 7 HP, cards when every move takes damage).
+| Measure | Value |
+|---|---|
+| First full Day 1 win | Run 20261103-020829, version 0.48, 2026-11-03 03:41, 92.8 min, 6 HP left |
+| Day 1 wins | 6: runs 20261103-020829, -035113, -052436, -070730 (0.48), -113809 (0.49), -131803 (0.50) |
+| Full runs finished on 0.48–0.50 | 9: 6 wins, 2 deaths (one in the Shogun's Castle's wave level, one to the Shogun), 1 stuck (fixed in 0.49) |
+| Best runs | 20261103-113809: 1 HP lost all run; 20261103-131803: 4 HP lost, none of it unpredicted |
+| Run length | 80–107 minutes, 780–970 turns |
+| Final version | 0.51 |
 
-## Run (Windows, from this folder)
+The route it plays: Bamboo Grove (Daisuke or Rei the Ruthless), Whispering Caves (Iwao the Impaler), Moonlit Port
+(The Twins), Spirit Gateway (The Statue), Hot Springs (Kowa the Coward), Hideyoshi's Keep (Hideyoshi the Cunning) and
+the Shogun's Castle (the Shogun), with a shop between regions.
 
-    .\play.bat                                                   # one run, hold F8 to stop
-    .\play.bat --runs 10                                         # ten runs in a row, unattended (0.18)
-    .\watch.bat                                                  # live decision viewer in the browser (0.19)
-    ..\local-game-MCP\.venv\Scripts\python.exe -m shogunbot analyze   # text report of the last run
-    ..\local-game-MCP\.venv\Scripts\python.exe -m pytest -q tests     # tests
+## How it works
 
-In a series, a won run is given up from the pause menu (PAUSE MENU, GIVE UP, YES: GIVE UP), which
-leads back to the camp, and the next run walks to GO; after a death the next run clicks RESTART.
-Start a series from the title screen, the camp, a Stage 1 map, a Stage 1 fight or the death screen,
-not from the Stage 2 map a won run ends on.
+Screen capture of the game window → perception reads the board, units, telegraphs, hand, items, rewards, shop and map
+→ a tracker keeps what the screen hides → a planner searches 4–6 turns ahead in a rules simulator (enemy behaviour
+learned from the bot's own logs) and plays damage-first → reward and shop choices are valued by simulating 48 seeded
+fights per option. Every game fact lives in `shogunbot/data/*.json`.
 
-Live decision viewer (0.19): while the bot plays, `watch.bat` (or `python -m shogunbot watch`) serves
-http://127.0.0.1:8765 from the standard library, which follows `runs/<id>/live.json`: the board with every
-telegraph, all candidate moves with value and expected damage, the likely line the search found, why the
-best move beat the second best, the last 10 turns predicted vs actual, and the latest reward decision.
+| Part | File(s) | What it does |
+|---|---|---|
+| Catalogue | `data/*.json`, `catalogue.py` | Every game fact (tiles with their footprints, enemies, traits, consumables, upgrades, skills, regions, heroes), each with its source. The code reads these and never hard-codes them |
+| Rules engine (simulator) | `model.py`, `rules.py` | The game state (including the hero's tiles and skills) and the turn rules: the hero's action, then the enemy phase |
+| Enemy behaviour | `behaviour.py`, `mine.py`, `data/behaviour.json` | What each enemy does next, learned from the bot's own run logs; the bosses' patterns as rules. Rebuilt with `python -m shogunbot.mine build` |
+| Level generator | `levelgen.py`, `data/waves.json` | Each level's waves (units, spawn cells, facing, when the next wave comes), learned from recorded frames; used by the simulated fights. Rebuilt with `python -m shogunbot.levelgen build` |
+| Planner | `planner.py` | Looks 4–6 turns ahead and scores positions: HP first, then kills, threats and cooldowns |
+| Perception | `perception/board.py`, `perceive.py`, `screens.py`, `hud.py`, `tiles.py`, `text.py`, `reward_screen.py`, `shop_screen.py`, `map_screen.py`, `floor.py` | Reads the cells, units, HP, facing, telegraphs (bubbles that blink, '+' loads, move and turn markers), the wave counter, the hand with each tile's charge, the item column and items on the floor, the menus, the camp's day selector, reward screens, the shop and the map. Icon templates are built from recorded frames (`perception/build_*.py`) |
+| Bridge | `bridge.py` | Turns a screen read into a simulator state and keeps what the screen hides (the kit, the queue order, facing, shields, bosses' combos) |
+| Rewards | `rewards.py`, `selfplay.py` | Takes pure-gain upgrades; values trade-offs, tile choices and shop purchases against skipping (or keeping the coins) on the same seeded simulated fights |
+| Bot loop | `bot.py` | Capture → perceive → plan → act → log. Every run starts at the camp on Day 1; menus, rewards, the shop, the map, items, the stall rule, and stops when inputs change nothing |
+| Logs and review | `runlog.py`, `analyze.py`, `replay.py`, `report.py` | Run folders, a text report per run, and replays of recorded runs through the simulator |
+| Live viewer | `live.py`, `watch.py` | Writes `runs/<id>/live.json` each turn; `watch` serves it as a local page |
+| Tests | `tests/` | 586 tests; each rule learned in play is a test. Tests that read recorded frames skip when the frames are missing |
 
-Requires the sibling `local-game-MCP` venv (capture + input) and `opencv-python-headless`.
+`CLAUDE.md` holds the working rules the coding agent followed (data before code, a regression test for every rule,
+replays of every recording before a change shipped).
+
+## How it was run
+
+On the author's PC:
+
+- Windows, with the game windowed at about 1920×1080 on the primary monitor.
+- The Python environment of the sibling `local-game-MCP` folder (`..\local-game-MCP\.venv`), which supplies screen
+  capture (dxcam) and input (SendInput); `install.bat` added OpenCV (`requirements.txt`) to it.
+- Day 1 only: the bot steps the camp's day selector down to Day 1.
+
+Commands, from this folder:
+
+| To | Run |
+|---|---|
+| Play a full Day 1 run | `.\play.bat --full` (hold **F8** to stop at the next turn) |
+| Play several runs in a row | `.\play.bat --full --runs 5` |
+| Watch the decisions live | `.\watch.bat` in a second window (a local page at http://127.0.0.1:8765) |
+| Text report of the last run | `..\local-game-MCP\.venv\Scripts\python.exe -m shogunbot analyze` |
+| Run the tests | `..\local-game-MCP\.venv\Scripts\python.exe -m pytest -q tests` |
+
+Without `--full` a run ends after Stage 1's boss. Run logs and frames go to `runs/` and recordings to `collect/`; they
+stay on the PC and are not in this repository.
+
+## Known limits
+
+- Day 1 only, with the default hero. Tiles outside the base eight read as unknown and are never taken.
+- Perception is tuned on one PC's game window (about 1920×1080 on the primary monitor) and was not tested elsewhere.
+- The simulator predicts 89–90% of the recorded turns exactly (the target was 97%); the remaining misses rarely change
+  the outcome of a Day 1 run.
+- Not fixed: buying healing in a shop while the item column is full; a run ends when Windows refuses input (an input
+  PermissionError, WinError 5) instead of waiting.
+- Using the PC while the bot runs can stop it: input is refused, or a click pauses the console it runs in (Enter
+  resumes it).
